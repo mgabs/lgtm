@@ -33,6 +33,10 @@ delta-coverage:
 mutate:
 	./scripts/mutate.sh $(MIN_MUTATION)
 
+## Run inverted test verification to detect fraudulent or tautological tests
+verify-tests:
+	cargo run -- verify-tests
+
 ## Run clippy linter and fail on warnings
 lint:
 	cargo clippy --all-targets --all-features -- -D warnings

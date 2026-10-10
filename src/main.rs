@@ -9,6 +9,7 @@ mod mutate;
 mod pr;
 mod turn;
 mod ui;
+mod verify;
 mod watcher;
 
 use anyhow::Result;
@@ -114,6 +115,8 @@ enum Commands {
         #[arg(short, long, default_value_t = 90.0)]
         min: f64,
     },
+    /// Run inverted test verification to detect fraudulent or tautological tests
+    VerifyTests,
     /// Launch interactive diff reviewer TUI (default)
     Diff,
     /// Launch interactive diff reviewer TUI
@@ -258,6 +261,31 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        Some(Commands::VerifyTests) => {
+            println!("🔍 Running LGTM Inverted Test Verification Engine...\n");
+            let repo_path = std::path::PathBuf::from(".");
+            let git_engine = git::GitEngine::new(repo_path);
+            match git_engine.compute_diff_snapshot() {
+                Ok(diff) => match verify::InvertedTestVerifier::verify(&diff) {
+                    Ok(res) => {
+                        println!("{}", res.details);
+                        if res.is_fraudulent {
+                            ExitCode::from(1)
+                        } else {
+                            ExitCode::SUCCESS
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error running inverted test verification: {}", e);
+                        ExitCode::from(1)
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error computing diff snapshot: {}", e);
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some(Commands::Diff) | Some(Commands::Status) | Some(Commands::Review) | None => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
             if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr) {
