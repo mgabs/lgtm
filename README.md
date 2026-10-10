@@ -109,15 +109,19 @@ lgtm commit -m "feat: core diff engine"
 ### Actions & Review
 | Key | Action |
 | --- | --- |
+| `s` | Stage current hunk under cursor into git index |
+| `u` | Unstage current hunk under cursor from git index |
+| `S` | Stage entire current file |
+| `U` | Unstage entire current file |
+| `<Space>x` | Discard changes in current hunk |
+| `X` | Discard all working tree changes for current file |
 | `c` | Add inline review directive / comment on current line |
 | `x` / `<Space>d` | Remove review directive on current line |
 | `C` / `:c` | Open directive / comment modal list (`d` to delete, `Enter` to jump) |
 | `v` | Mark current file as reviewed (persisted in `.lgtm/state.json`) |
-| `s` | Stage / unstage current file in git index |
-| `X` | Discard working tree changes for current file (with confirmation) |
 | `o` / `e` | Open current file and line in `$EDITOR` / `$VISUAL` (e.g. `nvim +line file`) |
 | `Tab` | Toggle 35-column file drawer / sidebar |
-| `Space` | Toggle split-view / unified diff view |
+| `d` | Toggle split-view / unified diff view |
 | `p` | Select target `tmux` pane for agent steering |
 | `Enter` | Inject reference `#ref file:line` into active `tmux` pane |
 | `Ctrl-s` | Compile and export all review directives to agent / `.lgtm/review.md` |

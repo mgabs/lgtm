@@ -178,6 +178,106 @@ impl GitEngine {
 
         Ok(DiffSnapshot::new(file_diffs))
     }
+
+    pub fn stage_file(&self, path: &Path) -> Result<()> {
+        let repo = self.open_repo()?;
+        let mut index = repo.index()?;
+        index.add_path(path)?;
+        index.write()?;
+        Ok(())
+    }
+
+    pub fn unstage_file(&self, path: &Path) -> Result<()> {
+        let repo = self.open_repo()?;
+        let mut index = repo.index()?;
+        index.remove_path(path)?;
+        index.write()?;
+        Ok(())
+    }
+
+    pub fn stage_hunk(&self, file: &FileDiff, hunk: &DiffHunk) -> Result<()> {
+        let patch = generate_hunk_patch(file, hunk);
+        apply_patch(&self.repo_path, &patch, true, false)
+    }
+
+    pub fn unstage_hunk(&self, file: &FileDiff, hunk: &DiffHunk) -> Result<()> {
+        let patch = generate_hunk_patch(file, hunk);
+        apply_patch(&self.repo_path, &patch, true, true)
+    }
+
+    pub fn discard_hunk(&self, file: &FileDiff, hunk: &DiffHunk) -> Result<()> {
+        let patch = generate_hunk_patch(file, hunk);
+        apply_patch(&self.repo_path, &patch, false, true)
+    }
+}
+
+pub fn generate_hunk_patch(file: &FileDiff, hunk: &DiffHunk) -> String {
+    let old_p = file
+        .old_path
+        .as_ref()
+        .unwrap_or(&file.new_path)
+        .to_string_lossy();
+    let new_p = file.new_path.to_string_lossy();
+
+    let mut patch = format!("--- a/{}\n+++ b/{}\n", old_p, new_p);
+    patch.push_str(&hunk.header);
+    patch.push('\n');
+
+    for line in &hunk.lines {
+        match line.line_type {
+            LineType::Context => {
+                patch.push(' ');
+                patch.push_str(&line.content);
+                patch.push('\n');
+            }
+            LineType::Addition => {
+                patch.push('+');
+                patch.push_str(&line.content);
+                patch.push('\n');
+            }
+            LineType::Deletion => {
+                patch.push('-');
+                patch.push_str(&line.content);
+                patch.push('\n');
+            }
+            LineType::HunkHeader => {}
+        }
+    }
+
+    patch
+}
+
+pub fn apply_patch(repo_path: &Path, patch: &str, cached: bool, reverse: bool) -> Result<()> {
+    let mut cmd = std::process::Command::new("git");
+    cmd.current_dir(repo_path);
+    cmd.arg("apply");
+    cmd.arg("--unidiff-zero");
+
+    if cached {
+        cmd.arg("--cached");
+    }
+    if reverse {
+        cmd.arg("--reverse");
+    }
+    cmd.arg("-");
+
+    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        stdin.write_all(patch.as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git apply failed: {}", err_msg.trim());
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -232,5 +332,53 @@ mod tests {
         let snapshot = engine.compute_diff_snapshot().unwrap();
         assert_eq!(snapshot.files.len(), 1);
         assert_eq!(snapshot.files[0].change_type, ChangeType::Untracked);
+    }
+
+    #[test]
+    fn test_generate_hunk_patch() {
+        let hunk = DiffHunk {
+            header: "@@ -1,2 +1,3 @@".to_string(),
+            old_start: 1,
+            old_lines: 2,
+            new_start: 1,
+            new_lines: 3,
+            lines: vec![
+                DiffLine {
+                    line_type: LineType::Context,
+                    content: "fn test() {".to_string(),
+                    old_line_num: Some(1),
+                    new_line_num: Some(1),
+                },
+                DiffLine {
+                    line_type: LineType::Addition,
+                    content: "    let a = 42;".to_string(),
+                    old_line_num: None,
+                    new_line_num: Some(2),
+                },
+                DiffLine {
+                    line_type: LineType::Context,
+                    content: "}".to_string(),
+                    old_line_num: Some(2),
+                    new_line_num: Some(3),
+                },
+            ],
+        };
+
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/main.rs"),
+            change_type: ChangeType::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: vec![hunk.clone()],
+            is_folded: false,
+            is_reviewed: false,
+        };
+
+        let patch = generate_hunk_patch(&file, &hunk);
+        assert!(patch.contains("--- a/src/main.rs"));
+        assert!(patch.contains("+++ b/src/main.rs"));
+        assert!(patch.contains("@@ -1,2 +1,3 @@"));
+        assert!(patch.contains("+    let a = 42;"));
     }
 }

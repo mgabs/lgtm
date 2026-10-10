@@ -2,7 +2,7 @@ use crate::comment::{CommentAnchor, CommentStore};
 use crate::git::GitEngine;
 use crate::guard::{GuardAlert, SecurityAndTestGuard};
 use crate::ipc::IpcBridge;
-use crate::model::DiffSnapshot;
+use crate::model::{DiffHunk, DiffSnapshot, FileDiff};
 use crate::turn::TurnManager;
 use crate::watcher::WatcherMessage;
 use crossbeam_channel::Receiver;
@@ -318,6 +318,10 @@ impl App {
                     self.delete_current_line_comment();
                     return;
                 }
+                (' ', KeyCode::Char('x')) => {
+                    self.discard_current_hunk();
+                    return;
+                }
                 (' ', KeyCode::Char('w')) => {
                     self.next_alert();
                     return;
@@ -445,7 +449,16 @@ impl App {
                 self.toggle_review_current_file();
             }
             (_, KeyCode::Char('s')) => {
+                self.stage_current_hunk();
+            }
+            (_, KeyCode::Char('u')) => {
+                self.unstage_current_hunk();
+            }
+            (_, KeyCode::Char('S')) => {
                 self.toggle_stage_current_file();
+            }
+            (_, KeyCode::Char('U')) => {
+                self.unstage_current_file();
             }
             (_, KeyCode::Char('X')) => {
                 self.discard_current_file_changes();
@@ -1562,18 +1575,13 @@ impl App {
         }
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path = file.display_name();
-            let res = std::process::Command::new("git")
-                .current_dir(&self.git_engine.repo_path)
-                .args(["add", &path])
-                .status();
-
-            match res {
-                Ok(s) if s.success() => {
+            match self.git_engine.stage_file(std::path::Path::new(&path)) {
+                Ok(_) => {
                     self.status_message = Some(format!("Staged {}", path));
                     self.reload_diff();
                 }
-                _ => {
-                    self.status_message = Some(format!("Failed to stage {}", path));
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to stage {}: {}", path, e));
                 }
             }
         }
@@ -1597,6 +1605,110 @@ impl App {
                 }
                 _ => {
                     self.status_message = Some(format!("Failed to restore {}", path));
+                }
+            }
+        }
+    }
+
+    pub fn current_hunk_info(&self) -> Option<(&FileDiff, &DiffHunk, usize)> {
+        if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
+            let mut line_offset = 0;
+            for (h_idx, hunk) in file.hunks.iter().enumerate() {
+                let hunk_len = hunk.lines.len();
+                if self.cursor_line_idx >= line_offset
+                    && self.cursor_line_idx < line_offset + hunk_len
+                {
+                    return Some((file, hunk, h_idx));
+                }
+                line_offset += hunk_len;
+            }
+            if let Some(last_hunk) = file.hunks.last() {
+                return Some((file, last_hunk, file.hunks.len().saturating_sub(1)));
+            }
+        }
+        None
+    }
+
+    pub fn stage_current_hunk(&mut self) {
+        if !self.git_engine.is_git_repo() {
+            self.status_message = Some("Not a git repository".to_string());
+            return;
+        }
+        if let Some((file, hunk, h_idx)) = self.current_hunk_info() {
+            let file_clone = file.clone();
+            let hunk_clone = hunk.clone();
+            let file_name = file_clone.display_name();
+            match self.git_engine.stage_hunk(&file_clone, &hunk_clone) {
+                Ok(_) => {
+                    self.status_message =
+                        Some(format!("✅ Staged hunk {} in {}", h_idx + 1, file_name));
+                    self.reload_diff();
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to stage hunk: {}", e));
+                }
+            }
+        }
+    }
+
+    pub fn unstage_current_hunk(&mut self) {
+        if !self.git_engine.is_git_repo() {
+            self.status_message = Some("Not a git repository".to_string());
+            return;
+        }
+        if let Some((file, hunk, h_idx)) = self.current_hunk_info() {
+            let file_clone = file.clone();
+            let hunk_clone = hunk.clone();
+            let file_name = file_clone.display_name();
+            match self.git_engine.unstage_hunk(&file_clone, &hunk_clone) {
+                Ok(_) => {
+                    self.status_message =
+                        Some(format!("↩️ Unstaged hunk {} in {}", h_idx + 1, file_name));
+                    self.reload_diff();
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to unstage hunk: {}", e));
+                }
+            }
+        }
+    }
+
+    pub fn discard_current_hunk(&mut self) {
+        if !self.git_engine.is_git_repo() {
+            self.status_message = Some("Not a git repository".to_string());
+            return;
+        }
+        if let Some((file, hunk, h_idx)) = self.current_hunk_info() {
+            let file_clone = file.clone();
+            let hunk_clone = hunk.clone();
+            let file_name = file_clone.display_name();
+            match self.git_engine.discard_hunk(&file_clone, &hunk_clone) {
+                Ok(_) => {
+                    self.status_message =
+                        Some(format!("🗑️ Discarded hunk {} in {}", h_idx + 1, file_name));
+                    self.reload_diff();
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to discard hunk: {}", e));
+                }
+            }
+        }
+    }
+
+    pub fn unstage_current_file(&mut self) {
+        if !self.git_engine.is_git_repo() {
+            self.status_message = Some("Not a git repository".to_string());
+            return;
+        }
+        if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
+            let path = file.display_name();
+            match self.git_engine.unstage_file(std::path::Path::new(&path)) {
+                Ok(_) => {
+                    self.status_message = Some(format!("↩️ Unstaged file {}", path));
+                    self.reload_diff();
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to unstage file {}: {}", path, e));
                 }
             }
         }
@@ -2550,5 +2662,68 @@ mod tests {
         // Jump to specific file and line
         app.jump_to_file_and_line("src/main.rs", 3);
         assert_eq!(app.cursor_line_idx, 2);
+    }
+
+    #[test]
+    fn test_current_hunk_info_and_staging() {
+        use crate::model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType};
+        let mut app = create_test_app();
+        let hunk1 = DiffHunk {
+            header: "@@ -1,2 +1,3 @@".into(),
+            old_start: 1,
+            old_lines: 2,
+            new_start: 1,
+            new_lines: 3,
+            lines: vec![
+                DiffLine {
+                    line_type: LineType::Context,
+                    content: "fn main() {".into(),
+                    old_line_num: Some(1),
+                    new_line_num: Some(1),
+                },
+                DiffLine {
+                    line_type: LineType::Addition,
+                    content: "    println!(\"hello\");".into(),
+                    old_line_num: None,
+                    new_line_num: Some(2),
+                },
+            ],
+        };
+        let hunk2 = DiffHunk {
+            header: "@@ -10,2 +10,3 @@".into(),
+            old_start: 10,
+            old_lines: 2,
+            new_start: 10,
+            new_lines: 3,
+            lines: vec![DiffLine {
+                line_type: LineType::Addition,
+                content: "fn helper() {}".into(),
+                old_line_num: None,
+                new_line_num: Some(10),
+            }],
+        };
+
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/main.rs"),
+            change_type: ChangeType::Modified,
+            additions: 2,
+            deletions: 0,
+            hunks: vec![hunk1, hunk2],
+            is_folded: false,
+            is_reviewed: false,
+        };
+        app.snapshot = DiffSnapshot::new(vec![file]);
+
+        app.cursor_line_idx = 1;
+        let (f, h, h_idx) = app.current_hunk_info().unwrap();
+        assert_eq!(f.display_name(), "src/main.rs");
+        assert_eq!(h.header, "@@ -1,2 +1,3 @@");
+        assert_eq!(h_idx, 0);
+
+        app.cursor_line_idx = 2;
+        let (_, h2, h2_idx) = app.current_hunk_info().unwrap();
+        assert_eq!(h2.header, "@@ -10,2 +10,3 @@");
+        assert_eq!(h2_idx, 1);
     }
 }
