@@ -1,3 +1,6 @@
+pub mod deps;
+pub mod duplicate;
+
 use crate::model::{FileDiff, LineType};
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +44,10 @@ pub struct SecurityAndTestGuard;
 impl SecurityAndTestGuard {
     pub fn scan_file(file: &FileDiff) -> Vec<GuardAlert> {
         let mut alerts = Vec::new();
+        // Dependency & Duplicate Helper Guards
+        alerts.extend(deps::DependencyGuard::scan_file(file));
+        alerts.extend(duplicate::DuplicateHelperGuard::scan_file(file));
+
         let path_str = file.display_name();
         let is_test_file = is_test_path(&path_str);
 
