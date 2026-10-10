@@ -37,9 +37,17 @@
 
 ---
 
-## Installation & Build
+## Installation
 
+### Via Homebrew (macOS & Linux)
 ```bash
+brew install mgabs/tap/lgtm
+```
+
+### From Source
+```bash
+cargo install --git https://github.com/mgabs/lgtm.git
+# or clone & build release binary
 cargo build --release
 cp target/release/lgtm /usr/local/bin/lgtm
 ```
