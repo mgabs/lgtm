@@ -10,6 +10,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+  security-events: write
+
 jobs:
   quality-gate:
     name: Quality Gate & Test Coverage (${{ matrix.os }})
@@ -61,9 +65,66 @@ jobs:
       - name: Build Optimized Release Binary
         run: cargo build --release
 
-      - name: Upload Release Artifact
+      - name: Package Release Binary
+        shell: bash
+        run: |
+          VERSION=$(grep '^version =' Cargo.toml | head -1 | cut -d '"' -f2)
+          ARCH=$(uname -m)
+          OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
+          TAR_NAME="lgtm-v${VERSION}-${OS_NAME}-${ARCH}.tar.gz"
+          tar -czf "$TAR_NAME" -C target/release lgtm
+          shasum -a 256 "$TAR_NAME" > "${TAR_NAME}.sha256"
+          echo "TAR_NAME=$TAR_NAME" >> $GITHUB_ENV
+
+      - name: Upload Release Asset Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lgtm-${{ matrix.os }}
-          path: target/release/lgtm
-          retention-days: 14
+          name: lgtm-${{ matrix.os }}-tarball
+          path: |
+            lgtm-*.tar.gz
+            lgtm-*.sha256
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: [quality-gate]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download All Release Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create / Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0
+          name: "lgtm v0.1.0 — Fast Real-Time Terminal Diff Reviewer"
+          body: |
+            ## 🚀 lgtm v0.1.0 Release
+            
+            **Fast, real-time terminal diff reviewer & AI agent steering TUI built in Rust.**
+            
+            ### What's New
+            - **Vim Motion Engine**: Full `j/k`, `gg/G`, `0/$`, `{/}`, `]f/[f`, `]h/[h`, `]c/[c`, `]w/[w`, `]u/[u`, `zz/zt/zb`, `/`, `n/N`, `*`, `#`, `y`, `PgUp/PgDn`.
+            - **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with wildmenu `<Tab>` autocompletion.
+            - **Security & Test Guard**: AST & regex detection for SQLi, command injection, secret leakage, TLS bypass, and test neutering.
+            - **GitHub PR Review Mode**: Review GitHub PRs directly (`lgtm pr <num>`), write inline directives, batch compile, and submit via `gh pr review`.
+            - **Headless CI & Security Audits**: `lgtm risk` and `lgtm ci` with SARIF 2.1.0 and GitHub Actions annotations.
+            - **Test Coverage & Mutation Testing**: $\ge 90\%$ line coverage and mutation test gate.
+            
+            ### Assets & Checksums
+            Pre-compiled binary packages for Linux (`x86_64`) and macOS (`arm64`/`x86_64`) are attached below.
+          files: |
+            release-artifacts/*.tar.gz
+            release-artifacts/*.sha256
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
