@@ -67,6 +67,9 @@ pub struct App {
     // Commit Forge modal state
     pub commit_message_input: String,
 
+    // Help modal tab state
+    pub help_selected_tab: usize,
+
     // Ex-command line state (:cmds)
     pub command_input: String,
     pub command_history: Vec<String>,
@@ -163,6 +166,7 @@ impl App {
             comment_reply_target_idx: None,
             comment_list_selected_idx: 0,
             commit_message_input: String::new(),
+            help_selected_tab: 0,
             command_input: String::new(),
             command_history: Vec::new(),
             command_history_idx: None,
@@ -262,8 +266,12 @@ impl App {
                     self.cursor_to_top();
                     return;
                 }
-                (']', KeyCode::Char('f')) => {
+                (']', KeyCode::Char('f')) | (']', KeyCode::Char(']')) => {
                     self.next_file();
+                    return;
+                }
+                (']', KeyCode::Char('[')) => {
+                    self.prev_file();
                     return;
                 }
                 (']', KeyCode::Char('u')) => {
@@ -282,8 +290,12 @@ impl App {
                     self.next_alert();
                     return;
                 }
-                ('[', KeyCode::Char('f')) => {
+                ('[', KeyCode::Char('f')) | ('[', KeyCode::Char('[')) => {
                     self.prev_file();
+                    return;
+                }
+                ('[', KeyCode::Char(']')) => {
+                    self.next_file();
                     return;
                 }
                 ('[', KeyCode::Char('u')) => {
@@ -376,13 +388,7 @@ impl App {
                     }
                     return;
                 }
-                _ => {
-                    if leader == ']' {
-                        self.next_file();
-                    } else if leader == '[' {
-                        self.prev_file();
-                    }
-                }
+                _ => {}
             }
         }
 
@@ -1369,9 +1375,25 @@ impl App {
 
     fn handle_help_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Enter => {
+            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
                 self.active_view = ActiveView::Diff;
             }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(']') => {
+                self.help_selected_tab = (self.help_selected_tab + 1) % 6;
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('[') => {
+                if self.help_selected_tab == 0 {
+                    self.help_selected_tab = 5;
+                } else {
+                    self.help_selected_tab -= 1;
+                }
+            }
+            KeyCode::Char('1') => self.help_selected_tab = 0,
+            KeyCode::Char('2') => self.help_selected_tab = 1,
+            KeyCode::Char('3') => self.help_selected_tab = 2,
+            KeyCode::Char('4') => self.help_selected_tab = 3,
+            KeyCode::Char('5') => self.help_selected_tab = 4,
+            KeyCode::Char('6') => self.help_selected_tab = 5,
             _ => {}
         }
     }

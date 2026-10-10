@@ -5,10 +5,10 @@
 [![Mutation Score](https://img.shields.io/badge/mutation_score-100%25-brightgreen)](https://github.com/mmetawea/lgtm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> **Fast, real-time terminal diff reviewer & AI agent steering TUI built in Rust.**
+> **Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner built in Rust.**
 > *"Because code shouldn't ship until it actually looks good to you."*
 
-`lgtm` is a keyboard-driven diff reviewer engineered for human-in-the-loop AI coding workflows and terminal velocity. It pairs Vim motion parity with live file-watcher updates, AST & regex security guards, GitHub PR review, and direct `#ref` injection into `tmux` agent panes or system clipboards.
+`lgtm` is a keyboard-driven diff reviewer and security guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It pairs Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST/hunk folding, an interactive Commit Forge, GitHub PR review, and direct `#ref` injection into `tmux` agent panes or system clipboards.
 
 ```
 ┌── Files (35 cols) ─────────┬── Diff: src/guard/mod.rs ────────────────────────┐
@@ -16,6 +16,7 @@
 │ [x] src/git/mod.rs     +8 -1│-    let query = format!("SELECT * FROM users    │
 │ [!] src/guard/mod.rs  +45 -2│+    let query = sqlx::query!("SELECT * FROM ... │
 │                             │ 🚨 [CRITICAL] SQL Injection vulnerability detected│
+│                             │ ⚡ [COMPLEXITY] Function complexity jumped +8 (>5)│
 │                             │ 💬 [DIRECTIVE] Use parameter binding here       │
 └─────────────────────────────┴─────────────────────────────────────────────────┘
 │ :e<Tab> [edit] [export] [errors]                               NORMAL | 12:4  │
@@ -28,11 +29,21 @@
 
 - **Live Streaming Diffs**: Instant AST & streaming git patch parsing; automatically refreshes when files change on disk.
 - **Vim Motion Engine**: Full `j`/`k`, `gg`/`G`, `{`/`}`, `]f`/`[f`, `]h`/`[h`, `]c`/`[c`, `]w`/`[w`, `]u`/`[u`, `zz`/`zt`/`zb`, `/` search, `*`/`#` symbol search, `y` yank, `PgUp`/`PgDn`.
-- **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
-- **Security & Test Guard**: Static analysis engine flagging SQLi, command injection, secret leakage, TLS bypass, disabled auth/CORS, and test neutering (deleted asserts, skipped tests, mock inflation).
+- **Deep Static Analysis Guardrails**:
+  - **Cognitive Complexity Spikes**: Flags functions where nested branching/loops increase cognitive complexity by $\ge 5$.
+  - **Identifier Hallucination / Typo Guard**: Flags 1-2 character Levenshtein distance typos against repository symbol index.
+  - **Dead Function Addition (YAGNI)**: Identifies newly added functions with 0 usages across the project.
+  - **Breaking Public API Drift**: Detects changes to `pub` signatures, struct fields, or trait definitions.
+  - **Security & Test Guard**: Flags SQLi, command injection, hardcoded secrets, TLS/auth bypass, and test neutering (deleted asserts, skipped tests, mock inflation).
+- **Syntax & Hunk Folding**: Vim-style folding (`zc`, `zo`, `za`, `zM`, `zR`, `zm`, `zr`) to collapse or expand unchanged lines, clean files, or reviewed hunks.
+- **Interactive Commit Forge (`C` / `:commit`)**: Craft conventional commits (`feat:`, `fix:`, `refactor:`, etc.) directly from staged hunks with automated diff-aware commit message synthesis.
+- **Tabbed Interactive Help Modal (`?` / `h`)**: 6 discrete documentation tabs covering Motions, Review & Forge, Folding, Guardrails, Ex-Commands, and CI/CD.
+- **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
 - **GitHub PR Review Mode**: Review GitHub PRs directly (`lgtm pr <num>` or `:pr <num>`), write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review`.
 - **Agent Steering & Directives**: Add inline comments (`c`), delete comments (`x` / `:d`), yank exact file references (`<Space>y` or `yr`), and blast directives to your agent's `tmux` pane (`Enter` or `Ctrl-s`).
-- **Headless CI & Security Audits**: `lgtm risk` and `lgtm ci` output Markdown sticky tables, JSON, or SARIF 2.1.0 with automatic GitHub Actions annotations.
+- **Headless CI & Security Gates**:
+  - `lgtm check`: Pre-commit / CI gate that blocks builds on critical security vulnerabilities or complexity spikes.
+  - `lgtm scan`: Generates full Markdown audit reports or SARIF 2.1.0 output for GitHub Security Code Scanning.
 - **Zero-Crash Non-Git Fallback**: Graceful fallback and file diff scanning even outside git repositories.
 
 ---
@@ -66,11 +77,14 @@ lgtm pr 42
 # List and pick open PRs
 lgtm prs
 
-# Headless security & fraud risk scan (exit 1 on critical/high)
-lgtm risk
+# Run CI security & quality gate (exit code 1 on critical security / test neutering)
+lgtm check --strict
 
-# Headless CI report (SARIF format for GitHub Security tab)
-lgtm ci --format sarif --out lgtm-results.sarif
+# Run full codebase / diff audit and generate a Markdown report
+lgtm scan --output security-audit.md
+
+# Headless SARIF 2.1.0 export for GitHub Actions Code Scanning
+lgtm scan --format sarif --output lgtm-results.sarif
 
 # Git passthrough (all unrecognized flags/subcommands route to git)
 lgtm log -p
@@ -90,10 +104,10 @@ lgtm commit -m "feat: core diff engine"
 | `{` / `}` | Jump to previous / next paragraph (blank lines / hunk headers) |
 | `Ctrl-d` / `Ctrl-u` | Scroll half-page down / up |
 | `Ctrl-f` / `Ctrl-b` / `PgDn` / `PgUp` | Scroll full-page down / up |
-| `]f` / `[f` | Jump to next / previous file |
+| `]f` / `[f` or `]` / `[` | Jump to next / previous file |
 | `]h` / `[h` | Jump to next / previous hunk |
 | `]c` / `[c` | Jump to next / previous comment / directive |
-| `]w` / `[w` | Jump to next / previous security / test alert |
+| `]w` / `[w` | Jump to next / previous security / quality alert |
 | `]u` / `[u` | Jump to next / previous unreviewed file |
 | `zz` / `zt` / `zb` | Center / Top / Bottom cursor view |
 
@@ -104,20 +118,29 @@ lgtm commit -m "feat: core diff engine"
 | `n` / `N` | Next / previous search match |
 | `*` / `#` | Search word under cursor forward / backward |
 | `y` | Yank current code line to clipboard |
-| `<Space>y` | Yank reference `#ref file:line: code` to clipboard |
+| `<Space>y` / `yr` | Yank reference `#ref file:line: code` to clipboard |
 
-### Actions & Review
+### Hunk & Code Folding
+| Key | Action |
+| --- | --- |
+| `zc` | Close / fold current hunk |
+| `zo` | Open / unfold current hunk |
+| `za` | Toggle fold state of current hunk |
+| `zM` / `zm` | Fold all hunks across file |
+| `zR` / `zr` | Unfold all hunks across file |
+
+### Actions, Review & Commit Forge
 | Key | Action |
 | --- | --- |
 | `s` | Stage current hunk under cursor into git index |
 | `u` | Unstage current hunk under cursor from git index |
 | `S` | Stage entire current file |
 | `U` | Unstage entire current file |
+| `C` / `:commit` | Open interactive **Commit Forge** modal |
 | `<Space>x` | Discard changes in current hunk |
 | `X` | Discard all working tree changes for current file |
 | `c` | Add inline review directive / comment on current line |
 | `x` / `<Space>d` | Remove review directive on current line |
-| `C` / `:c` | Open directive / comment modal list (`d` to delete, `Enter` to jump) |
 | `v` | Mark current file as reviewed (persisted in `.lgtm/state.json`) |
 | `o` / `e` | Open current file and line in `$EDITOR` / `$VISUAL` (e.g. `nvim +line file`) |
 | `Tab` | Toggle 35-column file drawer / sidebar |
@@ -125,7 +148,7 @@ lgtm commit -m "feat: core diff engine"
 | `p` | Select target `tmux` pane for agent steering |
 | `Enter` | Inject reference `#ref file:line` into active `tmux` pane |
 | `Ctrl-s` | Compile and export all review directives to agent / `.lgtm/review.md` |
-| `?` / `h` | Toggle help modal |
+| `?` / `h` | Toggle multi-tab help modal (`1`-`6` or `[`/`]` to switch tabs) |
 | `q` | Quit |
 
 ---
@@ -137,6 +160,7 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:w` — Save comments / directives to `.lgtm/comments.jsonl`
 - `:q` / `:q!` — Quit
 - `:wq` / `:x` — Save directives and quit
+- `:commit` / `:cforge` — Open Commit Forge modal
 - `:pr <number>` — Load and review GitHub PR diff
 - `:prs` — Open interactive PR picker
 - `:f` / `:files` — Open fuzzy file finder
@@ -152,12 +176,50 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 
 ---
 
+## CI/CD Integration & Quality Gates
+
+### GitHub Actions Workflow
+Add `lgtm check` and `lgtm scan` directly into your CI pipeline:
+
+```yaml
+name: LGTM Security & Quality Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lgtm-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install lgtm
+        run: cargo install --git https://github.com/mmetawea/lgtm.git
+
+      - name: Run CI Gate
+        run: lgtm check --strict
+
+      - name: Generate Security Scan Report
+        run: lgtm scan --format sarif --output lgtm-results.sarif
+
+      - name: Upload SARIF to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: lgtm-results.sarif
+```
+
+---
+
 ## Testing & Quality Gates
 
 `lgtm` enforces strict test coverage ($\ge 90\%$) and automated mutation testing ($\ge 90\%$ mutation score):
 
 ```bash
-# Run unit & integration test suite (39 tests)
+# Run unit & integration test suite (70+ tests)
 make test
 
 # Enforce code coverage (>=90% threshold gate)
@@ -172,72 +234,38 @@ make check
 
 ---
 
-## Makefile Targets
-
-| Target | Description |
-| --- | --- |
-| `make build` | Compile debug binary |
-| `make release` | Compile optimized release binary |
-| `make test` | Run all unit & integration tests |
-| `make coverage` | Generate llvm-cov summary & enforce $\ge 90\%$ line coverage |
-| `make mutate` | Run mutation testing engine & enforce $\ge 90\%$ mutation kill score |
-| `make lint` | Run `cargo clippy -- -D warnings` |
-| `make fmt` | Check code formatting with `cargo fmt` |
-| `make check` | Run complete test, lint, coverage, and mutation test suite |
-| `make risk` | Run headless security and test fraud audit on git diff |
-| `make ci` | Generate SARIF 2.1.0 security report (`lgtm-results.sarif`) |
-| `make install` | Install binary into `~/.cargo/bin` |
-| `make clean` | Clean build artifacts and coverage files |
-
----
-
 ## Architecture
 
 ```
 lgtm/
 ├── src/
-│   ├── main.rs         # CLI dispatcher, headless CI runner & subcommands
-│   ├── app.rs          # State machine, key handlers & Vim motion engine
-│   ├── ui/mod.rs       # Ratatui rendering, drawer, inline alerts & modals
-│   ├── model.rs        # Diff data models (DiffSnapshot, FileDiff, DiffHunk, DiffLine)
-│   ├── git/mod.rs      # Streaming git diff engine + non-git directory fallback
-│   ├── pr/mod.rs       # GitHub PR engine via `gh` CLI & unified diff parser
-│   ├── guard/mod.rs    # AST & regex security scanner & test fraud detector
-│   ├── comment/mod.rs  # Directive storage, PR metadata & batch review compiler
-│   ├── turn/mod.rs     # Turn manager & reviewed file tracker (.lgtm/state.json)
-│   ├── ipc/mod.rs      # Tmux pane injector & OSC 52 clipboard fallback
-│   └── mutate/mod.rs   # Mutation testing engine (12 AST/binary mutant operators)
+│   ├── main.rs               # CLI dispatcher, headless CI runner & subcommands
+│   ├── app.rs                # State machine, key handlers & Vim motion engine
+│   ├── ui/mod.rs             # Ratatui rendering, drawer, tabs, commit forge & modals
+│   ├── model.rs              # Diff data models (DiffSnapshot, FileDiff, DiffHunk, DiffLine)
+│   ├── git/mod.rs            # Streaming git diff engine + non-git directory fallback
+│   ├── pr/mod.rs             # GitHub PR engine via `gh` CLI & unified diff parser
+│   ├── guard/
+│   │   ├── mod.rs            # AST & regex security scanner & test fraud detector
+│   │   ├── complexity.rs     # Cognitive complexity spike analyzer
+│   │   ├── hallucination.rs  # Identifier typo & symbol hallucination detector
+│   │   ├── drift.rs          # Public API signature drift detector
+│   │   └── yagni.rs          # Dead function / unused addition detector
+│   ├── comment/mod.rs        # Directive storage, PR metadata & batch review compiler
+│   ├── turn/mod.rs           # Turn manager & reviewed file tracker (.lgtm/state.json)
+│   ├── ipc/mod.rs            # Tmux pane injector & OSC 52 clipboard fallback
+│   └── mutate/mod.rs         # Mutation testing engine (12 AST/binary mutant operators)
 ├── scripts/
-│   ├── coverage.sh     # Automated coverage enforcer script
-│   └── mutate.sh       # Automated mutation test runner
+│   ├── coverage.sh           # Automated coverage enforcer script
+│   └── mutate.sh             # Automated mutation test runner
 ├── .github/workflows/
-│   └── ci.yml          # Multi-OS CI pipeline with SARIF upload & release matrix
-├── Makefile            # All-in-one developer automation
+│   └── ci.yml                # Multi-OS CI pipeline with SARIF upload & release matrix
+├── Makefile                  # All-in-one developer automation
 └── Cargo.toml
 ```
-
----
-
-## Roadmap & Upcoming Features
-
-- [ ] **Interactive Hunk & Line Staging**: Stage (`s`), unstage (`u`), or discard (`x`) individual hunks and visual line selections (`V`) directly into the Git index.
-- [ ] **Side-by-Side Split View & Intra-Line Word Diffing**: Parallel dual-pane rendering with token/character-level highlight for intra-line modifications.
-- [ ] **Tree-Sitter Syntax Highlighting & Sticky Scope**: Multi-language syntax coloring and sticky header displaying the enclosing function/class/struct context.
-- [ ] **MCP Server Mode (`lgtm serve --mcp`)**: Native Model Context Protocol (MCP) server over stdio for autonomous AI agents to query diffs, security alerts, and review directives programmatically.
-- [ ] **Arbitrary Revision & Git Range Diffing**: Direct comparison of branch ranges (`lgtm main..feature`), commit revisions (`lgtm HEAD~3..HEAD`), and 3-way merge conflict resolution.
-- [ ] **Quick Steering Directives**: 1-key canned directive templates (`ca`: test coverage, `cs`: security guard, `cr`: refactor/DRY, `cp`: performance).
-
----
-
-## Contributing
-
-Contributions are welcome! Please see our [Contributing Guide](file:///Users/mmetawea/Workbench/lgtm/CONTRIBUTING.md) for details on development setup, architecture, and our strict quality gates ($\ge 90\%$ test coverage & mutation testing score).
 
 ---
 
 ## License
 
 MIT
-
-
-
