@@ -1,8 +1,26 @@
-# lgtm
+# lgtm (Looks Good To Me)
+
+[![CI](https://github.com/mmetawea/lgtm/actions/workflows/ci.yml/badge.svg)](https://github.com/mmetawea/lgtm/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-95.6%25-brightgreen)](https://github.com/mmetawea/lgtm)
+[![Mutation Score](https://img.shields.io/badge/mutation_score-100%25-brightgreen)](https://github.com/mmetawea/lgtm)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > **Fast, real-time terminal diff reviewer & AI agent steering TUI built in Rust.**
+> *"Because code shouldn't ship until it actually looks good to you."*
 
-`lgtm` is a keyboard-driven diff reviewer designed for human-in-the-loop AI workflows and terminal velocity. It combines Vim motion parity, live file-watcher reloading, AST & regex security guards, GitHub PR review, and seamless `#ref` injection into `tmux` agent panes or system clipboards.
+`lgtm` is a keyboard-driven diff reviewer engineered for human-in-the-loop AI coding workflows and terminal velocity. It pairs Vim motion parity with live file-watcher updates, AST & regex security guards, GitHub PR review, and direct `#ref` injection into `tmux` agent panes or system clipboards.
+
+```
+┌── Files (35 cols) ─────────┬── Diff: src/guard/mod.rs ────────────────────────┐
+│ [●] src/app.rs        +12 -4│ @@ -40,12 +40,24 @@                             │
+│ [x] src/git/mod.rs     +8 -1│-    let query = format!("SELECT * FROM users    │
+│ [!] src/guard/mod.rs  +45 -2│+    let query = sqlx::query!("SELECT * FROM ... │
+│                             │ 🚨 [CRITICAL] SQL Injection vulnerability detected│
+│                             │ 💬 [DIRECTIVE] Use parameter binding here       │
+└─────────────────────────────┴─────────────────────────────────────────────────┘
+│ :e<Tab> [edit] [export] [errors]                               NORMAL | 12:4  │
+└───────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
