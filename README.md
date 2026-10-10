@@ -188,7 +188,19 @@ lgtm/
 
 ---
 
+## Roadmap & Upcoming Features
+
+- [ ] **Interactive Hunk & Line Staging**: Stage (`s`), unstage (`u`), or discard (`x`) individual hunks and visual line selections (`V`) directly into the Git index.
+- [ ] **Side-by-Side Split View & Intra-Line Word Diffing**: Parallel dual-pane rendering with token/character-level highlight for intra-line modifications.
+- [ ] **Tree-Sitter Syntax Highlighting & Sticky Scope**: Multi-language syntax coloring and sticky header displaying the enclosing function/class/struct context.
+- [ ] **MCP Server Mode (`lgtm serve --mcp`)**: Native Model Context Protocol (MCP) server over stdio for autonomous AI agents to query diffs, security alerts, and review directives programmatically.
+- [ ] **Arbitrary Revision & Git Range Diffing**: Direct comparison of branch ranges (`lgtm main..feature`), commit revisions (`lgtm HEAD~3..HEAD`), and 3-way merge conflict resolution.
+- [ ] **Quick Steering Directives**: 1-key canned directive templates (`ca`: test coverage, `cs`: security guard, `cr`: refactor/DRY, `cp`: performance).
+
+---
+
 ## License
 
 MIT
+
 
