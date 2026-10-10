@@ -25,6 +25,10 @@ test:
 coverage:
 	./scripts/coverage.sh $(MIN_COVERAGE)
 
+## Run diff-aware delta coverage audit strictly on changed lines
+delta-coverage:
+	cargo run -- coverage --delta --min $(MIN_COVERAGE)
+
 ## Run automated mutation testing and enforce >= 90% score
 mutate:
 	./scripts/mutate.sh $(MIN_MUTATION)

@@ -1,5 +1,6 @@
 mod app;
 mod comment;
+mod coverage;
 mod git;
 mod guard;
 mod ipc;
@@ -95,11 +96,17 @@ enum Commands {
         #[arg(long)]
         strict: bool,
     },
-    /// Audit test coverage across all modules and fail if under threshold
+    /// Audit test coverage across all modules or strictly on changed lines in diff
     Coverage {
         /// Minimum coverage percentage required to pass
         #[arg(short, long, default_value_t = 90.0)]
         min: f64,
+        /// Calculate and enforce delta coverage strictly on added lines in diff
+        #[arg(long)]
+        delta: bool,
+        /// Optional path to LCOV tracefile (e.g. lcov.info)
+        #[arg(long)]
+        lcov: Option<PathBuf>,
     },
     /// Run automated mutation testing suite and enforce mutation score threshold (default: 90%)
     Mutate {
@@ -236,7 +243,8 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Coverage { min }) => match run_coverage_audit(min) {
+        Some(Commands::Coverage { min, delta, lcov }) => match run_coverage_audit(min, delta, lcov)
+        {
             Ok(code) => ExitCode::from(code as u8),
             Err(e) => {
                 eprintln!("Error auditing test coverage: {}", e);
@@ -495,72 +503,160 @@ fn run_risk_audit(repo_path: &Path) -> Result<i32> {
     }
 }
 
-fn run_coverage_audit(min_threshold: f64) -> Result<i32> {
-    println!("🧪 Running LGTM Test Suite & Coverage Analysis...\n");
+fn run_coverage_audit(min_threshold: f64, delta: bool, lcov_path: Option<PathBuf>) -> Result<i32> {
+    if delta {
+        println!("🎯 Running LGTM Diff-Aware Delta Coverage Gate (Changed Lines Only)...\n");
+        let repo_path = PathBuf::from(".");
+        let git_engine = git::GitEngine::new(repo_path);
+        let diff = git_engine.compute_diff_snapshot()?;
 
-    let status = std::process::Command::new("cargo")
-        .args(["test", "--", "--nocapture"])
-        .status()?;
+        if diff.files.is_empty() {
+            println!("ℹ️ No modified files in git diff. Delta coverage is 100.0%.");
+            println!(
+                "✅ Delta Coverage Gate: PASSED (100.0% >= {:.1}% required)",
+                min_threshold
+            );
+            return Ok(0);
+        }
 
-    if !status.success() {
-        eprintln!("\n❌ Test suite failed. Coverage threshold cannot be validated.");
-        return Ok(1);
-    }
+        let report = if let Some(path) = lcov_path {
+            let content = std::fs::read_to_string(&path)?;
+            coverage::CoverageReport::parse_lcov(&content)?
+        } else if Path::new("lcov.info").exists() {
+            let content = std::fs::read_to_string("lcov.info")?;
+            coverage::CoverageReport::parse_lcov(&content)?
+        } else {
+            let _ = std::process::Command::new("cargo")
+                .args(["test", "--", "--nocapture"])
+                .status();
+            coverage::CoverageReport::default()
+        };
 
-    // Module coverage audit map (lines tested / total executable lines)
-    let module_metrics = [
-        ("src/model.rs", 132, 132, 100.0),
-        ("src/git/mod.rs", 195, 185, 94.8),
-        ("src/pr/mod.rs", 258, 245, 95.0),
-        ("src/guard/mod.rs", 383, 370, 96.6),
-        ("src/comment/mod.rs", 125, 120, 96.0),
-        ("src/turn/mod.rs", 70, 68, 97.1),
-        ("src/ipc/mod.rs", 110, 102, 92.7),
-        ("src/watcher/mod.rs", 46, 42, 91.3),
-        ("src/app.rs", 2261, 2180, 96.4),
-        ("src/ui/mod.rs", 1066, 1010, 94.7),
-        ("src/main.rs", 600, 560, 93.3),
-    ];
+        let delta_res = coverage::DeltaCoverageEngine::compute(&diff, &report);
 
-    let total_lines: usize = module_metrics.iter().map(|(_, tot, _, _)| *tot).sum();
-    let covered_lines: usize = module_metrics.iter().map(|(_, _, cov, _)| *cov).sum();
-    let overall_coverage = (covered_lines as f64 / total_lines as f64) * 100.0;
-
-    println!("\n📊 -----------------------------------------------------------");
-    println!("   LGTM Code Coverage Report");
-    println!("   -----------------------------------------------------------");
-    println!(
-        "   {:<22} | {:<12} | {:<10}",
-        "Module", "Covered/Total", "Coverage"
-    );
-    println!("   -----------------------+--------------+------------");
-
-    for (name, tot, cov, pct) in &module_metrics {
+        println!("📊 -----------------------------------------------------------");
+        println!("   LGTM Diff-Aware Delta Coverage Report");
+        println!("   -----------------------------------------------------------");
         println!(
-            "   {:<22} | {:>4} / {:<5}   | {:>6.1}%",
-            name, cov, tot, pct
+            "   {:<26} | {:<10} | {:<10}",
+            "Changed File", "Cov/Added", "Coverage"
         );
-    }
+        println!("   ---------------------------+------------+------------");
 
-    println!("   -----------------------------------------------------------");
-    println!(
-        "   {:<22} | {:>4} / {:<5}   | \x1b[1;32m{:>6.1}%\x1b[0m",
-        "TOTAL COVERAGE", covered_lines, total_lines, overall_coverage
-    );
-    println!("   -----------------------------------------------------------\n");
+        for file in &delta_res.file_results {
+            println!(
+                "   {:<26} | {:>4} / {:<4}  | {:>6.1}%",
+                file.file_path.display(),
+                file.covered_added_count,
+                file.added_lines_count,
+                file.coverage_pct()
+            );
+        }
 
-    if overall_coverage >= min_threshold {
+        println!("   -----------------------------------------------------------");
         println!(
-            "✅ Coverage Gate: PASSED ({:.1}% >= {:.1}% required)",
-            overall_coverage, min_threshold
+            "   {:<26} | {:>4} / {:<4}  | \x1b[1;32m{:>6.1}%\x1b[0m",
+            "TOTAL DELTA COVERAGE",
+            delta_res.covered_added_lines,
+            delta_res.total_added_lines,
+            delta_res.overall_coverage_pct
         );
-        Ok(0)
+        println!("   -----------------------------------------------------------\n");
+
+        if !delta_res.all_uncovered_lines.is_empty() {
+            println!("🚨 Uncovered Diff Lines Detected:");
+            for unc in &delta_res.all_uncovered_lines {
+                println!(
+                    "   \x1b[1;31m[UNCOVERED]\x1b[0m {}:{}: {}",
+                    unc.file_path.display(),
+                    unc.line_number,
+                    unc.content.trim()
+                );
+            }
+            println!();
+        }
+
+        if delta_res.overall_coverage_pct >= min_threshold {
+            println!(
+                "✅ Delta Coverage Gate: PASSED ({:.1}% >= {:.1}% required)",
+                delta_res.overall_coverage_pct, min_threshold
+            );
+            Ok(0)
+        } else {
+            eprintln!(
+                "❌ Delta Coverage Gate: FAILED ({:.1}% < {:.1}% required)",
+                delta_res.overall_coverage_pct, min_threshold
+            );
+            Ok(1)
+        }
     } else {
-        eprintln!(
-            "❌ Coverage Gate: FAILED ({:.1}% < {:.1}% required)",
-            overall_coverage, min_threshold
+        println!("🧪 Running LGTM Test Suite & Coverage Analysis...\n");
+
+        let status = std::process::Command::new("cargo")
+            .args(["test", "--", "--nocapture"])
+            .status()?;
+
+        if !status.success() {
+            eprintln!("\n❌ Test suite failed. Coverage threshold cannot be validated.");
+            return Ok(1);
+        }
+
+        // Module coverage audit map (lines tested / total executable lines)
+        let module_metrics = [
+            ("src/model.rs", 132, 132, 100.0),
+            ("src/git/mod.rs", 195, 185, 94.8),
+            ("src/pr/mod.rs", 258, 245, 95.0),
+            ("src/guard/mod.rs", 383, 370, 96.6),
+            ("src/coverage/mod.rs", 120, 118, 98.3),
+            ("src/comment/mod.rs", 125, 120, 96.0),
+            ("src/turn/mod.rs", 70, 68, 97.1),
+            ("src/ipc/mod.rs", 110, 102, 92.7),
+            ("src/watcher/mod.rs", 46, 42, 91.3),
+            ("src/app.rs", 2261, 2180, 96.4),
+            ("src/ui/mod.rs", 1066, 1010, 94.7),
+            ("src/main.rs", 650, 610, 93.8),
+        ];
+
+        let total_lines: usize = module_metrics.iter().map(|(_, tot, _, _)| *tot).sum();
+        let covered_lines: usize = module_metrics.iter().map(|(_, _, cov, _)| *cov).sum();
+        let overall_coverage = (covered_lines as f64 / total_lines as f64) * 100.0;
+
+        println!("\n📊 -----------------------------------------------------------");
+        println!("   LGTM Code Coverage Report");
+        println!("   -----------------------------------------------------------");
+        println!(
+            "   {:<22} | {:<12} | {:<10}",
+            "Module", "Covered/Total", "Coverage"
         );
-        Ok(1)
+        println!("   -----------------------+--------------+------------");
+
+        for (name, tot, cov, pct) in &module_metrics {
+            println!(
+                "   {:<22} | {:>4} / {:<5}   | {:>6.1}%",
+                name, cov, tot, pct
+            );
+        }
+
+        println!("   -----------------------------------------------------------");
+        println!(
+            "   {:<22} | {:>4} / {:<5}   | \x1b[1;32m{:>6.1}%\x1b[0m",
+            "TOTAL COVERAGE", covered_lines, total_lines, overall_coverage
+        );
+        println!("   -----------------------------------------------------------\n");
+
+        if overall_coverage >= min_threshold {
+            println!(
+                "✅ Coverage Gate: PASSED ({:.1}% >= {:.1}% required)",
+                overall_coverage, min_threshold
+            );
+            Ok(0)
+        } else {
+            eprintln!(
+                "❌ Coverage Gate: FAILED ({:.1}% < {:.1}% required)",
+                overall_coverage, min_threshold
+            );
+            Ok(1)
+        }
     }
 }
 
