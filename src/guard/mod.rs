@@ -1,5 +1,7 @@
+pub mod arch;
 pub mod deps;
 pub mod duplicate;
+pub mod security;
 
 use crate::model::{FileDiff, LineType};
 use serde::{Deserialize, Serialize};
@@ -44,9 +46,11 @@ pub struct SecurityAndTestGuard;
 impl SecurityAndTestGuard {
     pub fn scan_file(file: &FileDiff) -> Vec<GuardAlert> {
         let mut alerts = Vec::new();
-        // Dependency & Duplicate Helper Guards
+        // Subsystem guards
         alerts.extend(deps::DependencyGuard::scan_file(file));
         alerts.extend(duplicate::DuplicateHelperGuard::scan_file(file));
+        alerts.extend(security::AdvancedSecurityGuard::scan_file(file));
+        alerts.extend(arch::ArchitectureGuard::scan_file(file));
 
         let path_str = file.display_name();
         let is_test_file = is_test_path(&path_str);
@@ -251,6 +255,9 @@ impl SecurityAndTestGuard {
                 file_path: "diff".to_string(),
             });
         }
+
+        // Architectural Blast Radius Gate
+        all_alerts.extend(arch::ArchitectureGuard::scan_snapshot(files));
 
         all_alerts
     }
