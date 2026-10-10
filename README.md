@@ -217,8 +217,15 @@ lgtm/
 
 ---
 
+## Contributing
+
+Contributions are welcome! Please see our [Contributing Guide](file:///Users/mmetawea/Workbench/lgtm/CONTRIBUTING.md) for details on development setup, architecture, and our strict quality gates ($\ge 90\%$ test coverage & mutation testing score).
+
+---
+
 ## License
 
 MIT
+
 
 
