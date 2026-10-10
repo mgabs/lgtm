@@ -17,6 +17,7 @@ pub enum ActiveView {
     FilePicker,
     PanePicker,
     CommentInput,
+    CommentReply,
     CommentList,
     PrPicker,
     Help,
@@ -56,8 +57,10 @@ pub struct App {
     pub pane_list: Vec<crate::ipc::TmuxPane>,
     pub pane_selected_idx: usize,
 
-    // Comment input state
+    // Comment input and reply state
     pub comment_input: String,
+    pub comment_reply_input: String,
+    pub comment_reply_target_idx: Option<usize>,
     pub comment_list_selected_idx: usize,
 
     // Ex-command line state (:cmds)
@@ -76,6 +79,10 @@ pub struct App {
     pub search_query: String,
     pub search_matches: Vec<(usize, usize)>, // (file_idx, line_idx)
     pub search_match_idx: usize,
+
+    // Visual line selection mode (V)
+    pub visual_mode: bool,
+    pub visual_anchor_idx: Option<usize>,
 
     // Watcher receiver
     pub watcher_rx: Receiver<WatcherMessage>,
@@ -148,6 +155,8 @@ impl App {
             pane_list: Vec::new(),
             pane_selected_idx: 0,
             comment_input: String::new(),
+            comment_reply_input: String::new(),
+            comment_reply_target_idx: None,
             comment_list_selected_idx: 0,
             command_input: String::new(),
             command_history: Vec::new(),
@@ -160,6 +169,8 @@ impl App {
             search_query: String::new(),
             search_matches: Vec::new(),
             search_match_idx: 0,
+            visual_mode: false,
+            visual_anchor_idx: None,
             watcher_rx,
         };
 
@@ -228,6 +239,7 @@ impl App {
             ActiveView::FilePicker => self.handle_file_picker_key(key),
             ActiveView::PanePicker => self.handle_pane_picker_key(key),
             ActiveView::CommentInput => self.handle_comment_input_key(key),
+            ActiveView::CommentReply => self.handle_comment_reply_key(key),
             ActiveView::CommentList => self.handle_comment_list_key(key),
             ActiveView::PrPicker => self.handle_pr_picker_key(key),
             ActiveView::Help => self.handle_help_key(key),
@@ -310,8 +322,12 @@ impl App {
                     self.active_view = ActiveView::CommentList;
                     return;
                 }
-                (' ', KeyCode::Char('P')) | (' ', KeyCode::Char('r')) => {
+                (' ', KeyCode::Char('P')) => {
                     self.open_pr_picker();
+                    return;
+                }
+                (' ', KeyCode::Char('r')) | (' ', KeyCode::Char('R')) => {
+                    self.toggle_resolve_current_comment();
                     return;
                 }
                 (' ', KeyCode::Char('d')) => {
@@ -365,8 +381,19 @@ impl App {
                 self.picker_selected_idx = 0;
                 self.update_file_picker_filter();
             }
+            (_, KeyCode::Esc) => {
+                if self.visual_mode {
+                    self.toggle_visual_mode();
+                }
+            }
             (KeyModifiers::NONE, KeyCode::Char('x')) => {
-                self.delete_current_line_comment();
+                if self.visual_mode {
+                    self.discard_selected_lines();
+                } else if self.has_comment_on_cursor() {
+                    self.delete_current_line_comment();
+                } else {
+                    self.discard_current_hunk();
+                }
             }
             (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
                 self.page_down(15);
@@ -389,6 +416,17 @@ impl App {
             (_, KeyCode::Char('c')) => {
                 self.comment_input.clear();
                 self.active_view = ActiveView::CommentInput;
+            }
+            (_, KeyCode::Char('r')) => {
+                if let Some(idx) = self.comment_idx_at_cursor() {
+                    self.start_reply_to_comment(idx);
+                } else {
+                    self.comment_input.clear();
+                    self.active_view = ActiveView::CommentInput;
+                }
+            }
+            (_, KeyCode::Char('R')) => {
+                self.toggle_resolve_current_comment();
             }
             (_, KeyCode::Char('T')) => {
                 self.run_test_mutation_probe();
@@ -445,14 +483,25 @@ impl App {
             (_, KeyCode::Char('k')) | (_, KeyCode::Up) => {
                 self.cursor_up();
             }
+            (_, KeyCode::Char('V')) => {
+                self.toggle_visual_mode();
+            }
             (_, KeyCode::Char('v')) => {
                 self.toggle_review_current_file();
             }
             (_, KeyCode::Char('s')) => {
-                self.stage_current_hunk();
+                if self.visual_mode {
+                    self.stage_selected_lines();
+                } else {
+                    self.stage_current_hunk();
+                }
             }
             (_, KeyCode::Char('u')) => {
-                self.unstage_current_hunk();
+                if self.visual_mode {
+                    self.unstage_selected_lines();
+                } else {
+                    self.unstage_current_hunk();
+                }
             }
             (_, KeyCode::Char('S')) => {
                 self.toggle_stage_current_file();
@@ -604,6 +653,7 @@ impl App {
             "audit",
             "c",
             "clear",
+            "clear-resolved",
             "comments",
             "d",
             "del",
@@ -629,6 +679,8 @@ impl App {
             "r",
             "ref",
             "reload",
+            "res",
+            "resolve",
             "review",
             "risk",
             "s",
@@ -640,6 +692,7 @@ impl App {
             "submit",
             "todo",
             "tree",
+            "unresolve",
             "vsp",
             "vsplit",
             "w",
@@ -844,6 +897,44 @@ impl App {
                 self.status_message = Some("Cleared all directives".to_string());
                 self.active_view = ActiveView::Diff;
             }
+            "clear-resolved" => {
+                let initial = self.comments.len();
+                self.comments.retain(|c| !c.is_resolved);
+                let _ = self.comment_store.save_comments(&self.comments);
+                self.status_message = Some(format!(
+                    "Removed {} resolved directives",
+                    initial - self.comments.len()
+                ));
+                self.active_view = ActiveView::Diff;
+            }
+            "resolve" | "res" => {
+                if args.first() == Some(&"all") {
+                    for c in &mut self.comments {
+                        c.is_resolved = true;
+                    }
+                    let _ = self.comment_store.save_comments(&self.comments);
+                    self.status_message =
+                        Some(format!("Resolved all {} directives", self.comments.len()));
+                } else {
+                    self.toggle_resolve_current_comment();
+                }
+                self.active_view = ActiveView::Diff;
+            }
+            "unresolve" => {
+                if args.first() == Some(&"all") {
+                    for c in &mut self.comments {
+                        c.is_resolved = false;
+                    }
+                    let _ = self.comment_store.save_comments(&self.comments);
+                    self.status_message = Some(format!(
+                        "Marked all {} directives active",
+                        self.comments.len()
+                    ));
+                } else {
+                    self.toggle_resolve_current_comment();
+                }
+                self.active_view = ActiveView::Diff;
+            }
             "y" | "yank" => {
                 self.yank_current_code_line();
                 self.active_view = ActiveView::Diff;
@@ -916,7 +1007,32 @@ impl App {
             | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
                 self.comment_list_selected_idx = self.comment_list_selected_idx.saturating_sub(5);
             }
-            (_, KeyCode::Char('d')) | (_, KeyCode::Delete) => {
+            (_, KeyCode::Char('r')) => {
+                if !self.comments.is_empty() && self.comment_list_selected_idx < self.comments.len()
+                {
+                    self.start_reply_to_comment(self.comment_list_selected_idx);
+                }
+            }
+            (_, KeyCode::Char('v')) | (_, KeyCode::Char(' ')) | (_, KeyCode::Char('R')) => {
+                if !self.comments.is_empty() && self.comment_list_selected_idx < self.comments.len()
+                {
+                    let is_res = self.comments[self.comment_list_selected_idx].toggle_resolved();
+                    let _ = self.comment_store.save_comments(&self.comments);
+                    self.status_message = Some(if is_res {
+                        "✅ Directive marked resolved".to_string()
+                    } else {
+                        "💬 Directive marked active".to_string()
+                    });
+                }
+            }
+            (_, KeyCode::Char('a')) => {
+                if !self.comments.is_empty() && self.comment_list_selected_idx < self.comments.len()
+                {
+                    self.action_comment_to_agent(self.comment_list_selected_idx);
+                    self.active_view = ActiveView::Diff;
+                }
+            }
+            (_, KeyCode::Char('d')) | (_, KeyCode::Char('x')) | (_, KeyCode::Delete) => {
                 if !self.comments.is_empty() && self.comment_list_selected_idx < self.comments.len()
                 {
                     let removed = self.comments.remove(self.comment_list_selected_idx);
@@ -943,16 +1059,14 @@ impl App {
     pub fn open_pr_picker(&mut self) {
         match crate::pr::PrEngine::list_pull_requests() {
             Ok(prs) => {
-                if prs.is_empty() {
-                    self.status_message = Some("No open pull requests found".to_string());
-                } else {
-                    self.pr_list = prs;
-                    self.pr_selected_idx = 0;
-                    self.active_view = ActiveView::PrPicker;
-                }
+                self.pr_list = prs;
+                self.pr_selected_idx = 0;
+                self.active_view = ActiveView::PrPicker;
             }
             Err(e) => {
+                self.pr_list.clear();
                 self.status_message = Some(format!("`gh` PR list failed: {}", e));
+                self.active_view = ActiveView::PrPicker;
             }
         }
     }
@@ -1009,6 +1123,27 @@ impl App {
         }
     }
 
+    pub fn has_comment_on_cursor(&self) -> bool {
+        if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
+            let path_str = file.display_name();
+            let mut line_counter = 0;
+            for hunk in &file.hunks {
+                for line in &hunk.lines {
+                    if line_counter == self.cursor_line_idx {
+                        if let Some(lno) = line.new_line_num.or(line.old_line_num) {
+                            return self
+                                .comments
+                                .iter()
+                                .any(|c| c.file_path == path_str && c.target_line_no == lno);
+                        }
+                    }
+                    line_counter += 1;
+                }
+            }
+        }
+        false
+    }
+
     pub fn delete_current_line_comment(&mut self) {
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path_str = file.display_name();
@@ -1049,6 +1184,9 @@ impl App {
             .position(|f| f.display_name() == file_path)
         {
             self.selected_file_idx = idx;
+            if let Some(f) = self.snapshot.files.get_mut(idx) {
+                f.is_folded = false;
+            }
             self.cursor_line_idx = 0;
             let mut line_counter = 0;
             if let Some(f) = self.snapshot.files.get(idx) {
@@ -1057,12 +1195,119 @@ impl App {
                         let line_num = line.new_line_num.or(line.old_line_num);
                         if line_num == Some(target_line) {
                             self.cursor_line_idx = line_counter;
-                            break;
+                            self.diff_scroll_offset = line_counter.saturating_sub(10);
+                            return;
                         }
                         line_counter += 1;
                     }
                 }
             }
+        }
+    }
+
+    pub fn comment_idx_at_cursor(&self) -> Option<usize> {
+        let file = self.snapshot.files.get(self.selected_file_idx)?;
+        let path_str = file.display_name();
+        let mut line_counter = 0;
+        let mut target_line_no = None;
+        for hunk in &file.hunks {
+            for line in &hunk.lines {
+                if line_counter == self.cursor_line_idx {
+                    target_line_no = line.new_line_num.or(line.old_line_num);
+                    break;
+                }
+                line_counter += 1;
+            }
+            if target_line_no.is_some() {
+                break;
+            }
+        }
+        let lno = target_line_no?;
+        self.comments
+            .iter()
+            .position(|c| c.file_path == path_str && c.target_line_no == lno)
+    }
+
+    pub fn toggle_resolve_current_comment(&mut self) {
+        if let Some(idx) = self.comment_idx_at_cursor() {
+            let is_res = self.comments[idx].toggle_resolved();
+            let _ = self.comment_store.save_comments(&self.comments);
+            self.status_message = Some(if is_res {
+                "✅ Directive marked resolved".to_string()
+            } else {
+                "💬 Directive marked active".to_string()
+            });
+        } else {
+            self.status_message = Some("No directive on current line".to_string());
+        }
+    }
+
+    pub fn start_reply_to_comment(&mut self, idx: usize) {
+        if idx < self.comments.len() {
+            self.comment_reply_target_idx = Some(idx);
+            self.comment_reply_input.clear();
+            self.active_view = ActiveView::CommentReply;
+        }
+    }
+
+    pub fn action_comment_to_agent(&mut self, idx: usize) {
+        if let Some(comment) = self.comments.get(idx) {
+            let mut payload = format!(
+                "#ref {}:{} DIRECTIVE: {}",
+                comment.file_path, comment.target_line_no, comment.comment_text
+            );
+            for reply in &comment.replies {
+                payload.push_str(&format!("\n↳ Reply: {}", reply));
+            }
+            if let Some(ref pane) = self.agent_pane {
+                if let Err(e) = IpcBridge::send_to_tmux(pane, &payload) {
+                    self.status_message = Some(format!("Send failed: {}", e));
+                    IpcBridge::send_osc52_clipboard(&payload);
+                } else {
+                    self.status_message =
+                        Some(format!("Sent to pane {}: {}", pane, comment.file_path));
+                }
+            } else {
+                IpcBridge::send_osc52_clipboard(&payload);
+                self.status_message = Some(format!(
+                    "Copied directive to clipboard: {}:{}",
+                    comment.file_path, comment.target_line_no
+                ));
+            }
+        }
+    }
+
+    fn handle_comment_reply_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.comment_reply_input.clear();
+                self.comment_reply_target_idx = None;
+                self.active_view = ActiveView::Diff;
+            }
+            KeyCode::Enter => {
+                if !self.comment_reply_input.trim().is_empty() {
+                    if let Some(idx) = self.comment_reply_target_idx {
+                        if idx < self.comments.len() {
+                            self.comments[idx].add_reply(self.comment_reply_input.trim());
+                            let _ = self.comment_store.save_comments(&self.comments);
+                            self.status_message = Some(format!(
+                                "Reply added to comment on {}:{}",
+                                self.comments[idx].file_path, self.comments[idx].target_line_no
+                            ));
+                        }
+                    }
+                }
+                self.comment_reply_input.clear();
+                self.comment_reply_target_idx = None;
+                self.active_view = ActiveView::Diff;
+            }
+            KeyCode::Backspace => {
+                self.comment_reply_input.pop();
+            }
+            KeyCode::Char(c) => {
+                self.comment_reply_input.push(c);
+            }
+            _ => {}
         }
     }
 
@@ -1329,6 +1574,7 @@ impl App {
                 context_before: Vec::new(),
                 context_after: Vec::new(),
                 comment_text: self.comment_input.clone(),
+                replies: Vec::new(),
                 created_at_turn: turn_state.current_turn,
                 is_resolved: false,
                 pr_number: self.current_pr_number,
@@ -1714,6 +1960,140 @@ impl App {
         }
     }
 
+    pub fn toggle_visual_mode(&mut self) {
+        self.visual_mode = !self.visual_mode;
+        if self.visual_mode {
+            self.visual_anchor_idx = Some(self.cursor_line_idx);
+            self.status_message = Some(
+                "-- VISUAL LINE SELECTION (s: stage, u: unstage, x: discard, Esc: cancel) --"
+                    .to_string(),
+            );
+        } else {
+            self.visual_anchor_idx = None;
+            self.status_message = Some("Visual mode exited".to_string());
+        }
+    }
+
+    pub fn is_in_visual_selection(&self, line_idx: usize) -> bool {
+        if !self.visual_mode {
+            return false;
+        }
+        if let Some(anchor) = self.visual_anchor_idx {
+            let min = anchor.min(self.cursor_line_idx);
+            let max = anchor.max(self.cursor_line_idx);
+            line_idx >= min && line_idx <= max
+        } else {
+            false
+        }
+    }
+
+    pub fn selected_line_indices_in_current_hunk(
+        &self,
+    ) -> Option<(&FileDiff, &DiffHunk, Vec<usize>)> {
+        if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
+            let anchor = self.visual_anchor_idx.unwrap_or(self.cursor_line_idx);
+            let sel_min = anchor.min(self.cursor_line_idx);
+            let sel_max = anchor.max(self.cursor_line_idx);
+
+            let mut line_offset = 0;
+            for hunk in &file.hunks {
+                let hunk_len = hunk.lines.len();
+                let hunk_end = line_offset + hunk_len;
+
+                // Check overlap
+                if sel_max >= line_offset && sel_min < hunk_end {
+                    let mut hunk_selected_indices = Vec::new();
+                    for (h_line_idx, _) in hunk.lines.iter().enumerate() {
+                        let global_line_idx = line_offset + h_line_idx;
+                        if global_line_idx >= sel_min && global_line_idx <= sel_max {
+                            hunk_selected_indices.push(h_line_idx);
+                        }
+                    }
+                    if !hunk_selected_indices.is_empty() {
+                        return Some((file, hunk, hunk_selected_indices));
+                    }
+                }
+                line_offset += hunk_len;
+            }
+        }
+        None
+    }
+
+    pub fn stage_selected_lines(&mut self) {
+        if !self.git_engine.is_git_repo() {
+            return;
+        }
+        if let Some((file, hunk, indices)) = self.selected_line_indices_in_current_hunk() {
+            let file_clone = file.clone();
+            let hunk_clone = hunk.clone();
+            let count = indices.len();
+            match self
+                .git_engine
+                .stage_lines(&file_clone, &hunk_clone, &indices)
+            {
+                Ok(_) => {
+                    self.visual_mode = false;
+                    self.visual_anchor_idx = None;
+                    self.status_message = Some(format!("✅ Staged {} selected lines", count));
+                    self.reload_diff();
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to stage lines: {}", e));
+                }
+            }
+        }
+    }
+
+    pub fn unstage_selected_lines(&mut self) {
+        if !self.git_engine.is_git_repo() {
+            return;
+        }
+        if let Some((file, hunk, indices)) = self.selected_line_indices_in_current_hunk() {
+            let file_clone = file.clone();
+            let hunk_clone = hunk.clone();
+            let count = indices.len();
+            match self
+                .git_engine
+                .unstage_lines(&file_clone, &hunk_clone, &indices)
+            {
+                Ok(_) => {
+                    self.visual_mode = false;
+                    self.visual_anchor_idx = None;
+                    self.status_message = Some(format!("↩️ Unstaged {} selected lines", count));
+                    self.reload_diff();
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to unstage lines: {}", e));
+                }
+            }
+        }
+    }
+
+    pub fn discard_selected_lines(&mut self) {
+        if !self.git_engine.is_git_repo() {
+            return;
+        }
+        if let Some((file, hunk, indices)) = self.selected_line_indices_in_current_hunk() {
+            let file_clone = file.clone();
+            let hunk_clone = hunk.clone();
+            let count = indices.len();
+            match self
+                .git_engine
+                .discard_lines(&file_clone, &hunk_clone, &indices)
+            {
+                Ok(_) => {
+                    self.visual_mode = false;
+                    self.visual_anchor_idx = None;
+                    self.status_message = Some(format!("🗑️ Discarded {} selected lines", count));
+                    self.reload_diff();
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to discard lines: {}", e));
+                }
+            }
+        }
+    }
+
     pub fn next_hunk(&mut self) {
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let mut line_offset = 0;
@@ -2033,6 +2413,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::*;
     use crossbeam_channel::unbounded;
     use std::path::PathBuf;
 
@@ -2725,5 +3106,118 @@ mod tests {
         let (_, h2, h2_idx) = app.current_hunk_info().unwrap();
         assert_eq!(h2.header, "@@ -10,2 +10,3 @@");
         assert_eq!(h2_idx, 1);
+    }
+
+    #[test]
+    fn test_app_visual_mode_selection() {
+        let (_tx, rx) = crossbeam_channel::unbounded();
+        let mut app = App::new(PathBuf::from("."), rx, None, None);
+
+        assert!(!app.visual_mode);
+        app.toggle_visual_mode();
+        assert!(app.visual_mode);
+        assert_eq!(app.visual_anchor_idx, Some(0));
+
+        app.cursor_line_idx = 3;
+        assert!(app.is_in_visual_selection(0));
+        assert!(app.is_in_visual_selection(2));
+        assert!(app.is_in_visual_selection(3));
+        assert!(!app.is_in_visual_selection(4));
+
+        app.toggle_visual_mode();
+        assert!(!app.visual_mode);
+        assert!(!app.is_in_visual_selection(2));
+    }
+
+    #[test]
+    fn test_comment_actions_and_jump() {
+        let mut app = create_test_app();
+
+        let hunk = DiffHunk {
+            header: "@@ -1,15 +1,15 @@".into(),
+            old_start: 1,
+            old_lines: 15,
+            new_start: 1,
+            new_lines: 15,
+            lines: (1..=15)
+                .map(|i| DiffLine {
+                    line_type: LineType::Context,
+                    content: format!("line {}", i),
+                    old_line_num: Some(i),
+                    new_line_num: Some(i),
+                })
+                .collect(),
+        };
+
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/lib.rs"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![hunk],
+            is_folded: true,
+            is_reviewed: false,
+        };
+
+        app.snapshot = DiffSnapshot::new(vec![file]);
+
+        let anchor = CommentAnchor {
+            file_path: "src/lib.rs".into(),
+            target_line_no: 12,
+            target_code: "line 12".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "Need refactoring here".into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+        };
+        app.comments.push(anchor);
+
+        // Test jump unfolds file, sets cursor and diff_scroll_offset
+        app.jump_to_file_and_line("src/lib.rs", 12);
+        assert!(!app.snapshot.files[0].is_folded);
+        assert_eq!(app.cursor_line_idx, 11);
+        assert_eq!(app.diff_scroll_offset, 1);
+
+        // Test cursor comment detection
+        assert_eq!(app.comment_idx_at_cursor(), Some(0));
+
+        // Test toggle resolve
+        app.toggle_resolve_current_comment();
+        assert!(app.comments[0].is_resolved);
+        app.toggle_resolve_current_comment();
+        assert!(!app.comments[0].is_resolved);
+
+        // Test start reply and submit reply
+        app.start_reply_to_comment(0);
+        assert_eq!(app.active_view, ActiveView::CommentReply);
+        assert_eq!(app.comment_reply_target_idx, Some(0));
+
+        app.comment_reply_input = "Will fix in next commit".into();
+        app.handle_comment_reply_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.comments[0].replies.len(), 1);
+        assert_eq!(app.comments[0].replies[0], "Will fix in next commit");
+
+        // Test CommentList actions (resolve toggle, delete)
+        app.active_view = ActiveView::CommentList;
+        app.comment_list_selected_idx = 0;
+
+        // Toggle resolve via 'v'
+        app.handle_comment_list_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        assert!(app.comments[0].is_resolved);
+
+        // Test ex command :unresolve and :resolve
+        app.execute_command(":unresolve");
+        assert!(!app.comments[0].is_resolved);
+        app.execute_command(":resolve all");
+        assert!(app.comments[0].is_resolved);
+
+        // Test :clear-resolved
+        app.execute_command(":clear-resolved");
+        assert!(app.comments.is_empty());
     }
 }

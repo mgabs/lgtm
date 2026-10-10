@@ -209,6 +209,85 @@ impl GitEngine {
         let patch = generate_hunk_patch(file, hunk);
         apply_patch(&self.repo_path, &patch, false, true)
     }
+
+    pub fn stage_lines(
+        &self,
+        file: &FileDiff,
+        hunk: &DiffHunk,
+        selected_indices: &[usize],
+    ) -> Result<()> {
+        let patch = generate_line_selection_patch(file, hunk, selected_indices);
+        apply_patch(&self.repo_path, &patch, true, false)
+    }
+
+    pub fn unstage_lines(
+        &self,
+        file: &FileDiff,
+        hunk: &DiffHunk,
+        selected_indices: &[usize],
+    ) -> Result<()> {
+        let patch = generate_line_selection_patch(file, hunk, selected_indices);
+        apply_patch(&self.repo_path, &patch, true, true)
+    }
+
+    pub fn discard_lines(
+        &self,
+        file: &FileDiff,
+        hunk: &DiffHunk,
+        selected_indices: &[usize],
+    ) -> Result<()> {
+        let patch = generate_line_selection_patch(file, hunk, selected_indices);
+        apply_patch(&self.repo_path, &patch, false, true)
+    }
+}
+
+pub fn generate_line_selection_patch(
+    file: &FileDiff,
+    hunk: &DiffHunk,
+    selected_indices: &[usize],
+) -> String {
+    let old_p = file
+        .old_path
+        .as_ref()
+        .unwrap_or(&file.new_path)
+        .to_string_lossy();
+    let new_p = file.new_path.to_string_lossy();
+
+    let mut patch = format!("--- a/{}\n+++ b/{}\n", old_p, new_p);
+    patch.push_str(&hunk.header);
+    patch.push('\n');
+
+    for (idx, line) in hunk.lines.iter().enumerate() {
+        let is_selected = selected_indices.contains(&idx);
+        match line.line_type {
+            LineType::Context => {
+                patch.push(' ');
+                patch.push_str(&line.content);
+                patch.push('\n');
+            }
+            LineType::Addition => {
+                if is_selected {
+                    patch.push('+');
+                    patch.push_str(&line.content);
+                    patch.push('\n');
+                }
+            }
+            LineType::Deletion => {
+                if is_selected {
+                    patch.push('-');
+                    patch.push_str(&line.content);
+                    patch.push('\n');
+                } else {
+                    patch.push(' ');
+                    patch.push_str(&line.content);
+                    patch.push('\n');
+                }
+            }
+            LineType::HunkHeader => {}
+        }
+    }
+
+    patch
 }
 
 pub fn generate_hunk_patch(file: &FileDiff, hunk: &DiffHunk) -> String {
@@ -380,5 +459,114 @@ mod tests {
         assert!(patch.contains("+++ b/src/main.rs"));
         assert!(patch.contains("@@ -1,2 +1,3 @@"));
         assert!(patch.contains("+    let a = 42;"));
+    }
+
+    #[test]
+    fn test_generate_line_selection_patch_selective_addition() {
+        let hunk = DiffHunk {
+            header: "@@ -1,2 +1,4 @@".to_string(),
+            old_start: 1,
+            old_lines: 2,
+            new_start: 1,
+            new_lines: 4,
+            lines: vec![
+                DiffLine {
+                    line_type: LineType::Context,
+                    content: "fn test() {".to_string(),
+                    old_line_num: Some(1),
+                    new_line_num: Some(1),
+                },
+                DiffLine {
+                    line_type: LineType::Addition,
+                    content: "    let a = 1;".to_string(),
+                    old_line_num: None,
+                    new_line_num: Some(2),
+                },
+                DiffLine {
+                    line_type: LineType::Addition,
+                    content: "    let b = 2;".to_string(),
+                    old_line_num: None,
+                    new_line_num: Some(3),
+                },
+                DiffLine {
+                    line_type: LineType::Context,
+                    content: "}".to_string(),
+                    old_line_num: Some(2),
+                    new_line_num: Some(4),
+                },
+            ],
+        };
+
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/main.rs"),
+            change_type: ChangeType::Modified,
+            additions: 2,
+            deletions: 0,
+            hunks: vec![hunk.clone()],
+            is_folded: false,
+            is_reviewed: false,
+        };
+
+        // Select only line index 1 ("let a = 1;")
+        let patch = generate_line_selection_patch(&file, &hunk, &[1]);
+        assert!(patch.contains("+    let a = 1;"));
+        assert!(!patch.contains("+    let b = 2;"));
+        assert!(patch.contains(" fn test() {"));
+        assert!(patch.contains(" }"));
+    }
+
+    #[test]
+    fn test_generate_line_selection_patch_selective_deletion() {
+        let hunk = DiffHunk {
+            header: "@@ -1,4 +1,2 @@".to_string(),
+            old_start: 1,
+            old_lines: 4,
+            new_start: 1,
+            new_lines: 2,
+            lines: vec![
+                DiffLine {
+                    line_type: LineType::Context,
+                    content: "fn test() {".to_string(),
+                    old_line_num: Some(1),
+                    new_line_num: Some(1),
+                },
+                DiffLine {
+                    line_type: LineType::Deletion,
+                    content: "    let a = 1;".to_string(),
+                    old_line_num: Some(2),
+                    new_line_num: None,
+                },
+                DiffLine {
+                    line_type: LineType::Deletion,
+                    content: "    let b = 2;".to_string(),
+                    old_line_num: Some(3),
+                    new_line_num: None,
+                },
+                DiffLine {
+                    line_type: LineType::Context,
+                    content: "}".to_string(),
+                    old_line_num: Some(4),
+                    new_line_num: Some(2),
+                },
+            ],
+        };
+
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/main.rs"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 2,
+            hunks: vec![hunk.clone()],
+            is_folded: false,
+            is_reviewed: false,
+        };
+
+        // Select only line index 2 ("let b = 2;") to delete; index 1 should remain as context
+        let patch = generate_line_selection_patch(&file, &hunk, &[2]);
+        assert!(patch.contains("-    let b = 2;"));
+        assert!(patch.contains("     let a = 1;"));
+        assert!(!patch.contains("-    let a = 1;"));
     }
 }

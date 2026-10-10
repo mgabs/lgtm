@@ -1,5 +1,5 @@
 use crate::app::{ActiveView, App};
-use crate::model::{ChangeType, LineType};
+use crate::model::{ChangeType, DiffLine, LineType};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -7,6 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
+use similar::{ChangeTag, TextDiff};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let size = frame.area();
@@ -30,6 +31,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         ActiveView::FilePicker => render_file_picker(frame, size, app),
         ActiveView::PanePicker => render_pane_picker(frame, size, app),
         ActiveView::CommentInput => render_comment_input(frame, size, app),
+        ActiveView::CommentReply => render_comment_reply(frame, size, app),
         ActiveView::CommentList => render_comment_list(frame, size, app),
         ActiveView::PrPicker => render_pr_picker(frame, size, app),
         ActiveView::Help => render_help_modal(frame, size, app),
@@ -277,6 +279,108 @@ fn render_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(list, area);
 }
 
+fn find_intra_line_pairs(lines: &[DiffLine]) -> std::collections::HashMap<usize, (usize, bool)> {
+    let mut pairs = std::collections::HashMap::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].line_type == LineType::Deletion {
+            let mut del_indices = Vec::new();
+            while i < lines.len() && lines[i].line_type == LineType::Deletion {
+                del_indices.push(i);
+                i += 1;
+            }
+            let mut add_indices = Vec::new();
+            while i < lines.len() && lines[i].line_type == LineType::Addition {
+                add_indices.push(i);
+                i += 1;
+            }
+            let min_len = del_indices.len().min(add_indices.len());
+            for k in 0..min_len {
+                pairs.insert(del_indices[k], (add_indices[k], true));
+                pairs.insert(add_indices[k], (del_indices[k], false));
+            }
+        } else {
+            i += 1;
+        }
+    }
+    pairs
+}
+
+fn render_inline_diff_spans(
+    old_text: &str,
+    new_text: &str,
+    is_deletion: bool,
+    base_bg: Option<Color>,
+) -> Vec<Span<'static>> {
+    let diff = TextDiff::from_words(old_text, new_text);
+    let mut spans = Vec::new();
+
+    for change in diff.iter_all_changes() {
+        let text = change.value().to_string();
+        let mut style = Style::default();
+        if let Some(bg) = base_bg {
+            style = style.bg(bg);
+        }
+
+        match change.tag() {
+            ChangeTag::Equal => {
+                if is_deletion {
+                    spans.push(Span::styled(text, style.fg(Color::LightRed)));
+                } else {
+                    spans.push(Span::styled(text, style.fg(Color::LightGreen)));
+                }
+            }
+            ChangeTag::Delete => {
+                if is_deletion {
+                    spans.push(Span::styled(
+                        text,
+                        style
+                            .bg(Color::Red)
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                }
+            }
+            ChangeTag::Insert => {
+                if !is_deletion {
+                    spans.push(Span::styled(
+                        text,
+                        style
+                            .bg(Color::Green)
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                }
+            }
+        }
+    }
+    spans
+}
+
+fn pad_or_truncate_spans(spans: Vec<Span<'static>>, target_width: usize) -> Vec<Span<'static>> {
+    let mut current_len = 0;
+    let mut out = Vec::new();
+    for span in spans {
+        let span_len = span.content.chars().count();
+        if current_len + span_len <= target_width {
+            current_len += span_len;
+            out.push(span);
+        } else {
+            let take = target_width.saturating_sub(current_len);
+            if take > 0 {
+                let s: String = span.content.chars().take(take).collect();
+                out.push(Span::styled(s, span.style));
+                current_len += take;
+            }
+            break;
+        }
+    }
+    if current_len < target_width {
+        out.push(Span::raw(" ".repeat(target_width - current_len)));
+    }
+    out
+}
+
 fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
     let current_file = app.snapshot.files.get(app.selected_file_idx);
 
@@ -331,9 +435,16 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                     "".to_string()
                 };
 
+                let view_mode_tag = if app.is_split_view && area.width >= 60 {
+                    " [Split]"
+                } else {
+                    " [Unified]"
+                };
+
                 let title = format!(
-                    " {} (+{}/-{}){} ",
+                    " {}{}(+{}/-{}){} ",
                     file.display_name(),
+                    view_mode_tag,
                     file.additions,
                     file.deletions,
                     alert_badge_title
@@ -375,6 +486,189 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                         "  (Binary file or empty diff) ",
                         Style::default().fg(Color::DarkGray),
                     )));
+                } else if app.is_split_view && area.width >= 60 {
+                    let col_width = ((area.width.saturating_sub(6)) / 2) as usize;
+                    let mut line_counter = 0;
+
+                    for hunk in &file.hunks {
+                        lines.push(Line::from(Span::styled(
+                            format!("  {} (Split View: Left=Old, Right=New)", hunk.header),
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::ITALIC),
+                        )));
+
+                        let mut h_idx = 0;
+                        while h_idx < hunk.lines.len() {
+                            let line = &hunk.lines[h_idx];
+                            match line.line_type {
+                                LineType::Context => {
+                                    let is_cursor = line_counter == app.cursor_line_idx;
+                                    let in_visual = app.is_in_visual_selection(line_counter);
+                                    let base_bg = if in_visual && is_cursor {
+                                        Some(Color::Indexed(241))
+                                    } else if in_visual {
+                                        Some(Color::Indexed(238))
+                                    } else if is_cursor {
+                                        Some(Color::Indexed(237))
+                                    } else {
+                                        None
+                                    };
+
+                                    let old_no = line
+                                        .old_line_num
+                                        .map(|n| format!("{:4} ", n))
+                                        .unwrap_or_else(|| "     ".to_string());
+                                    let new_no = line
+                                        .new_line_num
+                                        .map(|n| format!("{:4} ", n))
+                                        .unwrap_or_else(|| "     ".to_string());
+
+                                    let mut style = Style::default().fg(Color::White);
+                                    if let Some(bg) = base_bg {
+                                        style = style.bg(bg);
+                                    }
+                                    if is_cursor {
+                                        style = style.add_modifier(Modifier::BOLD);
+                                    }
+
+                                    let left_spans = vec![
+                                        Span::styled(old_no, Style::default().fg(Color::DarkGray)),
+                                        Span::styled("  ", Style::default()),
+                                        Span::styled(line.content.clone(), style),
+                                    ];
+                                    let right_spans = vec![
+                                        Span::styled(new_no, Style::default().fg(Color::DarkGray)),
+                                        Span::styled("  ", Style::default()),
+                                        Span::styled(line.content.clone(), style),
+                                    ];
+
+                                    let mut row_spans = pad_or_truncate_spans(left_spans, col_width);
+                                    row_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+                                    row_spans.extend(pad_or_truncate_spans(right_spans, col_width));
+
+                                    lines.push(Line::from(row_spans));
+                                    line_counter += 1;
+                                    h_idx += 1;
+                                }
+                                LineType::Deletion | LineType::Addition => {
+                                    let mut dels = Vec::new();
+                                    while h_idx < hunk.lines.len()
+                                        && hunk.lines[h_idx].line_type == LineType::Deletion
+                                    {
+                                        dels.push((h_idx, &hunk.lines[h_idx]));
+                                        h_idx += 1;
+                                    }
+                                    let mut adds = Vec::new();
+                                    while h_idx < hunk.lines.len()
+                                        && hunk.lines[h_idx].line_type == LineType::Addition
+                                    {
+                                        adds.push((h_idx, &hunk.lines[h_idx]));
+                                        h_idx += 1;
+                                    }
+                                    let max_len = dels.len().max(adds.len());
+                                    for k in 0..max_len {
+                                        let del_opt = dels.get(k);
+                                        let add_opt = adds.get(k);
+                                        let is_cursor = line_counter == app.cursor_line_idx;
+                                        let in_visual = app.is_in_visual_selection(line_counter);
+                                        let base_bg = if in_visual && is_cursor {
+                                            Some(Color::Indexed(241))
+                                        } else if in_visual {
+                                            Some(Color::Indexed(238))
+                                        } else if is_cursor {
+                                            Some(Color::Indexed(237))
+                                        } else {
+                                            None
+                                        };
+
+                                        let mut left_spans = Vec::new();
+                                        if let Some((_, del_line)) = del_opt {
+                                            let old_no = del_line
+                                                .old_line_num
+                                                .map(|n| format!("{:4} ", n))
+                                                .unwrap_or_else(|| "     ".to_string());
+                                            left_spans.push(Span::styled(
+                                                old_no,
+                                                Style::default().fg(Color::DarkGray),
+                                            ));
+                                            left_spans.push(Span::styled(
+                                                "- ",
+                                                Style::default().fg(Color::Red),
+                                            ));
+                                            if let Some((_, add_line)) = add_opt {
+                                                left_spans.extend(render_inline_diff_spans(
+                                                    &del_line.content,
+                                                    &add_line.content,
+                                                    true,
+                                                    base_bg,
+                                                ));
+                                            } else {
+                                                let mut style = Style::default().fg(Color::Red);
+                                                if let Some(bg) = base_bg {
+                                                    style = style.bg(bg);
+                                                }
+                                                left_spans.push(Span::styled(
+                                                    del_line.content.clone(),
+                                                    style,
+                                                ));
+                                            }
+                                        }
+
+                                        let mut right_spans = Vec::new();
+                                        if let Some((_, add_line)) = add_opt {
+                                            let new_no = add_line
+                                                .new_line_num
+                                                .map(|n| format!("{:4} ", n))
+                                                .unwrap_or_else(|| "     ".to_string());
+                                            right_spans.push(Span::styled(
+                                                new_no,
+                                                Style::default().fg(Color::DarkGray),
+                                            ));
+                                            right_spans.push(Span::styled(
+                                                "+ ",
+                                                Style::default().fg(Color::Green),
+                                            ));
+                                            if let Some((_, del_line)) = del_opt {
+                                                right_spans.extend(render_inline_diff_spans(
+                                                    &del_line.content,
+                                                    &add_line.content,
+                                                    false,
+                                                    base_bg,
+                                                ));
+                                            } else {
+                                                let mut style = Style::default().fg(Color::Green);
+                                                if let Some(bg) = base_bg {
+                                                    style = style.bg(bg);
+                                                }
+                                                right_spans.push(Span::styled(
+                                                    add_line.content.clone(),
+                                                    style,
+                                                ));
+                                            }
+                                        }
+
+                                        let mut row_spans =
+                                            pad_or_truncate_spans(left_spans, col_width);
+                                        row_spans.push(Span::styled(
+                                            " │ ",
+                                            Style::default().fg(Color::DarkGray),
+                                        ));
+                                        row_spans.extend(pad_or_truncate_spans(
+                                            right_spans,
+                                            col_width,
+                                        ));
+
+                                        lines.push(Line::from(row_spans));
+                                        line_counter += 1;
+                                    }
+                                }
+                                LineType::HunkHeader => {
+                                    h_idx += 1;
+                                }
+                            }
+                        }
+                    }
                 } else {
                     let mut line_counter = 0;
                     for hunk in &file.hunks {
@@ -385,24 +679,26 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                 .add_modifier(Modifier::ITALIC),
                         )));
 
-                        for dline in &hunk.lines {
+                        let pairs = find_intra_line_pairs(&hunk.lines);
+
+                        for (h_line_idx, dline) in hunk.lines.iter().enumerate() {
                             let is_cursor = line_counter == app.cursor_line_idx;
+                            let in_visual = app.is_in_visual_selection(line_counter);
+
+                            let base_bg = if in_visual && is_cursor {
+                                Some(Color::Indexed(241))
+                            } else if in_visual {
+                                Some(Color::Indexed(238))
+                            } else if is_cursor {
+                                Some(Color::Indexed(237))
+                            } else {
+                                None
+                            };
+
                             let prefix = match dline.line_type {
                                 LineType::Addition => "+",
                                 LineType::Deletion => "-",
                                 _ => " ",
-                            };
-
-                            let style = match dline.line_type {
-                                LineType::Addition => Style::default().fg(Color::Green),
-                                LineType::Deletion => Style::default().fg(Color::Red),
-                                _ => Style::default().fg(Color::White),
-                            };
-
-                            let line_style = if is_cursor {
-                                style.bg(Color::Indexed(237)).add_modifier(Modifier::BOLD)
-                            } else {
-                                style
                             };
 
                             let line_no = dline.new_line_num.or(dline.old_line_num);
@@ -427,17 +723,33 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                 })
                                 .collect();
 
-                            let gutter_icon = if !matching_alerts.is_empty() {
+                            let gutter_icon = if in_visual {
+                                "▌ "
+                            } else if !matching_alerts.is_empty() {
                                 "⚠️ "
                             } else if !matching_comments.is_empty() {
-                                "💬 "
+                                if matching_comments.iter().all(|c| c.is_resolved) {
+                                    "✓ "
+                                } else {
+                                    "💬 "
+                                }
                             } else {
                                 "   "
                             };
 
-                            let icon_style = if !matching_alerts.is_empty() {
+                            let icon_style = if in_visual {
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .add_modifier(Modifier::BOLD)
+                            } else if !matching_alerts.is_empty() {
                                 Style::default()
                                     .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD)
+                            } else if !matching_comments.is_empty()
+                                && matching_comments.iter().all(|c| c.is_resolved)
+                            {
+                                Style::default()
+                                    .fg(Color::Green)
                                     .add_modifier(Modifier::BOLD)
                             } else {
                                 Style::default()
@@ -445,13 +757,46 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                     .add_modifier(Modifier::BOLD)
                             };
 
-                            lines.push(Line::from(vec![
+                            let mut line_spans = vec![
                                 Span::styled(line_no_str, Style::default().fg(Color::DarkGray)),
                                 Span::styled(gutter_icon, icon_style),
-                                Span::styled(prefix, line_style),
+                                Span::styled(
+                                    prefix,
+                                    match dline.line_type {
+                                        LineType::Addition => Style::default().fg(Color::Green),
+                                        LineType::Deletion => Style::default().fg(Color::Red),
+                                        _ => Style::default().fg(Color::White),
+                                    },
+                                ),
                                 Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
-                                Span::styled(&dline.content, line_style),
-                            ]));
+                            ];
+
+                            if let Some(&(paired_idx, is_del)) = pairs.get(&h_line_idx) {
+                                let paired_line = &hunk.lines[paired_idx];
+                                let (old_txt, new_txt) = if is_del {
+                                    (dline.content.as_str(), paired_line.content.as_str())
+                                } else {
+                                    (paired_line.content.as_str(), dline.content.as_str())
+                                };
+                                line_spans.extend(render_inline_diff_spans(
+                                    old_txt, new_txt, is_del, base_bg,
+                                ));
+                            } else {
+                                let mut style = match dline.line_type {
+                                    LineType::Addition => Style::default().fg(Color::Green),
+                                    LineType::Deletion => Style::default().fg(Color::Red),
+                                    _ => Style::default().fg(Color::White),
+                                };
+                                if let Some(bg) = base_bg {
+                                    style = style.bg(bg);
+                                }
+                                if is_cursor {
+                                    style = style.add_modifier(Modifier::BOLD);
+                                }
+                                line_spans.push(Span::styled(&dline.content, style));
+                            }
+
+                            lines.push(Line::from(line_spans));
 
                             // Render inline alerts directly beneath this code line
                             for alert in matching_alerts {
@@ -482,19 +827,45 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
 
                             // Render inline comments directly beneath this code line
                             for comment in matching_comments {
-                                lines.push(Line::from(vec![
-                                    Span::raw("        │ "),
-                                    Span::styled(
+                                let (badge, b_style, t_style) = if comment.is_resolved {
+                                    (
+                                        "✓ RESOLVED DIRECTIVE: ",
+                                        Style::default()
+                                            .fg(Color::Green)
+                                            .add_modifier(Modifier::BOLD),
+                                        Style::default().fg(Color::DarkGray),
+                                    )
+                                } else {
+                                    (
                                         "💬 DIRECTIVE: ",
                                         Style::default()
                                             .fg(Color::Magenta)
                                             .add_modifier(Modifier::BOLD),
-                                    ),
-                                    Span::styled(
-                                        format!("\"{}\"", comment.comment_text),
                                         Style::default().fg(Color::LightMagenta),
-                                    ),
+                                    )
+                                };
+
+                                lines.push(Line::from(vec![
+                                    Span::raw("        │ "),
+                                    Span::styled(badge, b_style),
+                                    Span::styled(format!("\"{}\"", comment.comment_text), t_style),
                                 ]));
+
+                                for (r_idx, reply) in comment.replies.iter().enumerate() {
+                                    lines.push(Line::from(vec![
+                                        Span::raw("        │   "),
+                                        Span::styled(
+                                            format!("↳ Reply #{}: ", r_idx + 1),
+                                            Style::default()
+                                                .fg(Color::Cyan)
+                                                .add_modifier(Modifier::BOLD),
+                                        ),
+                                        Span::styled(
+                                            format!("\"{}\"", reply),
+                                            Style::default().fg(Color::LightCyan),
+                                        ),
+                                    ]));
+                                }
                             }
 
                             line_counter += 1;
@@ -532,6 +903,10 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                             .add_modifier(Modifier::BOLD),
                     )),
                     Line::from("  • Tab          Toggle changed-files sidebar"),
+                    Line::from("  • d            Toggle Side-by-Side Split / Unified view"),
+                    Line::from("  • V            Visual line selection mode (s: stage, u: unstage, x: discard)"),
+                    Line::from("  • s / u / x    Stage / Unstage / Discard current hunk"),
+                    Line::from("  • S / U / X    Stage / Unstage / Discard entire file"),
                     Line::from("  • f / Ctrl-p   Open fuzzy file switcher"),
                     Line::from("  • ] / [        Jump to next / previous changed file"),
                     Line::from("  • c            Add review comment on current line"),
@@ -607,6 +982,44 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    if app.visual_mode {
+        let status_line = Line::from(vec![
+            Span::styled(
+                " -- VISUAL LINE SELECTION -- ",
+                Style::default()
+                    .bg(Color::Cyan)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" | "),
+            Span::styled(
+                "[s]",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Stage Selection | "),
+            Span::styled(
+                "[u]",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Unstage | "),
+            Span::styled(
+                "[x]",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Discard | "),
+            Span::styled("[j/k]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Expand | "),
+            Span::styled("[Esc/V]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Cancel"),
+        ]);
+        frame.render_widget(Paragraph::new(status_line), area);
+        return;
+    }
+
     let msg = app.status_message.as_deref().unwrap_or("Watching");
     let status_line = Line::from(vec![
         Span::styled(
@@ -617,6 +1030,12 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" | "),
+        Span::styled("[V]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Visual | "),
+        Span::styled("[s/u/x]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Hunk | "),
+        Span::styled("[d]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Split | "),
         Span::styled("[:]", Style::default().fg(Color::Cyan)),
         Span::raw(" Cmd | "),
         Span::styled("[/]", Style::default().fg(Color::Cyan)),
@@ -799,8 +1218,84 @@ fn render_search_input(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(input, popup_area);
 }
 
+fn render_comment_reply(frame: &mut Frame, area: Rect, app: &App) {
+    let popup_area = centered_rect(65, 40, area);
+    frame.render_widget(Clear, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4), // Target comment context
+            Constraint::Length(3), // Reply input box
+            Constraint::Min(2),    // Help text
+        ])
+        .split(popup_area);
+
+    let target_info = if let Some(idx) = app.comment_reply_target_idx {
+        if let Some(comment) = app.comments.get(idx) {
+            vec![
+                Line::from(vec![
+                    Span::styled("Target: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{}:{}", comment.file_path, comment.target_line_no),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw("  "),
+                    if comment.is_resolved {
+                        Span::styled(
+                            "[✓ Resolved]",
+                            Style::default()
+                                .fg(Color::Green)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    } else {
+                        Span::styled(
+                            "[💬 Open]",
+                            Style::default()
+                                .fg(Color::Magenta)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    },
+                ]),
+                Line::from(vec![
+                    Span::styled("Directive: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(&comment.comment_text, Style::default().fg(Color::White)),
+                ]),
+            ]
+        } else {
+            vec![Line::from("No directive selected")]
+        }
+    } else {
+        vec![Line::from("No directive selected")]
+    };
+
+    let context_widget = Paragraph::new(target_info).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Replying to Directive ")
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+    frame.render_widget(context_widget, chunks[0]);
+
+    let input = Paragraph::new(app.comment_reply_input.as_str()).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Reply Message (Enter to save, Esc to cancel) ")
+            .border_style(Style::default().fg(Color::Magenta)),
+    );
+    frame.render_widget(input, chunks[1]);
+
+    let help = Paragraph::new(
+        "Reply will be threaded under this directive and exported to agent prompt on Ctrl-s.",
+    )
+    .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(help, chunks[2]);
+}
+
 fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
-    let popup_area = centered_rect(72, 60, area);
+    let popup_area = centered_rect(76, 65, area);
     frame.render_widget(Clear, popup_area);
 
     if app.comments.is_empty() {
@@ -830,16 +1325,53 @@ fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
         .enumerate()
         .map(|(idx, comment)| {
             let is_selected = idx == app.comment_list_selected_idx;
-            let line = Line::from(vec![
+            let status_badge = if comment.is_resolved {
+                Span::styled(
+                    "[✓ Resolved] ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                Span::styled(
+                    "[💬 Open] ",
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                )
+            };
+
+            let replies_tag = if !comment.replies.is_empty() {
+                format!(
+                    " ({} {})",
+                    comment.replies.len(),
+                    if comment.replies.len() == 1 {
+                        "reply"
+                    } else {
+                        "replies"
+                    }
+                )
+            } else {
+                "".to_string()
+            };
+
+            let mut spans = vec![
+                status_badge,
                 Span::styled(
                     format!("{}:{} ", comment.file_path, comment.target_line_no),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled("💬 ", Style::default().fg(Color::Magenta)),
                 Span::raw(&comment.comment_text),
-            ]);
+            ];
+
+            if !replies_tag.is_empty() {
+                spans.push(Span::styled(
+                    replies_tag,
+                    Style::default().fg(Color::LightCyan),
+                ));
+            }
 
             let style = if is_selected {
                 Style::default()
@@ -850,14 +1382,17 @@ fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
                 Style::default()
             };
 
-            ListItem::new(line).style(style)
+            ListItem::new(Line::from(spans)).style(style)
         })
         .collect();
 
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(format!(" Review Directives [{}] (Enter: Jump | d: Delete | Ctrl-s: Batch Export | Esc: Close) ", app.comments.len()))
+            .title(format!(
+                " Review Directives [{}] (Enter: Jump | r: Reply | v/Space: Resolve | a: Action | d: Delete | Esc: Close) ",
+                app.comments.len()
+            ))
             .border_style(Style::default().fg(Color::Magenta)),
     );
 
@@ -1395,5 +1930,56 @@ mod tests {
         // Test rendering Search
         app.active_view = ActiveView::Search;
         terminal.draw(|f| render(f, &mut app)).unwrap();
+
+        // Test rendering Visual Mode
+        app.active_view = ActiveView::Diff;
+        app.visual_mode = true;
+        app.visual_anchor_idx = Some(0);
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+
+        // Test rendering Split View
+        app.is_split_view = true;
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+    }
+
+    #[test]
+    fn test_find_intra_line_pairs() {
+        let lines = vec![
+            DiffLine {
+                line_type: LineType::Context,
+                content: "header".to_string(),
+                old_line_num: Some(1),
+                new_line_num: Some(1),
+            },
+            DiffLine {
+                line_type: LineType::Deletion,
+                content: "let x = 1;".to_string(),
+                old_line_num: Some(2),
+                new_line_num: None,
+            },
+            DiffLine {
+                line_type: LineType::Addition,
+                content: "let x = 2;".to_string(),
+                old_line_num: None,
+                new_line_num: Some(2),
+            },
+        ];
+
+        let pairs = find_intra_line_pairs(&lines);
+        assert_eq!(pairs.get(&1), Some(&(2, true)));
+        assert_eq!(pairs.get(&2), Some(&(1, false)));
+    }
+
+    #[test]
+    fn test_pad_or_truncate_spans() {
+        let spans = vec![Span::raw("hello")];
+        let padded = pad_or_truncate_spans(spans, 10);
+        let total_chars: usize = padded.iter().map(|s| s.content.chars().count()).sum();
+        assert_eq!(total_chars, 10);
+
+        let long_spans = vec![Span::raw("very long line that exceeds limit")];
+        let truncated = pad_or_truncate_spans(long_spans, 8);
+        let trunc_chars: usize = truncated.iter().map(|s| s.content.chars().count()).sum();
+        assert_eq!(trunc_chars, 8);
     }
 }
