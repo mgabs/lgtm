@@ -86,9 +86,9 @@ jobs:
           retention-days: 7
 
   release:
-    name: Publish GitHub Release
+    name: Publish GitHub Release & Update Homebrew Tap
     needs: [quality-gate]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -110,20 +110,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.get_version.outputs.VERSION }}
-          name: "lgtm v${{ steps.get_version.outputs.VERSION }} — Fast Real-Time Terminal Diff Reviewer"
+          name: "lgtm v${{ steps.get_version.outputs.VERSION }} — Real-Time Terminal Diff Reviewer & Agent Steering Engine"
           body: |
             ## 🚀 lgtm v${{ steps.get_version.outputs.VERSION }} Release
             
             **Fast, real-time terminal diff reviewer & AI agent steering TUI built in Rust.**
             
-            ### What's New
-            - **Zero-Dependency Homebrew Distribution**: Standalone pre-compiled static binary bundling OpenSSL & libgit2.
-            - **Vim Motion Engine**: Full `j/k`, `gg/G`, `0/$`, `{/}`, `]f/[f`, `]h/[h`, `]c/[c`, `]w/[w`, `]u/[u`, `zz/zt/zb`, `/`, `n/N`, `*`, `#`, `y`, `PgUp/PgDn`.
-            - **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with wildmenu `<Tab>` autocompletion.
-            - **Security & Test Guard**: AST & regex detection for SQLi, command injection, secret leakage, TLS bypass, and test neutering.
-            - **GitHub PR Review Mode**: Review GitHub PRs directly (`lgtm pr <num>`), write inline directives, batch compile, and submit via `gh pr review`.
-            - **Headless CI & Security Audits**: `lgtm risk` and `lgtm ci` with SARIF 2.1.0 and GitHub Actions annotations.
-            - **Test Coverage & Mutation Testing**: $\ge 90\%$ line coverage and mutation test gate.
+            ### ✨ Highlights in v${{ steps.get_version.outputs.VERSION }}
+            - **Native Model Context Protocol (MCP) Server**: Autonomous AI agent stdio server (`lgtm serve --mcp` / `lgtm mcp`).
+            - **Arbitrary Git Revision Range Diffing**: `lgtm main..feat`, `lgtm HEAD~3..HEAD`, and in-TUI `:diff <rev>`.
+            - **Interactive Hunk & Visual Line Staging**: `s`, `u`, `x`, and `V` sub-hunk staging into the Git index.
+            - **Tree-Sitter AST Code Folding & Sticky Scope**: `zf/zo/zc/zR/zM` and `📍 Scope: fn ...` header.
+            - **Quick Steering Directive Chords**: `ca` (coverage), `cs` (security), `cr` (refactor), `cp` (perf), `cw` (why).
+            - **Guardrail Ignore Directives**: Support for `// lgtm:ignore`, `# lgtm:ignore`, and `#[cfg(test)]` auto-exclusion.
+            - **Interactive Commit Forge**: `C` modal to craft conventional commits directly in TUI.
+            - **Full Wiki & User Manual**: Complete documentation in `docs/WIKI.md`.
             
             ### Assets & Checksums
             Pre-compiled binary packages for Linux (`x86_64`) and macOS (`arm64`/`x86_64`) are attached below.
@@ -135,31 +136,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Homebrew Tap Formula
+      - name: Update Homebrew Tap Formula (mgabs/homebrew-tap)
         if: success()
         shell: bash
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN || secrets.TAP_GITHUB_TOKEN || secrets.GH_PAT || secrets.PERSONAL_ACCESS_TOKEN || secrets.HOMEBREW_TOKEN || secrets.PAT || secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
-          DARWIN_ARM64_SHA=$(cat release-artifacts/lgtm-v${VERSION}-darwin-*.sha256 | awk '{print $1}' | head -1)
-          LINUX_X86_64_SHA=$(cat release-artifacts/lgtm-v${VERSION}-linux-*.sha256 | awk '{print $1}' | head -1)
           
-          # Default fallback if empty
-          [ -z "$DARWIN_ARM64_SHA" ] && DARWIN_ARM64_SHA=$(shasum -a 256 release-artifacts/*darwin*.tar.gz | awk '{print $1}' | head -1)
-          [ -z "$LINUX_X86_64_SHA" ] && LINUX_X86_64_SHA=$(shasum -a 256 release-artifacts/*linux*.tar.gz | awk '{print $1}' | head -1)
+          DARWIN_ARM64_SHA=$(shasum -a 256 release-artifacts/*darwin*arm64*.tar.gz 2>/dev/null | awk '{print $1}' | head -1)
+          [ -z "$DARWIN_ARM64_SHA" ] && DARWIN_ARM64_SHA=$(shasum -a 256 release-artifacts/*darwin*.tar.gz 2>/dev/null | awk '{print $1}' | head -1)
+          
+          LINUX_X86_64_SHA=$(shasum -a 256 release-artifacts/*linux*x86_64*.tar.gz 2>/dev/null | awk '{print $1}' | head -1)
+          [ -z "$LINUX_X86_64_SHA" ] && LINUX_X86_64_SHA=$(shasum -a 256 release-artifacts/*linux*.tar.gz 2>/dev/null | awk '{print $1}' | head -1)
           
           echo "Updating Homebrew Tap for v${VERSION}..."
           echo "darwin-arm64 sha256: ${DARWIN_ARM64_SHA}"
           echo "linux-x86_64 sha256: ${LINUX_X86_64_SHA}"
           
-          if [ -z "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]; then
-            echo "::warning::HOMEBREW_TAP_TOKEN secret not set. Skipping Homebrew tap formula update."
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning::No token found for Homebrew tap formula update."
             exit 0
           fi
 
-          git clone "https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/mgabs/homebrew-tap.git" tap_repo || {
-            echo "::warning::Failed to clone homebrew-tap repository."
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/mgabs/homebrew-tap.git" tap_repo || {
+            echo "::warning::Failed to clone homebrew-tap repository (check permissions/token)."
             exit 0
           }
+          
+          mkdir -p tap_repo/Formula
           
           cat << 'EOF' > tap_repo/Formula/lgtm.rb
           class Lgtm < Formula
@@ -204,6 +209,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/lgtm.rb
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(lgtm): bump formula to v${VERSION}" && git push origin main) || echo "::warning::Failed to push Homebrew formula update."
+          
+          TARGET_BRANCH="main"
+          git show-ref --verify --quiet refs/heads/master && TARGET_BRANCH="master"
+          
+          if ! git diff --quiet || ! git diff --staged --quiet; then
+            git commit -m "chore(lgtm): bump formula to v${VERSION}"
+            git push origin "$TARGET_BRANCH" || echo "::warning::Failed to push Homebrew formula update to $TARGET_BRANCH."
+          else
+            echo "Homebrew formula already up to date."
+          fi
 
 
