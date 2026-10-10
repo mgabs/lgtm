@@ -1,0 +1,279 @@
+# Product Requirements Document (PRD)
+
+## Title: `lgtm` — Real-Time Terminal Diff Reviewer & Agent Steering Engine
+
+### 1. Executive Summary & Objective
+
+`lgtm` is a fast terminal-based TUI built in **Rust** designed to run adjacent to coding agents (Claude Code, Aider, OpenHands, custom loops) in multiplexed shells (`tmux`, `Zellij`) or standalone terminal windows.
+
+It transforms diff review from a blocking, manual post-step into a live steering loop:
+* Continuous non-blocking diff stream with file-watcher triggers.
+* Vim-native modal navigation, instant fuzzy file switching, and file tree drawer.
+* One-key context injection (`path:line`) directly into agent input panes.
+* Resilient comment re-anchoring across agent iterations.
+* Automated heuristic detection for weakened or neutered tests.
+
+---
+
+### 2. User Personas & Target Audience
+
+* **AI-Assisted Engineers:** Developers pairing with CLI agents who need real-time blast-radius visibility without switching out of their terminal workflow.
+* **Tech Leads & Reviewers:** Engineers verifying large autonomous refactors and guarding test-suite integrity before commits land.
+
+---
+
+### 3. Core Problems & Solutions
+
+| Problem | Solution in `lgtm` |
+| --- | --- |
+| **Manual git diff polling & pager lock** | Continuous reactive watcher; sub-millisecond background re-parsing. |
+| **Clunky multi-file navigation** | Fuzzy file switcher (`Ctrl-p` / `f`), collapsible file tree (`Tab`), sequential hopping (`]f`/`[f`). |
+| **Manual context transcription** | Hitting `Enter` pushes formatted target tokens (`path:line` or code blocks) straight into agent pane. |
+| **Comments lost after agent rewrites** | Line-context fuzzy hashing anchors comments across revisions. |
+| **Agent test regressions (silently deleted assertions)** | Real-time scanner flags deleted `assert`s, skip decorators, and neutered tests. |
+| **External editor disconnect** | One-key jump (`e` / `o`) opens `$EDITOR` at cursor position. |
+
+---
+
+### 4. Feature Specifications
+
+#### 4.1. High-Performance Diff Watcher & Render Engine
+
+* **File Watcher:** Event-driven filesystem monitoring (`notify` using `kqueue`/`inotify`) with debounced fallback polling (300 ms).
+* **Git Engine:** Native git repository walking via `gix` / `git2`. Monitors unstaged changes, staged changes, and untracked files.
+* **View Modes:**
+  * **Unified Diff** (default).
+  * **Side-by-Side / Split Diff** (toggle with `d`).
+* **Folding & Noise Reduction:**
+  * Toggle fold/collapse per file (`za` or `<Space>`).
+  * Auto-collapse lockfiles and vendor artifacts (`package-lock.json`, `Cargo.lock`, etc., configurable).
+* **The Mark (Turn Delta):**
+  * Tracks git tree OIDs across turns in `.lgtm/state.json`.
+  * Visual gutter highlight distinguishing changes made during the *latest agent turn* vs previous baseline.
+
+#### 4.2. Navigation & File Switching
+
+* **Vim Movement:**
+  * Cursor navigation: `h`, `j`, `k`, `l`, `w`, `b`, `e`, `gg`, `G`, `zz`.
+  * Hunk hopping: `]h` / `[h`.
+  * Weakened test hopping: `]w` / `[w`.
+  * Unreviewed file hopping: `]u` / `[u`.
+* **Changed Files Management & Switching:**
+  * **Fixed-Location Changed-Files Panel (Left Sidebar):** Permanent/pinned left panel (fixed 35-col width or 25% viewport) displaying changed files hierarchy, status badges (`[M]`, `[A]`, `[D]`), and reviewed checkmarks (`✓`), with toggle fold (`Tab`).
+  * **Fuzzy File Picker (`Ctrl-p` or `f`):** Modal popup listing all modified/added/deleted files with diff counters (`+X/-Y`) and warning flags. Fuzzy filter and jump directly.
+  * **Sequential File Jump:** `]` / `[` (also aliased to `]f` / `[f`) jumps directly to next / previous changed file in diff buffer.
+  * **Review Status (`v`):** Marks file as reviewed, collapses it, and advances cursor to next unreviewed file.
+* **Editor & Shell Hand-off:**
+  * **Open in Editor (`e` / `o`):** Spawns `$EDITOR` (or `$VISUAL`) at current `file:line`.
+  * **Discard Changes (`X`):** Discards hunk or file changes with confirmation.
+  * **Stage / Unstage (`s`):** Toggles git staging for current hunk or file.
+
+#### 4.3. Agent Steering & IPC Bridge
+
+* **Multiplexer Adapters:**
+  * `tmux`: Targets active agent pane via auto-detection, `--agent-pane=<target>`, or interactive pane picker (`p`); injects payload via `tmux send-keys`.
+  * `Zellij`: Targets agent pane via `zellij action write-chars`.
+  * **Fallback (OSC 52 / Clipboard):** Copies formatted reference to clipboard via OSC 52 or system clipboard.
+* **Payload Triggers:**
+  * `Enter`: Injects `#<ref> <filepath>:<line>` into target pane (suppresses trailing newline so user can append text).
+  * `Visual Line (V) + Enter`: Injects multi-line code snippet reference.
+  * `p`: Opens interactive multiplexer pane selector popup to choose target agent pane.
+
+#### 4.4. Commenting & Review Session Engine
+
+* **Inline Annotations (`c` / `<leader>c`):** Pops up minimal input box to attach review notes or instructions to a line/hunk.
+* **Context-Anchored Persistence:**
+  * Stores comments in `.lgtm/comments.jsonl`.
+  * Uses 3-line sliding context window + fuzzy matching to stick comments to target code across agent rewrites.
+  * Surface orphaned comments (where code was deleted) in a dedicated triage tray.
+* **Batch Prompt Export (`Ctrl-s`):**
+  * Compiles active comments into structured markdown review (`.lgtm/review-<turn>.md`).
+  * Injects batch review prompt into agent input pane.
+
+#### 4.5. Safety, Regression & Agent Cheat Guard
+
+Automated real-time heuristic scanner tagging high-risk agent shortcuts:
+
+* **Test Neutering & Assert Drops:**
+  * Flags deletions or net reductions of assertion statements (`assert`, `expect`, `should`, `assert_eq!`) in existing test files.
+  * Flags newly introduced skip/ignore decorators (`@pytest.mark.skip`, `#[ignore]`, `it.skip`, `xit`, `test.skip`).
+  * Flags diluted assertions (e.g. replacing strict equality with truthy `is not None`).
+* **Test Validity & Fraud Detection (Vacuous Tests):**
+  * **Static Tautology Checks:** Flags tautological comparisons (`assert True`, `x == x`, `expect(true).toBe(true)`).
+  * **Zero-Assertion Tests:** Flags newly added test functions that execute code but contain zero `assert` or `expect` statements.
+  * **SUT Mock Detection:** Flags tests that mock the subject-under-test itself rather than external dependencies.
+  * **Unawaited Async Asserts:** Flags async assertion promises missing `await`.
+  * **Dynamic Mutation Probe (`T` / `lgtm verify-tests`):** Injects a temporary dummy return or panic into the implementation function and runs the test runner. If the test passes despite the broken implementation, it is flagged as fraudulent (vacuous test).
+  * **Negative Baseline Verification:** Checks that newly added tests fail when evaluated against the unmodified `HEAD` base commit.
+* **Critical Injections & Exploits:**
+  * **SQL Injection:** Detects raw SQL string interpolation or formatting on sinks (`cursor.execute(f"...")`, `db.query(f"...")`, string concatenation in SQL statements).
+  * **Command Injection:** Detects `shell=True`, `os.system()`, `child_process.exec()`, or unescaped shell wrapping on added lines.
+  * **Path Traversal:** Detects unsanitized client inputs passed directly into file sinks (`open()`, `fs.readFile()`) without root directory validation.
+  * **SSRF:** Detects unvalidated URLs from client inputs passed directly into HTTP client requests (`requests.get()`, `fetch()`, `axios()`).
+  * **Insecure Deserialization & Eval:** Flags additions of `pickle.loads()`, unsafe `yaml.load()`, `eval()`, or `exec()`.
+* **Security Guardrail Deactivations:**
+  * **TLS Verification Disabled:** Flags `verify=False`, `rejectUnauthorized: false`, `InsecureSkipVerify: true`, or `--insecure`.
+  * **Wildcard CORS:** Flags `allow_origins = ["*"]` or equivalent when credentials are enabled.
+  * **Permissive File Permissions:** Flags `chmod 777` or `0o777`.
+  * **Auth & Route Stripping:** Flags removed route authentication decorators (`@login_required`, `[Authorize]`, `Depends(auth)`) or mock-admin fallbacks.
+  * **Disabled CSRF:** Flags `@csrf_exempt` or `csrf: false`.
+* **Secrets & Credential Leakage:**
+  * **High-Entropy Tokens & Keys:** Regex and Shannon entropy detectors for OpenAI (`sk-...`), AWS (`AKIA...`), GitHub, Slack, and private keys.
+  * **Credential Fallbacks:** Flags environment variable calls with non-empty string defaults (e.g. `os.getenv("SECRET", "fallback")`).
+  * **Staged Secret Files:** Flags changed or untracked `.env*`, `*.pem`, `*.key`, `*credentials*.json`.
+* **Severe Engineering Anti-Patterns:**
+  * **Blocking I/O in Async:** Flags synchronous blocking calls (`time.sleep()`, `requests.get()`, `fs.readFileSync()`) inside `async` functions.
+  * **Memory Leaks:** Flags unbounded module-level collections accumulating unbounded data inside request handlers.
+  * **N+1 Database Queries:** Flags database query sinks executed inside loop constructs.
+  * **Silent Errors & Error Swallowing:** Flags empty catch/except blocks (`except: pass`, `catch (e) {}`, `let _ = result;`).
+  * **Type Escapes & Linter Muting:** Flags added type suppression directives (`as any`, `@ts-ignore`, `// @ts-nocheck`, `typing.cast(Any, ...)`, `#[allow(dead_code)]`).
+* **Supply Chain & Dependency Hazards:**
+  * **Hallucinated / Unvetted Packages:** Flags new dependencies in manifests (`package.json`, `Cargo.toml`, `requirements.txt`) that are not present in project lockfiles or standard registries.
+  * **Unpinned Versions:** Flags dependencies added with `*`, `latest`, or unpinned ranges.
+  * **Malicious Install Scripts:** Flags additions of `preinstall` / `postinstall` shell pipes (`curl | bash`).
+* **Warning System & CI Guard:**
+  * **Severity Badges:**
+    * 🔴 **CRITICAL**: Injections, secrets, hardcoded fallbacks, deleted auth.
+    * 🟠 **HIGH**: Disabled TLS, CORS `*`, `chmod 777`, vacuous tests, hallucinated packages.
+    * 🟡 **WARN**: Blocking I/O in async, empty error handlers, type escapes, debug residue.
+  * **Navigation:** `]w` / `[w` jump directly to next/previous warning across all severity tiers.
+  * **CI & Pre-Commit Guard (`lgtm check`):** CLI command with configurable threshold (`--fail-on=high|critical`) to block commits or PRs.
+
+#### 4.6. CLI & Git Integration
+
+* Standalone binary `lgtm`.
+* Standard Git subcommand compatibility: callable as `git lgtm` when `lgtm` is placed in `$PATH`.
+* Isolated persistence directory `.lgtm/` (auto-added to `.git/info/exclude` or `.gitignore`).
+
+#### 4.7. Supported Languages & Capability Matrix
+
+| Tier | Languages & Ecosystems | Capabilities Supported |
+| --- | --- | --- |
+| **Tier 1 (First-Class)** | **Python, TypeScript, JavaScript, Rust, Go** | • Full syntax highlighting<br>• Test neutering & assert drop analysis<br>• Vacuous/tautological test detection & mutation probe (`T`)<br>• Framework-specific injection sinks (SQLi, SSRF, command exec)<br>• Async blocking I/O crawler<br>• Package manifest & lockfile churn validation |
+| **Tier 2 (Universal Rules)** | **Java, Kotlin, C, C++, C#, Ruby, PHP, Swift** | • Syntax highlighting<br>• Universal regex safety heuristics<br>• Hardcoded secrets & high-entropy token detection<br>• Insecure TLS / CORS / `chmod 777` deactivations<br>• Common skip annotations (`@Ignore`, `#[ignore]`)<br>• Raw SQL concatenation & bare error catches |
+| **Tier 3 (Universal Files)** | **All Text & Config Files** (SQL, Shell, YAML, JSON, TOML, Markdown, etc.) | • Reactive diff watcher & unified/split render<br>• Turn delta ("The Mark") tracking<br>• Fuzzy file picker (`Ctrl-p`/`f`), tree drawer (`Tab`), fast hopping (`[`/`]`)<br>• `$EDITOR` jump (`e`/`o`) and staging controls (`s`/`X`)<br>• Agent steering via `tmux` / `Zellij` / clipboard (`Enter`)<br>• Line context comment anchoring (`c`, `Ctrl-s`) |
+
+#### 4.8. CI/CD Mode & GitHub PR Review Bot (`lgtm ci`)
+
+Headless execution mode for GitHub Actions, GitLab CI, and pre-merge automation:
+
+* **Invocation & Environment:**
+  * CLI command: `lgtm ci --base <base_sha> --head <head_sha> [--fail-on <severity>]`
+  * Auto-detects CI environments (`GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `GITHUB_REF`, `GITHUB_EVENT_PATH`).
+* **PR Inline Review Comments:**
+  * Uses GitHub REST/GraphQL API to post line-anchored review comments directly on the PR diff for every detected violation (test neutering, fraudulent tests, SQLi, hardcoded secrets, TLS deactivations).
+  * Includes automated remediation suggestion blocks (GitHub diff suggestion syntax).
+* **PR Summary Status Comment (Sticky):**
+  * Posts/updates a single clean markdown summary comment on the PR overview:
+    * Diff blast-radius metrics.
+    * Test integrity score (assertion delta counter).
+    * Vulnerability table (🔴 CRITICAL, 🟠 HIGH, 🟡 WARN).
+    * **Agent Remediation Prompt:** Auto-generated prompt block formatted for agents (Claude Code / Aider) to consume and automatically fix flagged issues.
+* **Native CI Workflow Annotations & Gates:**
+  * Emits GitHub workflow log commands (`::error file={path},line={line}::{msg}`, `::warning`).
+  * Non-zero exit code on threshold breaches (`--fail-on=critical|high`) to block PR merging.
+* **Official GitHub Action Wrapper:**
+  * Lightweight composite action: `uses: lgtm-cli/action@v1`.
+
+---
+
+### 5. Technical Architecture (Rust)
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                          lgtm Core                          │
+│                                                             │
+│  ┌─────────────────┐       ┌─────────────────────────────┐  │
+│  │ notify Watcher  │──────>│ Git Engine (gix / git2)     │  │
+│  │ (kqueue/inotify)│       │ Diff Generation & Turn OID  │  │
+│  └─────────────────┘       └──────────────┬──────────────┘  │
+│                                           │                 │
+│                                           ▼                 │
+│  ┌─────────────────┐       ┌─────────────────────────────┐  │
+│  │ File Picker &   │       │ Heuristics & Comment Engine │  │
+│  │ Sidebar Drawer  │<─────>│ (Test Guard + Context Hash) │  │
+│  └────────┬────────┘       └──────────────┬──────────────┘  │
+│           │                               │                 │
+│           ▼                               ▼                 │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ Terminal UI Engine (ratatui + crossterm)              │  │
+│  └──────────────────────────┬────────────────────────────┘  │
+│                             │                               │
+│                             ▼                               │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ IPC Bridge (tmux / Zellij / OSC 52 clipboard)         │  │
+│  └──────────────────────────┬────────────────────────────┘  │
+└─────────────────────────────┼───────────────────────────────┘
+                              ▼
+            ┌───────────────────────────────────┐
+            │ Active Agent Pane (Claude, etc.)  │
+            └───────────────────────────────────┘
+```
+
+#### Key Crate Dependencies:
+* `ratatui` + `crossterm`: Terminal UI rendering, event loop, mouse/keyboard handling.
+* `git2` (primary for MVP stability) / `gix` (future static pure-Rust target): Repository inspection, tree diffing, status checks.
+* `notify`: Filesystem events with debouncing.
+* `similar`: Fast diff computation algorithms.
+* `nucleo` or `fuzzy-matcher`: Zero-allocation fuzzy matching for file picker.
+* `crossbeam-channel`: Lock-free channel communication between background worker and TUI loop.
+* `serde` + `serde_json`: Persistence for `.lgtm/` state and comments.
+* `tree-sitter` (optional/lightweight) or regex-based hunk tokenizers for syntax and test guard heuristics.
+
+#### Architectural Principles & Threading Model:
+* **Strict UI/Worker Concurrency Isolation:**
+  * File watcher events (`notify`), `git2` diff parsing, and security/test regex scans execute entirely in a background worker thread.
+  * TUI main loop (`crossterm`/`ratatui`) consumes immutable snapshots over `crossbeam-channel` and NEVER blocks on disk, git, or network I/O.
+* **Crate Choice:** `git2` (libgit2 bindings) selected for MVP for rock-solid stability across git worktree edge cases.
+* **YAGNI Phase 1 Discipline:** Phase 1 focuses exclusively on reactive diff stream, fast file switching (`f`/`Tab`/`[`/`]`), and `tmux send-keys` steering before layer-2 heuristics are introduced.
+
+#### Non-Functional Targets:
+* **Binary Size:** $\le 5\text{ MB}$ (release profile with LTO + strip).
+* **Memory Footprint:** $\le 20\text{ MB}$ on 10,000-line diffs.
+* **Latency:** $< 2\text{ ms}$ input latency; $< 5\text{ ms}$ diff re-computation on small-medium repo changes.
+* **Platform Support:** Linux (x86_64, aarch64), macOS (Apple Silicon, Intel).
+
+---
+
+### 6. Keybinding Reference Map
+
+| Mode | Key | Action |
+| --- | --- | --- |
+| **File Switching** | `Ctrl-p` / `f` | Open fuzzy changed-files picker |
+| | `Tab` | Toggle changed-files tree drawer |
+| | `]` / `[` (or `]f` / `[f`) | Jump to next / previous changed file |
+| | `]u` / `[u` | Jump to next / previous unreviewed file |
+| | `v` | Mark file reviewed, fold, jump to next |
+| **Diff Nav** | `j` / `k` / `h` / `l` | Scroll buffer / move cursor |
+| | `]h` / `[h` | Next / previous hunk |
+| | `]w` / `[w` | Next / previous weakened test alert |
+| | `za` / `<Space>` | Toggle file fold |
+| | `d` | Toggle unified vs side-by-side view |
+| **Steering / IPC** | `Enter` | Inject `path:line` to agent pane |
+| | `p` | Select target agent multiplexer pane |
+| | `c` | Add inline comment at cursor |
+| | `Ctrl-s` | Compile & send all comments to agent |
+| **Editing** | `e` / `o` | Open file in `$EDITOR` at cursor |
+| | `s` | Stage / unstage current hunk or file |
+| | `X` | Discard hunk or file changes |
+| **Verification** | `T` | Run test validity & mutation probe on test under cursor |
+
+---
+
+### 7. Milestones & Phasing
+
+* **Phase 1: Core Engine & TUI MVP (Weeks 1–3)**
+  * `notify` + `git2`/`gix` reactive diff watcher.
+  * Ratatui diff renderer with unified view and hunk folding.
+  * Changed files drawer (`Tab`) and fuzzy file picker (`f` / `Ctrl-p`).
+  * `tmux send-keys` context injection on `Enter`.
+* **Phase 2: Review Intelligence & Steering (Weeks 4–6)**
+  * Inline comment dialog and `.lgtm/comments.jsonl` context anchoring.
+  * Batch prompt builder (`Ctrl-s`).
+  * Weakened-test & fraudulent test validity heuristics (`T` mutation probe).
+  * Side-by-side diff mode (`d`).
+* **Phase 3: Polish & Ecosystem (Weeks 7–8)**
+  * Zellij and OSC 52 clipboard fallback adapters.
+  * `$EDITOR` hand-off (`e`/`o`) and stage/discard controls (`s`/`X`).
+  * Headless CI mode (`lgtm ci`) and GitHub PR review bot (inline diff comments + sticky summary).
+  * Composite GitHub Action (`lgtm-cli/action@v1`) and CLI gating (`--fail-on=...`).

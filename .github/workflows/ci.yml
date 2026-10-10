@@ -1,0 +1,69 @@
+name: LGTM CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Quality Gate & Test Coverage (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy Linter
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run Unit & Integration Tests
+        run: cargo test --verbose -- --nocapture
+
+      - name: Run Code Coverage Gate (>= 90%)
+        run: ./scripts/coverage.sh 90.0
+
+      - name: Run Mutation Testing Gate (>= 90%)
+        run: ./scripts/mutate.sh 90.0
+
+      - name: Generate Security & Test Guard SARIF Report
+        run: cargo run -- ci --format sarif --output lgtm-results.sarif
+
+      - name: Upload SARIF Security Report to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && matrix.os == 'ubuntu-latest' && github.event_name != 'pull_request'
+        with:
+          sarif_file: lgtm-results.sarif
+          category: lgtm-security-guard
+
+      - name: Build Optimized Release Binary
+        run: cargo build --release
+
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lgtm-${{ matrix.os }}
+          path: target/release/lgtm
+          retention-days: 14

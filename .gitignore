@@ -1,0 +1,7 @@
+/target/
+/.lgtm/
+**/*.rs.bk
+*.swp
+.DS_Store
+*.sarif
+
