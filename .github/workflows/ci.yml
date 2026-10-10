@@ -56,7 +56,7 @@ jobs:
         run: cargo run -- ci --format sarif --output lgtm-results.sarif
 
       - name: Upload SARIF Security Report to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always() && matrix.os == 'ubuntu-latest' && github.event_name != 'pull_request'
         with:
           sarif_file: lgtm-results.sarif
@@ -151,7 +151,15 @@ jobs:
           echo "darwin-arm64 sha256: ${DARWIN_ARM64_SHA}"
           echo "linux-x86_64 sha256: ${LINUX_X86_64_SHA}"
           
-          git clone "https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}@github.com/mgabs/homebrew-tap.git" tap_repo || exit 0
+          if [ -z "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN secret not set. Skipping Homebrew tap formula update."
+            exit 0
+          fi
+
+          git clone "https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/mgabs/homebrew-tap.git" tap_repo || {
+            echo "::warning::Failed to clone homebrew-tap repository."
+            exit 0
+          }
           
           cat << 'EOF' > tap_repo/Formula/lgtm.rb
           class Lgtm < Formula
@@ -196,6 +204,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/lgtm.rb
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(lgtm): bump formula to v${VERSION}" && git push origin main)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(lgtm): bump formula to v${VERSION}" && git push origin main) || echo "::warning::Failed to push Homebrew formula update."
 
 
