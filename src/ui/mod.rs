@@ -1586,7 +1586,7 @@ fn render_commit_modal(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
-    let popup_area = centered_rect(80, 90, area);
+    let popup_area = centered_rect(82, 92, area);
     frame.render_widget(Clear, popup_area);
 
     let chunks = Layout::default()
@@ -1599,12 +1599,13 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
         .split(popup_area);
 
     let tab_titles = [
-        "1: Motions",
-        "2: Review & Commit",
-        "3: Hunk Folding",
-        "4: Guardrails",
-        "5: Ex-Commands",
-        "6: CI/CD & Gates",
+        "1: Overview & Modes",
+        "2: Motions & Nav",
+        "3: Review & Directives",
+        "4: Staging & Forge",
+        "5: Hunk Folding",
+        "6: Guardrails",
+        "7: Ex-Cmds & CI",
     ];
 
     let tab_spans: Vec<Line> = tab_titles
@@ -1630,7 +1631,90 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
 
     let (content_title, help_lines) = match app.help_selected_tab {
         0 => (
-            " Tab 1: Vim Motions & Code Navigation ",
+            " Tab 1: Overview, Workflow & System Modes ",
+            vec![
+                Line::from(vec![Span::styled(
+                    "HOW TO USE LGTM (CORE WORKFLOW)",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(vec![
+                    Span::styled("  1. Navigate Diffs: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw("Browse changed files and hunks with Vim motions (j/k, ]f/[f, ]h/[h)."),
+                ]),
+                Line::from(vec![
+                    Span::styled("  2. Guardrail Scan: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw("Jump between security alerts and complexity spikes with ]w / [w."),
+                ]),
+                Line::from(vec![
+                    Span::styled("  3. Steer Agents:   ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw("Add inline directives (c), thread replies (r), blast to tmux (Enter / Ctrl-s)."),
+                ]),
+                Line::from(vec![
+                    Span::styled("  4. Stage & Clean:  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw("Stage good hunks (s), fold clean hunks (zc), discard bad edits (x / X)."),
+                ]),
+                Line::from(vec![
+                    Span::styled("  5. Commit Forge:   ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw("Press C to auto-synthesize conventional commits from staged diffs."),
+                ]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "SYSTEM MODES & KEYBOARD STATES",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(vec![
+                    Span::styled("  NORMAL Mode        ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Diff navigation, staging (s/u), hunk folding (zc/zo), file review marks (v)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  COMMAND / EX Mode  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Press ':' for wildmenu auto-complete (:w, :q, :commit, :prs, :pane, :risk, :<line>)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  SEARCH Mode        ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Press '/' for regex diff search; cycle matches with 'n' (next) and 'N' (previous)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  COMMENT Mode       ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Press 'c' to enter inline directive text; press Enter to save or Esc to cancel"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  COMMIT FORGE Mode  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Press 'C' to edit synthesized conventional commit message and commit to repo"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  PR REVIEW Mode     ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Run 'lgtm pr <id>' or ':pr <id>' to stream and review GitHub PR diffs live"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  HELP Mode          ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Press '?' or 'h' to open this interactive guide; switch tabs with Tab or 1-7"),
+                ]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "ONLINE DOCUMENTATION & HELP",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(vec![
+                    Span::styled("  GitHub Repo:       ", Style::default().fg(Color::Cyan)),
+                    Span::raw("https://github.com/mgabs/lgtm"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Documentation:     ", Style::default().fg(Color::Cyan)),
+                    Span::raw("https://github.com/mgabs/lgtm#readme"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Issues & Requests: ", Style::default().fg(Color::Cyan)),
+                    Span::raw("https://github.com/mgabs/lgtm/issues"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Discussions:       ", Style::default().fg(Color::Cyan)),
+                    Span::raw("https://github.com/mgabs/lgtm/discussions"),
+                ]),
+            ],
+        ),
+        1 => (
+            " Tab 2: Vim Motions & Code Navigation ",
             vec![
                 Line::from(vec![Span::styled(
                     "CURSOR & SCROLLING",
@@ -1691,9 +1775,21 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
-                    "VIEWPORT CONTROLS",
+                    "VIEWPORT & SEARCH CONTROLS",
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 )]),
+                Line::from(vec![
+                    Span::styled("  /                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Interactive regex search across entire diff"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  n / N            ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Jump to next / previous search match"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  * / #            ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Search word under cursor forward / backward"),
+                ]),
                 Line::from(vec![
                     Span::styled("  zz / zt / zb     ", Style::default().fg(Color::Cyan)),
                     Span::raw("Center view on cursor / Cursor to top of view / Cursor to bottom"),
@@ -1716,8 +1812,8 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
             ],
         ),
-        1 => (
-            " Tab 2: Review Directives & Commit Forge ",
+        2 => (
+            " Tab 3: Review Directives & Agent Steering ",
             vec![
                 Line::from(vec![Span::styled(
                     "INLINE REVIEW DIRECTIVES & AGENT STEERING",
@@ -1756,21 +1852,34 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Open tmux pane selector to target specific agent session"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  <Space>y         ", Style::default().fg(Color::Cyan)),
+                    Span::styled("  <Space>y / yr    ", Style::default().fg(Color::Cyan)),
                     Span::raw("Yank #ref file:line anchor to system clipboard via OSC 52"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  y                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Yank raw current line content to clipboard"),
                 ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
-                    "GIT STAGING & COMMIT FORGE",
+                    "REVIEW STATUS MARKS",
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 )]),
                 Line::from(vec![
-                    Span::styled("  V                ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Toggle Visual Line Selection mode to stage/discard arbitrary line ranges"),
+                    Span::styled("  v                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Toggle reviewed status checkmark (✓) for current file (persisted in .lgtm/state.json)"),
                 ]),
+            ],
+        ),
+        3 => (
+            " Tab 4: Git Staging & Interactive Commit Forge ",
+            vec![
+                Line::from(vec![Span::styled(
+                    "GIT HUNK & FILE STAGING",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )]),
                 Line::from(vec![
                     Span::styled("  s                ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Stage current hunk (or selected visual lines) in Git index"),
+                    Span::raw("Stage current hunk (or selected visual lines) into Git index"),
                 ]),
                 Line::from(vec![
                     Span::styled("  S                ", Style::default().fg(Color::Cyan)),
@@ -1785,21 +1894,33 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Unstage entire current file from Git index"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  C (or :commit)   ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open Commit Forge modal to craft conventional commits directly to repo"),
+                    Span::styled("  V                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Toggle Visual Line Selection mode to stage/discard arbitrary line ranges"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  <Space>x         ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Discard changes in current hunk"),
                 ]),
                 Line::from(vec![
                     Span::styled("  X                ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Discard unstaged changes in current file (git restore)"),
+                    Span::raw("Discard all working tree changes in current file (git restore)"),
                 ]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "COMMIT FORGE (:commit / C)",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )]),
                 Line::from(vec![
-                    Span::styled("  v                ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Toggle reviewed status checkmark (✓) for current file"),
+                    Span::styled("  C / :commit      ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open interactive Commit Forge modal for staged hunks"),
                 ]),
+                Line::from("  • Automatically synthesizes Conventional Commit messages (feat:, fix:, chore:, refactor:)."),
+                Line::from("  • Live edit commit title & body before committing."),
+                Line::from("  • Press Enter in Commit Forge to execute git commit immediately with instant feedback."),
             ],
         ),
-        2 => (
-            " Tab 3: Syntax-Aware AST & Hunk Folding ",
+        4 => (
+            " Tab 5: Syntax-Aware AST & Hunk Folding ",
             vec![
                 Line::from(vec![Span::styled(
                     "HUNK FOLDING CONTROLS",
@@ -1814,12 +1935,16 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Unfold current hunk to expand and inspect all diff lines"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  zM               ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Fold ALL hunks across all changed files in the diff"),
+                    Span::styled("  za               ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Toggle fold state of current hunk under cursor"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  zR               ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Unfold ALL hunks across all changed files in the diff"),
+                    Span::styled("  zM / zm          ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Fold ALL hunks across the current file / diff"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  zR / zr          ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Unfold ALL hunks across the current file / diff"),
                 ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
@@ -1832,8 +1957,8 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 Line::from("  • Press `zo` on any folded hunk to inspect or stage individual lines."),
             ],
         ),
-        3 => (
-            " Tab 4: Security Guardrails & Static Analysis ",
+        5 => (
+            " Tab 6: Security Guardrails & Static Analysis ",
             vec![
                 Line::from(vec![Span::styled(
                     "REAL-TIME STATIC ANALYSIS & CODE QUALITY GUARDS",
@@ -1853,11 +1978,11 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  🟠 Cognitive Complexity:    ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-                    Span::raw("Warns when agent code spikes complexity (+15 points or nested loops/conditions)"),
+                    Span::raw("Warns when agent code spikes complexity (+5 points or nested loops/conditions)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  🟠 Identifier Typo Sniffer: ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-                    Span::raw("Levenshtein distance sniffer catching 1-char typos against symbol index (e.g. usertoken)"),
+                    Span::raw("Levenshtein distance sniffer catching 1-2 char typos against symbol index (e.g. usertoken)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  🟠 Breaking Public API Drift: ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
@@ -1865,7 +1990,7 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  🟡 Dead Code Additions (YAGNI): ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::raw("Flags unreferenced helper functions added by agents with 0 call sites in diff"),
+                    Span::raw("Flags unreferenced helper functions added by agents with 0 call sites across repo"),
                 ]),
                 Line::from(vec![
                     Span::styled("  🟠 Test Neutering & Skips:   ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
@@ -1877,8 +2002,8 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
             ],
         ),
-        4 => (
-            " Tab 5: Ex-Commands (:command reference) ",
+        6 => (
+            " Tab 7: Ex-Commands & Headless CI Integration ",
             vec![
                 Line::from(vec![Span::styled(
                     "EX-COMMAND REFERENCE (Type ':' in diff view, press Tab to cycle)",
@@ -1921,72 +2046,30 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Toggle Unified vs Side-by-Side Split Diff mode"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :c, :comments, :todo ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open review directives management drawer"),
-                ]),
-                Line::from(vec![
-                    Span::styled("  :r, :review, :send   ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Export batch directives prompt and blast to target agent / PR"),
-                ]),
-                Line::from(vec![
                     Span::styled("  :risk, :audit, :scan ", Style::default().fg(Color::Cyan)),
                     Span::raw("Re-run security, test fraud, and architecture audits across diff"),
                 ]),
-                Line::from(vec![
-                    Span::styled("  :reload, :e, :edit   ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Reload diff snapshot from git working tree or GitHub PR"),
-                ]),
-                Line::from(vec![
-                    Span::styled("  :resolve [all]       ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Mark directive on current line (or all directives) as resolved"),
-                ]),
-                Line::from(vec![
-                    Span::styled("  :unresolve [all]     ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Mark directive on current line (or all directives) as active"),
-                ]),
-                Line::from(vec![
-                    Span::styled("  :clear-resolved      ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Purge all resolved directives while preserving active ones"),
-                ]),
-            ],
-        ),
-        5 => (
-            " Tab 6: CLI Gate & Headless CI Integration ",
-            vec![
+                Line::from(""),
                 Line::from(vec![Span::styled(
                     "HEADLESS CI / CD & PRE-COMMIT GATES",
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 )]),
                 Line::from(vec![
                     Span::styled("  lgtm check           ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                    Span::raw("Headless gate for GitHub Actions & CI. Exits with code 1 if Critical/High risks found."),
+                    Span::raw("Headless gate for GitHub Actions & CI. Exits code 1 on Critical/High risks."),
                 ]),
                 Line::from(vec![
                     Span::styled("  lgtm scan            ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                    Span::raw("Recursive audit of ALL repository source files for security & architecture health."),
+                    Span::raw("Recursive audit of ALL repo source files for security & quality health."),
                 ]),
                 Line::from(vec![
                     Span::styled("  lgtm scan -o rep.md  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                    Span::raw("Generates full Markdown audit scorecard (Grade A/B/C/F) & agent remediation prompts."),
+                    Span::raw("Generates full Markdown audit scorecard (Grade A/B/C/F) & remediation steps."),
                 ]),
                 Line::from(vec![
                     Span::styled("  lgtm scan -f sarif   ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                     Span::raw("Exports standard SARIF JSON for GitHub Security Code Scanning tab upload."),
                 ]),
-                Line::from(vec![
-                    Span::styled("  lgtm diff            ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                    Span::raw("Non-interactive diff dump with colorized security risk summary."),
-                ]),
-                Line::from(""),
-                Line::from(vec![Span::styled(
-                    "GITHUB ACTIONS WORKFLOW RECIPE",
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                )]),
-                Line::from("  - name: Run LGTM Security & Quality Gate"),
-                Line::from("    run: lgtm check"),
-                Line::from("  - name: Generate Security SARIF Report"),
-                Line::from("    if: always()"),
-                Line::from("    run: lgtm scan --format sarif --output lgtm-results.sarif"),
             ],
         ),
         _ => (" Help ", vec![Line::from("No help content")]),
@@ -2003,23 +2086,51 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(content_block, chunks[1]);
 
     let footer_text = Line::from(vec![
-        Span::styled(" Navigation: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Tabs: ", Style::default().fg(Color::DarkGray)),
         Span::styled(
-            "Tab / l / →",
+            "Tab",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" / "),
+        Span::styled(
+            "l",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" / "),
+        Span::styled(
+            "→",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Next | "),
         Span::styled(
-            "BackTab / h / ←",
+            "BackTab",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" / "),
+        Span::styled(
+            "h",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" / "),
+        Span::styled(
+            "←",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Prev | "),
         Span::styled(
-            "1-6",
+            "1-7",
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),

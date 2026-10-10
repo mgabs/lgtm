@@ -1379,11 +1379,11 @@ impl App {
                 self.active_view = ActiveView::Diff;
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(']') => {
-                self.help_selected_tab = (self.help_selected_tab + 1) % 6;
+                self.help_selected_tab = (self.help_selected_tab + 1) % 7;
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('[') => {
                 if self.help_selected_tab == 0 {
-                    self.help_selected_tab = 5;
+                    self.help_selected_tab = 6;
                 } else {
                     self.help_selected_tab -= 1;
                 }
@@ -1394,6 +1394,7 @@ impl App {
             KeyCode::Char('4') => self.help_selected_tab = 3,
             KeyCode::Char('5') => self.help_selected_tab = 4,
             KeyCode::Char('6') => self.help_selected_tab = 5,
+            KeyCode::Char('7') => self.help_selected_tab = 6,
             _ => {}
         }
     }
