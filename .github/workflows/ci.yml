@@ -100,17 +100,24 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Determine Version
+        id: get_version
+        run: |
+          VERSION=$(grep '^version =' Cargo.toml | head -1 | cut -d '"' -f2)
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Create / Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.0
-          name: "lgtm v0.1.0 — Fast Real-Time Terminal Diff Reviewer"
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          name: "lgtm v${{ steps.get_version.outputs.VERSION }} — Fast Real-Time Terminal Diff Reviewer"
           body: |
-            ## 🚀 lgtm v0.1.0 Release
+            ## 🚀 lgtm v${{ steps.get_version.outputs.VERSION }} Release
             
             **Fast, real-time terminal diff reviewer & AI agent steering TUI built in Rust.**
             
             ### What's New
+            - **Zero-Dependency Homebrew Distribution**: Standalone pre-compiled static binary bundling OpenSSL & libgit2.
             - **Vim Motion Engine**: Full `j/k`, `gg/G`, `0/$`, `{/}`, `]f/[f`, `]h/[h`, `]c/[c`, `]w/[w`, `]u/[u`, `zz/zt/zb`, `/`, `n/N`, `*`, `#`, `y`, `PgUp/PgDn`.
             - **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with wildmenu `<Tab>` autocompletion.
             - **Security & Test Guard**: AST & regex detection for SQLi, command injection, secret leakage, TLS bypass, and test neutering.
