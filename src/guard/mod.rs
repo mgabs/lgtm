@@ -198,9 +198,53 @@ impl SecurityAndTestGuard {
 
     pub fn scan_snapshot(files: &[FileDiff]) -> Vec<GuardAlert> {
         let mut all_alerts = Vec::new();
+        let mut total_logic_lines = 0;
+        let mut total_assert_additions = 0;
+
         for file in files {
-            all_alerts.extend(Self::scan_file(file));
+            let alerts = Self::scan_file(file);
+            all_alerts.extend(alerts);
+
+            let path_str = file.display_name();
+            let is_test = is_test_path(&path_str);
+
+            for hunk in &file.hunks {
+                for line in &hunk.lines {
+                    if line.line_type == LineType::Addition {
+                        let text = line.content.trim();
+                        if !text.is_empty()
+                            && !text.starts_with("//")
+                            && !text.starts_with('#')
+                            && text != "{"
+                            && text != "}"
+                        {
+                            if is_test {
+                                if is_assertion_line(text) {
+                                    total_assert_additions += 1;
+                                }
+                            } else {
+                                total_logic_lines += 1;
+                            }
+                        }
+                    }
+                }
+            }
         }
+
+        // Assertion Density Gate: alert if substantial new logic is added without any assertions
+        if total_logic_lines >= 30 && total_assert_additions == 0 {
+            all_alerts.push(GuardAlert {
+                severity: Severity::High,
+                title: "Zero Assertions for New Logic".to_string(),
+                description: format!(
+                    "Added {} lines of production code with 0 new test assertions",
+                    total_logic_lines
+                ),
+                line_no: None,
+                file_path: "diff".to_string(),
+            });
+        }
+
         all_alerts
     }
 }
@@ -479,6 +523,42 @@ mod tests {
 
         let snapshot_alerts = SecurityAndTestGuard::scan_snapshot(&[file]);
         assert_eq!(snapshot_alerts.len(), alerts.len());
+    }
+
+    #[test]
+    fn test_snapshot_assertion_density_gate() {
+        let mut lines = Vec::new();
+        for i in 1..=35 {
+            lines.push(DiffLine {
+                line_type: LineType::Addition,
+                content: format!("let compute_step_{} = process_data({});", i, i),
+                old_line_num: None,
+                new_line_num: Some(i),
+            });
+        }
+
+        let prod_file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/engine.rs"),
+            change_type: ChangeType::Added,
+            additions: 35,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@ -0,0 +1,35 @@".to_string(),
+                old_start: 0,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 35,
+                lines,
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        };
+
+        let alerts = SecurityAndTestGuard::scan_snapshot(&[prod_file]);
+        assert!(alerts
+            .iter()
+            .any(|a| a.title.contains("Zero Assertions for New Logic")));
     }
 
     #[test]
