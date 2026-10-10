@@ -122,6 +122,45 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 
 ---
 
+## Testing & Quality Gates
+
+`lgtm` enforces strict test coverage ($\ge 90\%$) and automated mutation testing ($\ge 90\%$ mutation score):
+
+```bash
+# Run unit & integration test suite (39 tests)
+make test
+
+# Enforce code coverage (>=90% threshold gate)
+make coverage
+
+# Run automated mutation testing (12 mutant operators, >=90% kill gate)
+make mutate
+
+# Run full CI gate locally (fmt, lint, test, coverage, mutation, risk, sarif)
+make check
+```
+
+---
+
+## Makefile Targets
+
+| Target | Description |
+| --- | --- |
+| `make build` | Compile debug binary |
+| `make release` | Compile optimized release binary |
+| `make test` | Run all unit & integration tests |
+| `make coverage` | Generate llvm-cov summary & enforce $\ge 90\%$ line coverage |
+| `make mutate` | Run mutation testing engine & enforce $\ge 90\%$ mutation kill score |
+| `make lint` | Run `cargo clippy -- -D warnings` |
+| `make fmt` | Check code formatting with `cargo fmt` |
+| `make check` | Run complete test, lint, coverage, and mutation test suite |
+| `make risk` | Run headless security and test fraud audit on git diff |
+| `make ci` | Generate SARIF 2.1.0 security report (`lgtm-results.sarif`) |
+| `make install` | Install binary into `~/.cargo/bin` |
+| `make clean` | Clean build artifacts and coverage files |
+
+---
+
 ## Architecture
 
 ```
@@ -136,7 +175,14 @@ lgtm/
 │   ├── guard/mod.rs    # AST & regex security scanner & test fraud detector
 │   ├── comment/mod.rs  # Directive storage, PR metadata & batch review compiler
 │   ├── turn/mod.rs     # Turn manager & reviewed file tracker (.lgtm/state.json)
-│   └── ipc/mod.rs      # Tmux pane injector & OSC 52 clipboard fallback
+│   ├── ipc/mod.rs      # Tmux pane injector & OSC 52 clipboard fallback
+│   └── mutate/mod.rs   # Mutation testing engine (12 AST/binary mutant operators)
+├── scripts/
+│   ├── coverage.sh     # Automated coverage enforcer script
+│   └── mutate.sh       # Automated mutation test runner
+├── .github/workflows/
+│   └── ci.yml          # Multi-OS CI pipeline with SARIF upload & release matrix
+├── Makefile            # All-in-one developer automation
 └── Cargo.toml
 ```
 
@@ -145,3 +191,4 @@ lgtm/
 ## License
 
 MIT
+
