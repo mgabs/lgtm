@@ -1586,7 +1586,7 @@ fn render_commit_modal(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
-    let popup_area = centered_rect(82, 92, area);
+    let popup_area = centered_rect(88, 92, area);
     frame.render_widget(Clear, popup_area);
 
     let chunks = Layout::default()
@@ -1599,26 +1599,49 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
         .split(popup_area);
 
     let tab_titles = [
-        "1: Overview & Modes",
-        "2: Motions & Nav",
-        "3: Review & Directives",
-        "4: Staging & Forge",
-        "5: Hunk Folding",
-        "6: Guardrails",
-        "7: Ex-Cmds & CI",
+        "1:Overview",
+        "2:Motions",
+        "3:Review",
+        "4:Staging",
+        "5:Folding",
+        "6:Guards",
+        "7:CI/Ex",
     ];
 
     let tab_spans: Vec<Line> = tab_titles
         .iter()
-        .map(|t| Line::from(Span::raw(*t)))
+        .enumerate()
+        .map(|(idx, title)| {
+            if idx == app.help_selected_tab {
+                Line::from(vec![Span::styled(
+                    format!(" ▶ {} ", title),
+                    Style::default()
+                        .bg(Color::Cyan)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                )])
+            } else {
+                Line::from(vec![Span::styled(
+                    format!(" {} ", title),
+                    Style::default().fg(Color::Gray),
+                )])
+            }
+        })
         .collect();
+
+    let guide_title = format!(
+        " 📖 LGTM Documentation [Tab {}/7: {}] ",
+        app.help_selected_tab + 1,
+        tab_titles.get(app.help_selected_tab).unwrap_or(&"")
+    );
 
     let tabs = Tabs::new(tab_spans)
         .select(app.help_selected_tab)
+        .divider("│")
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" 📖 LGTM Interactive Documentation & Keyboard Guide ")
+                .title(guide_title)
                 .border_style(Style::default().fg(Color::Cyan)),
         )
         .highlight_style(
