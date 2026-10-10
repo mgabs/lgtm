@@ -3612,4 +3612,71 @@ mod tests {
         app.handle_commit_modal_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.active_view, ActiveView::Diff);
     }
+
+    #[test]
+    fn test_bracket_navigation_double_press() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = create_test_app();
+        app.snapshot.files = vec![
+            crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("file1.rs"),
+                change_type: crate::model::ChangeType::Added,
+                additions: 1,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+            crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("file2.rs"),
+                change_type: crate::model::ChangeType::Added,
+                additions: 1,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+            crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("file3.rs"),
+                change_type: crate::model::ChangeType::Added,
+                additions: 1,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+        ];
+        app.selected_file_idx = 0;
+
+        let key_close_bracket = KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE);
+        let key_open_bracket = KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE);
+
+        // Press ']' (sets leader)
+        app.handle_diff_key(key_close_bracket);
+        assert_eq!(app.pending_leader, Some(']'));
+        assert_eq!(app.selected_file_idx, 0);
+
+        // Press ']' (completes ']]' -> moves to file 1)
+        app.handle_diff_key(key_close_bracket);
+        assert_eq!(app.pending_leader, None);
+        assert_eq!(app.selected_file_idx, 1);
+
+        // Press ']' then ']' again -> moves to file 2
+        app.handle_diff_key(key_close_bracket);
+        app.handle_diff_key(key_close_bracket);
+        assert_eq!(app.selected_file_idx, 2);
+
+        // Press '[' then '[' -> moves to file 1
+        app.handle_diff_key(key_open_bracket);
+        app.handle_diff_key(key_open_bracket);
+        assert_eq!(app.selected_file_idx, 1);
+
+        // Press '[' then '[' -> moves to file 0
+        app.handle_diff_key(key_open_bracket);
+        app.handle_diff_key(key_open_bracket);
+        assert_eq!(app.selected_file_idx, 0);
+    }
 }
