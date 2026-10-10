@@ -62,6 +62,10 @@ clean:
 	cargo clean
 	rm -f lgtm-results.sarif .lgtm/review-*.md .lgtm/pr-*-review.md
 
+## Update local Homebrew tap formula
+tap:
+	./scripts/update-tap.sh ../homebrew-tap
+
 ## Show available Makefile targets
 help:
 	@echo "Available make targets:"
@@ -75,5 +79,7 @@ help:
 	@echo "  make check       - Full pre-commit check (fmt + lint + test + cov + mut)"
 	@echo "  make risk        - Run security & test guard audit"
 	@echo "  make ci          - Run CI pipeline with SARIF report"
+	@echo "  make tap         - Update local Homebrew tap formula"
 	@echo "  make install     - Install binary to cargo path"
 	@echo "  make clean       - Remove target/ and artifacts"
+

@@ -135,3 +135,67 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Update Homebrew Tap Formula
+        if: success()
+        shell: bash
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          DARWIN_ARM64_SHA=$(cat release-artifacts/lgtm-v${VERSION}-darwin-*.sha256 | awk '{print $1}' | head -1)
+          LINUX_X86_64_SHA=$(cat release-artifacts/lgtm-v${VERSION}-linux-*.sha256 | awk '{print $1}' | head -1)
+          
+          # Default fallback if empty
+          [ -z "$DARWIN_ARM64_SHA" ] && DARWIN_ARM64_SHA=$(shasum -a 256 release-artifacts/*darwin*.tar.gz | awk '{print $1}' | head -1)
+          [ -z "$LINUX_X86_64_SHA" ] && LINUX_X86_64_SHA=$(shasum -a 256 release-artifacts/*linux*.tar.gz | awk '{print $1}' | head -1)
+          
+          echo "Updating Homebrew Tap for v${VERSION}..."
+          echo "darwin-arm64 sha256: ${DARWIN_ARM64_SHA}"
+          echo "linux-x86_64 sha256: ${LINUX_X86_64_SHA}"
+          
+          git clone "https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}@github.com/mgabs/homebrew-tap.git" tap_repo || exit 0
+          
+          cat << 'EOF' > tap_repo/Formula/lgtm.rb
+          class Lgtm < Formula
+            desc "Fast, real-time terminal diff reviewer & AI agent steering TUI built in Rust"
+            homepage "https://github.com/mgabs/lgtm"
+            version "VERSION_PLACEHOLDER"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/mgabs/lgtm/releases/download/vVERSION_PLACEHOLDER/lgtm-vVERSION_PLACEHOLDER-darwin-arm64.tar.gz"
+                sha256 "DARWIN_ARM64_SHA_PLACEHOLDER"
+              else
+                url "https://github.com/mgabs/lgtm/releases/download/vVERSION_PLACEHOLDER/lgtm-vVERSION_PLACEHOLDER-darwin-arm64.tar.gz"
+                sha256 "DARWIN_ARM64_SHA_PLACEHOLDER"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.intel?
+                url "https://github.com/mgabs/lgtm/releases/download/vVERSION_PLACEHOLDER/lgtm-vVERSION_PLACEHOLDER-linux-x86_64.tar.gz"
+                sha256 "LINUX_X86_64_SHA_PLACEHOLDER"
+              end
+            end
+
+            def install
+              bin.install "lgtm"
+            end
+
+            test do
+              assert_match "Real-Time Terminal Diff Reviewer", shell_output("#{bin}/lgtm --help")
+            end
+          end
+          EOF
+          
+          # Replace placeholders
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" tap_repo/Formula/lgtm.rb
+          sed -i "s/DARWIN_ARM64_SHA_PLACEHOLDER/${DARWIN_ARM64_SHA}/g" tap_repo/Formula/lgtm.rb
+          sed -i "s/LINUX_X86_64_SHA_PLACEHOLDER/${LINUX_X86_64_SHA}/g" tap_repo/Formula/lgtm.rb
+          
+          cd tap_repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/lgtm.rb
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(lgtm): bump formula to v${VERSION}" && git push origin main)
+
+
