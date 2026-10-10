@@ -38,7 +38,7 @@ pub struct DiffLine {
     pub new_line_num: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct DiffHunk {
     pub header: String,
     pub old_start: u32,
@@ -46,6 +46,8 @@ pub struct DiffHunk {
     pub new_start: u32,
     pub new_lines: u32,
     pub lines: Vec<DiffLine>,
+    #[serde(default)]
+    pub is_folded: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

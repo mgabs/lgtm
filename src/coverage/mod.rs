@@ -295,6 +295,7 @@ end_of_record
                     new_line_num: Some(15),
                 },
             ],
+            is_folded: false,
         };
 
         diff.files.push(FileDiff {
@@ -365,6 +366,7 @@ end_of_record
                     new_line_num: Some(2),
                 },
             ],
+            is_folded: false,
         };
 
         diff.files.push(FileDiff {

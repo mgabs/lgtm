@@ -23,6 +23,7 @@ pub enum ActiveView {
     Help,
     Search,
     CommandLine,
+    CommitModal,
 }
 
 pub struct App {
@@ -63,6 +64,12 @@ pub struct App {
     pub comment_reply_target_idx: Option<usize>,
     pub comment_list_selected_idx: usize,
 
+    // Commit Forge modal state
+    pub commit_message_input: String,
+
+    // Help modal tab state
+    pub help_selected_tab: usize,
+
     // Ex-command line state (:cmds)
     pub command_input: String,
     pub command_history: Vec<String>,
@@ -70,6 +77,9 @@ pub struct App {
     pub command_completions: Vec<String>,
     pub command_completion_idx: Option<usize>,
     pub command_prefix: String,
+
+    // Active Git Revision
+    pub active_revision: Option<String>,
 
     // Alert navigation index
     pub selected_alert_idx: usize,
@@ -94,6 +104,7 @@ impl App {
         watcher_rx: Receiver<WatcherMessage>,
         explicit_pane: Option<String>,
         explicit_pr: Option<u64>,
+        explicit_rev: Option<String>,
     ) -> Self {
         let git_engine = GitEngine::new(&repo_path);
         let comment_store = CommentStore::new(&repo_path);
@@ -108,6 +119,21 @@ impl App {
                 }
                 Err(e) => {
                     let msg = format!("Failed to fetch PR #{}: {}", pr_num, e);
+                    (DiffSnapshot::default(), Some(msg))
+                }
+            }
+        } else if let Some(ref rev) = explicit_rev {
+            match git_engine.compute_revision_diff(rev) {
+                Ok(snap) => {
+                    let msg = format!(
+                        "Loaded revision diff '{}' ({} files changed)",
+                        rev,
+                        snap.files.len()
+                    );
+                    (snap, Some(msg))
+                }
+                Err(e) => {
+                    let msg = format!("Failed to load revision '{}': {}", rev, e);
                     (DiffSnapshot::default(), Some(msg))
                 }
             }
@@ -147,6 +173,7 @@ impl App {
             status_message: initial_status,
             should_quit: false,
             current_pr_number: explicit_pr,
+            active_revision: explicit_rev,
             pr_list: Vec::new(),
             pr_selected_idx: 0,
             picker_query: String::new(),
@@ -158,6 +185,8 @@ impl App {
             comment_reply_input: String::new(),
             comment_reply_target_idx: None,
             comment_list_selected_idx: 0,
+            commit_message_input: String::new(),
+            help_selected_tab: 0,
             command_input: String::new(),
             command_history: Vec::new(),
             command_history_idx: None,
@@ -218,6 +247,27 @@ impl App {
             return;
         }
 
+        if let Some(rev) = self.active_revision.clone() {
+            if let Ok(new_snapshot) = self.git_engine.compute_revision_diff(&rev) {
+                self.alerts = SecurityAndTestGuard::scan_snapshot(&new_snapshot.files);
+                self.snapshot = new_snapshot;
+                self.comments = self.comment_store.load_comments();
+
+                if self.selected_file_idx >= self.snapshot.files.len()
+                    && !self.snapshot.files.is_empty()
+                {
+                    self.selected_file_idx = self.snapshot.files.len() - 1;
+                }
+                self.update_file_picker_filter();
+                self.status_message = Some(format!(
+                    "Revision '{}' updated ({} alerts)",
+                    rev,
+                    self.alerts.len()
+                ));
+            }
+            return;
+        }
+
         if let Ok(new_snapshot) = self.git_engine.compute_diff_snapshot() {
             self.alerts = SecurityAndTestGuard::scan_snapshot(&new_snapshot.files);
             self.snapshot = new_snapshot;
@@ -245,19 +295,24 @@ impl App {
             ActiveView::Help => self.handle_help_key(key),
             ActiveView::Search => self.handle_search_key(key),
             ActiveView::CommandLine => self.handle_command_line_key(key),
+            ActiveView::CommitModal => self.handle_commit_modal_key(key),
         }
     }
 
     fn handle_diff_key(&mut self, key: KeyEvent) {
-        // Multi-key leader sequences (g, ], [, ' ')
+        // Multi-key leader sequences (g, ], [, ' ', z)
         if let Some(leader) = self.pending_leader.take() {
             match (leader, key.code) {
                 ('g', KeyCode::Char('g')) => {
                     self.cursor_to_top();
                     return;
                 }
-                (']', KeyCode::Char('f')) => {
+                (']', KeyCode::Char('f')) | (']', KeyCode::Char(']')) => {
                     self.next_file();
+                    return;
+                }
+                (']', KeyCode::Char('[')) => {
+                    self.prev_file();
                     return;
                 }
                 (']', KeyCode::Char('u')) => {
@@ -276,8 +331,12 @@ impl App {
                     self.next_alert();
                     return;
                 }
-                ('[', KeyCode::Char('f')) => {
+                ('[', KeyCode::Char('f')) | ('[', KeyCode::Char('[')) => {
                     self.prev_file();
+                    return;
+                }
+                ('[', KeyCode::Char(']')) => {
+                    self.next_file();
                     return;
                 }
                 ('[', KeyCode::Char('u')) => {
@@ -306,6 +365,63 @@ impl App {
                 }
                 ('z', KeyCode::Char('b')) => {
                     self.cursor_to_bottom_of_view();
+                    return;
+                }
+                ('z', KeyCode::Char('c')) => {
+                    self.fold_current_hunk();
+                    return;
+                }
+                ('z', KeyCode::Char('o')) => {
+                    self.unfold_current_hunk();
+                    return;
+                }
+                ('z', KeyCode::Char('M')) => {
+                    self.fold_all_hunks();
+                    return;
+                }
+                ('z', KeyCode::Char('R')) => {
+                    self.unfold_all_hunks();
+                    return;
+                }
+                ('c', KeyCode::Char('a')) => {
+                    self.comment_input =
+                        "⚡ [COVERAGE] Add unit/regression tests covering these branches."
+                            .to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('s')) => {
+                    self.comment_input = "🔒 [SECURITY] Ensure inputs are sanitized, parameterized, and auth checks enforced.".to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('r')) => {
+                    self.comment_input = "🧹 [REFACTOR] Simplify logic, reduce cognitive nesting, eliminate duplication.".to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('p')) => {
+                    self.comment_input =
+                        "🚀 [PERF] Optimize hot-path allocations and database query batching."
+                            .to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('w')) => {
+                    self.comment_input =
+                        "❓ [WHY] Explain rationale and verify architectural invariants."
+                            .to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('c')) | ('c', KeyCode::Enter) => {
+                    self.comment_input.clear();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', _) => {
+                    self.comment_input.clear();
+                    self.active_view = ActiveView::CommentInput;
                     return;
                 }
                 (' ', KeyCode::Char('y')) => {
@@ -354,13 +470,7 @@ impl App {
                     }
                     return;
                 }
-                _ => {
-                    if leader == ']' {
-                        self.next_file();
-                    } else if leader == '[' {
-                        self.prev_file();
-                    }
-                }
+                _ => {}
             }
         }
 
@@ -414,8 +524,10 @@ impl App {
                 self.status_message = Some(format!("View mode: {}", mode));
             }
             (_, KeyCode::Char('c')) => {
-                self.comment_input.clear();
-                self.active_view = ActiveView::CommentInput;
+                self.pending_leader = Some('c');
+            }
+            (_, KeyCode::Char('C')) => {
+                self.open_commit_modal();
             }
             (_, KeyCode::Char('r')) => {
                 if let Some(idx) = self.comment_idx_at_cursor() {
@@ -438,10 +550,10 @@ impl App {
                 self.cursor_to_bottom();
             }
             (_, KeyCode::Char(']')) => {
-                self.pending_leader = Some(']');
+                self.next_file();
             }
             (_, KeyCode::Char('[')) => {
-                self.pending_leader = Some('[');
+                self.prev_file();
             }
             (_, KeyCode::Char(' ')) => {
                 self.pending_leader = Some(' ');
@@ -655,6 +767,7 @@ impl App {
             "clear",
             "clear-resolved",
             "comments",
+            "commit",
             "d",
             "del",
             "delete",
@@ -778,12 +891,52 @@ impl App {
             "h" | "help" | "?" => {
                 self.active_view = ActiveView::Help;
             }
+            "commit" | "ci" => {
+                if !args.is_empty() {
+                    let full_msg = args.join(" ");
+                    self.commit_message_input = full_msg;
+                    self.execute_commit();
+                } else {
+                    self.open_commit_modal();
+                }
+            }
             "c" | "comments" | "directives" | "todo" => {
                 self.comment_list_selected_idx = 0;
                 self.active_view = ActiveView::CommentList;
             }
             "prs" => {
                 self.open_pr_picker();
+            }
+            "diff" | "rev" | "range" => {
+                if let Some(rev_spec) = args.first() {
+                    match self.git_engine.compute_revision_diff(rev_spec) {
+                        Ok(snap) => {
+                            self.active_revision = Some(rev_spec.to_string());
+                            self.current_pr_number = None;
+                            self.snapshot = snap;
+                            self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+                            self.selected_file_idx = 0;
+                            self.cursor_line_idx = 0;
+                            self.diff_scroll_offset = 0;
+                            self.status_message = Some(format!(
+                                "Loaded revision '{}' ({} files changed, {} alerts)",
+                                rev_spec,
+                                self.snapshot.files.len(),
+                                self.alerts.len()
+                            ));
+                            self.active_view = ActiveView::Diff;
+                        }
+                        Err(e) => {
+                            self.status_message =
+                                Some(format!("Failed to load revision '{}': {}", rev_spec, e));
+                            self.active_view = ActiveView::Diff;
+                        }
+                    }
+                } else {
+                    self.status_message =
+                        Some("Usage: :diff <branch..branch | HEAD~N..HEAD | commit>".into());
+                    self.active_view = ActiveView::Diff;
+                }
             }
             "pr" => {
                 if let Some(arg) = args.first() {
@@ -850,9 +1003,6 @@ impl App {
                     "Unified View"
                 };
                 self.status_message = Some(format!("View mode: {}", mode));
-                self.active_view = ActiveView::Diff;
-            }
-            "diff" => {
                 self.active_view = ActiveView::Diff;
             }
             "r" | "review" => {
@@ -1334,9 +1484,26 @@ impl App {
 
     fn handle_help_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Enter => {
+            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
                 self.active_view = ActiveView::Diff;
             }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(']') => {
+                self.help_selected_tab = (self.help_selected_tab + 1) % 7;
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('[') => {
+                if self.help_selected_tab == 0 {
+                    self.help_selected_tab = 6;
+                } else {
+                    self.help_selected_tab -= 1;
+                }
+            }
+            KeyCode::Char('1') => self.help_selected_tab = 0,
+            KeyCode::Char('2') => self.help_selected_tab = 1,
+            KeyCode::Char('3') => self.help_selected_tab = 2,
+            KeyCode::Char('4') => self.help_selected_tab = 3,
+            KeyCode::Char('5') => self.help_selected_tab = 4,
+            KeyCode::Char('6') => self.help_selected_tab = 5,
+            KeyCode::Char('7') => self.help_selected_tab = 6,
             _ => {}
         }
     }
@@ -1960,6 +2127,137 @@ impl App {
         }
     }
 
+    pub fn fold_current_hunk(&mut self) {
+        if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
+            let mut line_offset = 0;
+            for hunk in file.hunks.iter_mut() {
+                let hunk_len = hunk.lines.len();
+                if self.cursor_line_idx >= line_offset
+                    && self.cursor_line_idx < line_offset + hunk_len
+                {
+                    hunk.is_folded = true;
+                    self.status_message = Some("Folded hunk".to_string());
+                    return;
+                }
+                line_offset += hunk_len;
+            }
+            if let Some(last_hunk) = file.hunks.last_mut() {
+                last_hunk.is_folded = true;
+                self.status_message = Some("Folded hunk".to_string());
+            }
+        }
+    }
+
+    pub fn unfold_current_hunk(&mut self) {
+        if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
+            let mut line_offset = 0;
+            for hunk in file.hunks.iter_mut() {
+                let hunk_len = hunk.lines.len();
+                if self.cursor_line_idx >= line_offset
+                    && self.cursor_line_idx < line_offset + hunk_len
+                {
+                    hunk.is_folded = false;
+                    self.status_message = Some("Unfolded hunk".to_string());
+                    return;
+                }
+                line_offset += hunk_len;
+            }
+            if let Some(last_hunk) = file.hunks.last_mut() {
+                last_hunk.is_folded = false;
+                self.status_message = Some("Unfolded hunk".to_string());
+            }
+        }
+    }
+
+    pub fn fold_all_hunks(&mut self) {
+        for file in &mut self.snapshot.files {
+            for hunk in &mut file.hunks {
+                hunk.is_folded = true;
+            }
+        }
+        self.status_message = Some("Folded all hunks in diff".to_string());
+    }
+
+    pub fn unfold_all_hunks(&mut self) {
+        for file in &mut self.snapshot.files {
+            for hunk in &mut file.hunks {
+                hunk.is_folded = false;
+            }
+        }
+        self.status_message = Some("Unfolded all hunks in diff".to_string());
+    }
+
+    pub fn staged_files_count(&self) -> usize {
+        if let Ok(repo) = self.git_engine.open_repo() {
+            if let Ok(statuses) = repo.statuses(None) {
+                return statuses
+                    .iter()
+                    .filter(|s| {
+                        let st = s.status();
+                        st.is_index_new()
+                            || st.is_index_modified()
+                            || st.is_index_deleted()
+                            || st.is_index_renamed()
+                            || st.is_index_typechange()
+                    })
+                    .count();
+            }
+        }
+        0
+    }
+
+    pub fn open_commit_modal(&mut self) {
+        let staged_count = self.staged_files_count();
+        if staged_count == 0 {
+            self.status_message =
+                Some("⚠️ No staged changes to commit (stage with 's' or 'S')".to_string());
+            return;
+        }
+        self.commit_message_input.clear();
+        self.active_view = ActiveView::CommitModal;
+    }
+
+    pub fn execute_commit(&mut self) {
+        let msg = self.commit_message_input.trim().to_string();
+        if msg.is_empty() {
+            self.status_message = Some("⚠️ Commit message cannot be empty".to_string());
+            return;
+        }
+        match self.git_engine.commit(&msg) {
+            Ok(oid) => {
+                let short_oid = &oid.to_string()[..7.min(oid.to_string().len())];
+                self.status_message = Some(format!("🚀 Committed [{}] {}", short_oid, msg));
+                self.commit_message_input.clear();
+                self.active_view = ActiveView::Diff;
+                self.reload_diff();
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Commit failed: {}", e));
+            }
+        }
+    }
+
+    fn handle_commit_modal_key(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
+                self.active_view = ActiveView::Diff;
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) | (_, KeyCode::Enter) => {
+                self.execute_commit();
+            }
+            (_, KeyCode::Backspace) => {
+                self.commit_message_input.pop();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
+                self.commit_message_input.clear();
+            }
+            (_, KeyCode::Char(c)) => {
+                self.commit_message_input.push(c);
+            }
+            _ => {}
+        }
+    }
+
     pub fn toggle_visual_mode(&mut self) {
         self.visual_mode = !self.visual_mode;
         if self.visual_mode {
@@ -2425,7 +2723,7 @@ mod tests {
             .as_nanos();
         let tmp = std::env::temp_dir().join(format!("lgtm-test-{}", unique));
         let _ = std::fs::create_dir_all(&tmp);
-        let mut app = App::new(tmp, rx, None, None);
+        let mut app = App::new(tmp, rx, None, None, None);
         app.comments.clear();
         app
     }
@@ -2565,6 +2863,7 @@ mod tests {
             new_start: 1,
             new_lines: 6,
             lines,
+            is_folded: false,
         };
         let file = FileDiff {
             old_path: None,
@@ -2614,6 +2913,7 @@ mod tests {
             new_start: 1,
             new_lines: 1,
             lines,
+            is_folded: false,
         };
         let file = FileDiff {
             old_path: None,
@@ -2754,6 +3054,7 @@ mod tests {
             new_start: 1,
             new_lines: 4,
             lines,
+            is_folded: false,
         };
         let file = FileDiff {
             old_path: None,
@@ -2810,6 +3111,7 @@ mod tests {
                     new_line_num: Some(2),
                 },
             ],
+            is_folded: false,
         };
         let h2 = DiffHunk {
             header: "@@ -10,1 +10,2 @@".into(),
@@ -2831,6 +3133,7 @@ mod tests {
                     new_line_num: Some(11),
                 },
             ],
+            is_folded: false,
         };
 
         let f1 = FileDiff {
@@ -3020,6 +3323,7 @@ mod tests {
             new_start: 1,
             new_lines: 3,
             lines,
+            is_folded: false,
         };
         let file = FileDiff {
             old_path: None,
@@ -3069,6 +3373,7 @@ mod tests {
                     new_line_num: Some(2),
                 },
             ],
+            is_folded: false,
         };
         let hunk2 = DiffHunk {
             header: "@@ -10,2 +10,3 @@".into(),
@@ -3082,6 +3387,7 @@ mod tests {
                 old_line_num: None,
                 new_line_num: Some(10),
             }],
+            is_folded: false,
         };
 
         let file = FileDiff {
@@ -3111,7 +3417,7 @@ mod tests {
     #[test]
     fn test_app_visual_mode_selection() {
         let (_tx, rx) = crossbeam_channel::unbounded();
-        let mut app = App::new(PathBuf::from("."), rx, None, None);
+        let mut app = App::new(PathBuf::from("."), rx, None, None, None);
 
         assert!(!app.visual_mode);
         app.toggle_visual_mode();
@@ -3147,6 +3453,7 @@ mod tests {
                     new_line_num: Some(i),
                 })
                 .collect(),
+            is_folded: false,
         };
 
         let file = FileDiff {
@@ -3219,5 +3526,148 @@ mod tests {
         // Test :clear-resolved
         app.execute_command(":clear-resolved");
         assert!(app.comments.is_empty());
+    }
+
+    #[test]
+    fn test_hunk_folding_and_unfolding() {
+        let mut app = create_test_app();
+        let hunk1 = DiffHunk {
+            header: "@@ -1,3 +1,3 @@".into(),
+            old_start: 1,
+            old_lines: 3,
+            new_start: 1,
+            new_lines: 3,
+            lines: vec![DiffLine {
+                line_type: LineType::Addition,
+                content: "fn one() {}".into(),
+                old_line_num: None,
+                new_line_num: Some(1),
+            }],
+            is_folded: false,
+        };
+        let hunk2 = DiffHunk {
+            header: "@@ -10,3 +10,3 @@".into(),
+            old_start: 10,
+            old_lines: 3,
+            new_start: 10,
+            new_lines: 3,
+            lines: vec![DiffLine {
+                line_type: LineType::Addition,
+                content: "fn two() {}".into(),
+                old_line_num: None,
+                new_line_num: Some(10),
+            }],
+            is_folded: false,
+        };
+
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/fold_test.rs"),
+            change_type: ChangeType::Modified,
+            additions: 2,
+            deletions: 0,
+            hunks: vec![hunk1, hunk2],
+            is_folded: false,
+            is_reviewed: false,
+        };
+
+        app.snapshot = DiffSnapshot::new(vec![file]);
+
+        // Fold first hunk
+        app.cursor_line_idx = 0;
+        app.fold_current_hunk();
+        assert!(app.snapshot.files[0].hunks[0].is_folded);
+        assert!(!app.snapshot.files[0].hunks[1].is_folded);
+
+        // Unfold first hunk
+        app.unfold_current_hunk();
+        assert!(!app.snapshot.files[0].hunks[0].is_folded);
+
+        // Fold all hunks
+        app.fold_all_hunks();
+        assert!(app.snapshot.files[0].hunks[0].is_folded);
+        assert!(app.snapshot.files[0].hunks[1].is_folded);
+
+        // Unfold all hunks
+        app.unfold_all_hunks();
+        assert!(!app.snapshot.files[0].hunks[0].is_folded);
+        assert!(!app.snapshot.files[0].hunks[1].is_folded);
+    }
+
+    #[test]
+    fn test_commit_modal_interactions() {
+        let mut app = create_test_app();
+        app.active_view = ActiveView::CommitModal;
+        app.commit_message_input = "feat: add commit forge".to_string();
+
+        // Key typing
+        app.handle_commit_modal_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE));
+        assert_eq!(app.commit_message_input, "feat: add commit forge!");
+
+        // Backspace
+        app.handle_commit_modal_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.commit_message_input, "feat: add commit forge");
+
+        // Esc cancels back to diff view
+        app.handle_commit_modal_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_bracket_single_press_navigation() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = create_test_app();
+        app.snapshot.files = vec![
+            crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("file1.rs"),
+                change_type: crate::model::ChangeType::Added,
+                additions: 1,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+            crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("file2.rs"),
+                change_type: crate::model::ChangeType::Added,
+                additions: 1,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+            crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("file3.rs"),
+                change_type: crate::model::ChangeType::Added,
+                additions: 1,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+        ];
+        app.selected_file_idx = 0;
+
+        let key_close_bracket = KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE);
+        let key_open_bracket = KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE);
+
+        // Single press ']' immediately moves to file 1
+        app.handle_diff_key(key_close_bracket);
+        assert_eq!(app.selected_file_idx, 1);
+
+        // Single press ']' immediately moves to file 2
+        app.handle_diff_key(key_close_bracket);
+        assert_eq!(app.selected_file_idx, 2);
+
+        // Single press '[' immediately moves to file 1
+        app.handle_diff_key(key_open_bracket);
+        assert_eq!(app.selected_file_idx, 1);
+
+        // Single press '[' immediately moves to file 0
+        app.handle_diff_key(key_open_bracket);
+        assert_eq!(app.selected_file_idx, 0);
     }
 }

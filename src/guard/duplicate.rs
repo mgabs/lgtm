@@ -93,6 +93,7 @@ mod tests {
                         new_line_num: Some(30),
                     },
                 ],
+                is_folded: false,
             }],
             is_folded: false,
             is_reviewed: false,

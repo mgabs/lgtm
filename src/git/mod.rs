@@ -47,6 +47,49 @@ impl GitEngine {
         self.parse_diff(&diff)
     }
 
+    pub fn compute_revision_diff(&self, rev_spec: &str) -> Result<DiffSnapshot> {
+        let repo = self.open_repo()?;
+        let mut diff_opts = DiffOptions::new();
+        diff_opts.context_lines(3);
+
+        let diff = if rev_spec.contains("...") {
+            let parts: Vec<&str> = rev_spec.split("...").collect();
+            let from_rev = parts.first().unwrap_or(&"HEAD");
+            let to_rev = parts.get(1).unwrap_or(&"HEAD");
+            let from_obj = repo.revparse_single(from_rev)?;
+            let to_obj = repo.revparse_single(to_rev)?;
+            let from_commit = from_obj.peel_to_commit()?;
+            let to_commit = to_obj.peel_to_commit()?;
+            let base_oid = repo.merge_base(from_commit.id(), to_commit.id())?;
+            let base_commit = repo.find_commit(base_oid)?;
+            let base_tree = base_commit.tree()?;
+            let to_tree = to_commit.tree()?;
+            repo.diff_tree_to_tree(Some(&base_tree), Some(&to_tree), Some(&mut diff_opts))?
+        } else if rev_spec.contains("..") {
+            let parts: Vec<&str> = rev_spec.split("..").collect();
+            let from_rev = parts.first().unwrap_or(&"HEAD");
+            let to_rev = parts.get(1).unwrap_or(&"HEAD");
+            let from_obj = repo.revparse_single(from_rev)?;
+            let to_obj = repo.revparse_single(to_rev)?;
+            let from_tree = from_obj.peel_to_tree()?;
+            let to_tree = to_obj.peel_to_tree()?;
+            repo.diff_tree_to_tree(Some(&from_tree), Some(&to_tree), Some(&mut diff_opts))?
+        } else {
+            let obj = repo.revparse_single(rev_spec)?;
+            let commit = obj.peel_to_commit()?;
+            let to_tree = commit.tree()?;
+            if commit.parent_count() > 0 {
+                let parent = commit.parent(0)?;
+                let from_tree = parent.tree()?;
+                repo.diff_tree_to_tree(Some(&from_tree), Some(&to_tree), Some(&mut diff_opts))?
+            } else {
+                repo.diff_tree_to_tree(None, Some(&to_tree), Some(&mut diff_opts))?
+            }
+        };
+
+        self.parse_diff(&diff)
+    }
+
     fn parse_diff(&self, diff: &Diff) -> Result<DiffSnapshot> {
         let mut file_diffs: Vec<FileDiff> = Vec::new();
         let mut current_file: Option<FileDiff> = None;
@@ -126,6 +169,7 @@ impl GitEngine {
                         new_start: hunk.new_start(),
                         new_lines: hunk.new_lines(),
                         lines: Vec::new(),
+                        is_folded: false,
                     });
                 }
             }
@@ -238,6 +282,34 @@ impl GitEngine {
     ) -> Result<()> {
         let patch = generate_line_selection_patch(file, hunk, selected_indices);
         apply_patch(&self.repo_path, &patch, false, true)
+    }
+
+    pub fn commit(&self, message: &str) -> Result<git2::Oid> {
+        let repo = self.open_repo()?;
+        let mut index = repo.index()?;
+        let tree_id = index.write_tree()?;
+        let tree = repo.find_tree(tree_id)?;
+
+        let sig = repo
+            .signature()
+            .unwrap_or_else(|_| git2::Signature::now("lgtm user", "lgtm@local").unwrap());
+
+        let head = repo.head();
+        let parents = match head {
+            Ok(head_ref) => {
+                if let Some(target) = head_ref.target() {
+                    let parent_commit = repo.find_commit(target)?;
+                    vec![parent_commit]
+                } else {
+                    Vec::new()
+                }
+            }
+            Err(_) => Vec::new(),
+        };
+
+        let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+        let oid = repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)?;
+        Ok(oid)
     }
 }
 
@@ -441,6 +513,7 @@ mod tests {
                     new_line_num: Some(3),
                 },
             ],
+            is_folded: false,
         };
 
         let file = FileDiff {
@@ -495,6 +568,7 @@ mod tests {
                     new_line_num: Some(4),
                 },
             ],
+            is_folded: false,
         };
 
         let file = FileDiff {
@@ -550,6 +624,7 @@ mod tests {
                     new_line_num: Some(2),
                 },
             ],
+            is_folded: false,
         };
 
         let file = FileDiff {

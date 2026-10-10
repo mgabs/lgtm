@@ -4,9 +4,11 @@ mod coverage;
 mod git;
 mod guard;
 mod ipc;
+mod mcp;
 mod model;
 mod mutate;
 mod pr;
+mod scan;
 mod turn;
 mod ui;
 mod verify;
@@ -82,6 +84,33 @@ enum Commands {
     },
     /// List open Pull Requests
     Prs,
+    /// Run headless CI / pre-commit check (fails on Critical/High risks)
+    Check {
+        /// Target repository path
+        #[arg(short, long)]
+        repo: Option<PathBuf>,
+        /// Output format: markdown, json, or sarif
+        #[arg(short, long, default_value = "markdown")]
+        format: String,
+        /// Optional output file to write the report to
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Fail on warning severity as well as critical/high
+        #[arg(long)]
+        strict: bool,
+    },
+    /// Run full repository security and architecture scan with markdown report
+    Scan {
+        /// Target repository path
+        #[arg(short, long)]
+        repo: Option<PathBuf>,
+        /// Optional output file to write the report to (default: lgtm-report.md)
+        #[arg(short, long, default_value = "lgtm-report.md")]
+        output: Option<PathBuf>,
+        /// Output format: markdown or json
+        #[arg(short, long, default_value = "markdown")]
+        format: String,
+    },
     /// Run headless CI mode: audit diff and produce sticky PR comment markdown or JSON/SARIF report
     Ci {
         /// Target repository path
@@ -123,6 +152,21 @@ enum Commands {
     Status,
     /// Launch interactive diff reviewer TUI
     Review,
+    /// Launch Model Context Protocol (MCP) server over stdio for AI coding agents
+    Mcp {
+        /// Target repository path
+        #[arg(short, long, default_value = ".")]
+        repo: Option<PathBuf>,
+    },
+    /// Run background server (e.g. lgtm serve --mcp)
+    Serve {
+        /// Run in MCP stdio mode
+        #[arg(long)]
+        mcp: bool,
+        /// Target repository path
+        #[arg(short, long, default_value = ".")]
+        repo: Option<PathBuf>,
+    },
     /// Unrecognized git command passthrough
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -198,16 +242,56 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Some(Commands::External(ext_args)) => match run_git_passthrough(&ext_args) {
-            Ok(code) => ExitCode::from(code as u8),
-            Err(e) => {
-                eprintln!("Failed to execute git command: {}", e);
-                ExitCode::from(1)
+        Some(Commands::Mcp { repo }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let server = mcp::McpServer::new(&repo_path);
+            if let Err(e) = server.run_stdio() {
+                eprintln!("MCP server error: {}", e);
+                return ExitCode::from(1);
             }
-        },
+            ExitCode::SUCCESS
+        }
+        Some(Commands::Serve { mcp, repo }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            if mcp {
+                let server = mcp::McpServer::new(&repo_path);
+                if let Err(e) = server.run_stdio() {
+                    eprintln!("MCP server error: {}", e);
+                    return ExitCode::from(1);
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Some(Commands::External(ext_args)) => {
+            let first = ext_args.first().map(|s| s.as_str()).unwrap_or("");
+            if first.contains("..") || first.starts_with("HEAD~") || first.starts_with("HEAD^") {
+                let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+                if let Err(e) = run_tui(
+                    repo_path,
+                    cli.agent_pane,
+                    cli.debounce,
+                    None,
+                    Some(first.to_string()),
+                ) {
+                    eprintln!("Error reviewing revision {}: {}", first, e);
+                    return ExitCode::from(1);
+                }
+                ExitCode::SUCCESS
+            } else {
+                match run_git_passthrough(&ext_args) {
+                    Ok(code) => ExitCode::from(code as u8),
+                    Err(e) => {
+                        eprintln!("Failed to execute git command: {}", e);
+                        ExitCode::from(1)
+                    }
+                }
+            }
+        }
         Some(Commands::Pr { number }) => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
-            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, Some(number)) {
+            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, Some(number), None) {
                 eprintln!("Error reviewing PR #{}: {}", number, e);
                 return ExitCode::from(1);
             }
@@ -230,7 +314,13 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Some(Commands::Ci {
+        Some(Commands::Check {
+            repo,
+            format,
+            output,
+            strict,
+        })
+        | Some(Commands::Ci {
             repo,
             format,
             output,
@@ -241,7 +331,48 @@ fn main() -> ExitCode {
             match run_ci_audit(&repo_path, &format, output.as_deref(), strict) {
                 Ok(code) => ExitCode::from(code as u8),
                 Err(e) => {
-                    eprintln!("Error running CI audit: {}", e);
+                    eprintln!("Error running check audit: {}", e);
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Some(Commands::Scan {
+            repo,
+            output,
+            format,
+        }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            println!("🔍 Running full codebase security and architecture audit...\n");
+            match scan::FullRepoScanner::scan_repository(&repo_path) {
+                Ok((files, alerts)) => {
+                    let output_text = if format.eq_ignore_ascii_case("json") {
+                        serde_json::to_string_pretty(&alerts).unwrap_or_default()
+                    } else {
+                        scan::FullRepoScanner::generate_markdown_report(&repo_path, &files, &alerts)
+                    };
+
+                    if let Some(path) = output {
+                        if let Err(e) = std::fs::write(&path, &output_text) {
+                            eprintln!("Failed to write report to {}: {}", path.display(), e);
+                            return ExitCode::from(1);
+                        }
+                        println!("✨ Full scan report written to: {}", path.display());
+                    } else {
+                        println!("{}", output_text);
+                    }
+
+                    let has_critical = alerts
+                        .iter()
+                        .any(|a| a.severity == guard::Severity::Critical);
+                    if has_critical {
+                        ExitCode::from(1)
+                    } else {
+                        ExitCode::SUCCESS
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error running repository scan: {}", e);
                     ExitCode::from(1)
                 }
             }
@@ -288,7 +419,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Diff) | Some(Commands::Status) | Some(Commands::Review) | None => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
-            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr) {
+            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr, None) {
                 eprintln!("Error running lgtm: {}", e);
                 return ExitCode::from(1);
             }
@@ -434,7 +565,7 @@ fn generate_ci_markdown_report(
         out.push_str("```\n\n</details>\n\n");
     }
 
-    out.push_str("---\n*Generated automatically by [LGTM](https://github.com/kunkka19xx/lgtm) Real-Time Diff Reviewer & Agent Steering Engine.*\n");
+    out.push_str("---\n*Generated automatically by [LGTM](https://github.com/mgabs/lgtm) Real-Time Diff Reviewer & Agent Steering Engine.*\n");
     out
 }
 
@@ -443,7 +574,7 @@ fn generate_sarif_report(alerts: &[guard::GuardAlert]) -> Result<String> {
         "tool": {
             "driver": {
                 "name": "lgtm",
-                "informationUri": "https://github.com/kunkka19xx/lgtm",
+                "informationUri": "https://github.com/mgabs/lgtm",
                 "rules": []
             }
         },
@@ -698,7 +829,7 @@ fn run_init_config(repo_path: &Path) -> Result<()> {
     }
 
     let template = r#"# LGTM Configuration File
-# Documentation: https://github.com/kunkka19xx/lgtm
+# Documentation: https://github.com/mgabs/lgtm
 
 [review]
 # Files to ignore from review
@@ -739,6 +870,7 @@ fn run_tui(
     agent_pane: Option<String>,
     debounce: u64,
     pr_number: Option<u64>,
+    revision: Option<String>,
 ) -> Result<()> {
     // Setup watcher channel
     let (watcher_tx, watcher_rx) = crossbeam_channel::unbounded();
@@ -760,8 +892,8 @@ fn run_tui(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Initialize application state (handles non-git directory and PR mode cleanly)
-    let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number);
+    // Initialize application state (handles non-git directory, PR mode, and revision diffs cleanly)
+    let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number, revision);
 
     // Main event loop
     let tick_rate = Duration::from_millis(100);

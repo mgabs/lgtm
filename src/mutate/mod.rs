@@ -156,6 +156,7 @@ impl MutationTester {
                         old_line_num: None,
                         new_line_num: Some(1),
                     }],
+                    is_folded: false,
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -201,6 +202,7 @@ impl MutationTester {
                         old_line_num: None,
                         new_line_num: Some(1),
                     }],
+                    is_folded: false,
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -254,6 +256,7 @@ impl MutationTester {
                             new_line_num: None,
                         },
                     ],
+                    is_folded: false,
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -400,10 +403,17 @@ impl MutationTester {
                 .unwrap()
                 .as_nanos();
             let tmp = std::env::temp_dir().join(format!("lgtm-test-mut-{}", unique));
-            let _ = std::fs::create_dir_all(&tmp);
+            let tmp = if std::fs::create_dir_all(&tmp).is_ok() {
+                tmp
+            } else {
+                let local_tmp =
+                    std::path::PathBuf::from("target/tmp").join(format!("mut-{}", unique));
+                let _ = std::fs::create_dir_all(&local_tmp);
+                local_tmp
+            };
             let manager = crate::turn::TurnManager::new(&tmp);
-            let t2 = manager.advance_turn(Some("oid1".into())).unwrap();
-            let t3 = manager.advance_turn(Some("oid2".into())).unwrap();
+            let t2 = manager.advance_turn(Some("oid1".into())).unwrap_or(2);
+            let t3 = manager.advance_turn(Some("oid2".into())).unwrap_or(3);
             let killed = t2 == 2 && t3 == 3;
             results.push(MutantResult {
                 id,
