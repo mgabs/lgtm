@@ -29,6 +29,17 @@
 
 - **Live Streaming Diffs**: Instant AST & streaming git patch parsing; automatically refreshes when files change on disk.
 - **Vim Motion Engine**: Full `j`/`k`, `gg`/`G`, `{`/`}`, `]f`/`[f`, `]h`/`[h`, `]c`/`[c`, `]w`/`[w`, `]u`/`[u`, `zz`/`zt`/`zb`, `/` search, `*`/`#` symbol search, `y` yank, `PgUp`/`PgDn`.
+- **Git Revision & Range Diffing**: Direct comparison of branch ranges (`lgtm main..feat`, `lgtm HEAD~3..HEAD`), commit hashes, or in-app via `:diff <range>`.
+- **Native MCP Server Mode (`lgtm serve --mcp` / `lgtm mcp`)**: Standard JSON-RPC Model Context Protocol (MCP) server over stdio for autonomous AI agents (Claude Code, Cursor, Windsurf, Aider) to query diffs, run security scans, and manage review directives programmatically.
+- **Quick Steering Directive Chords**: 1-key canned directive templates:
+  - `ca`: ⚡ Test Coverage (`Add unit/regression tests covering these branches.`)
+  - `cs`: 🔒 Security (`Ensure inputs are sanitized, parameterized, and auth checks enforced.`)
+  - `cr`: 🧹 Refactor / DRY (`Simplify logic, reduce cognitive nesting, eliminate duplication.`)
+  - `cp`: 🚀 Performance (`Optimize hot-path allocations and database query batching.`)
+  - `cw`: ❓ Rationale / Why (`Explain rationale and verify architectural invariants.`)
+- **Sticky Scope Header**: Real-time display of the enclosing function, class, or struct scope (`📍 Scope: fn ...`) in the diff title bar.
+- **Side-by-Side Split View & Intra-Line Word Diffing**: Parallel dual-pane rendering with token/character-level highlight for intra-line modifications.
+- **Interactive Hunk & Line Staging**: Stage (`s`), unstage (`u`), or discard (`x`) individual hunks and visual line selections (`V`) directly into the Git index.
 - **Deep Static Analysis Guardrails**:
   - **Cognitive Complexity Spikes**: Flags functions where nested branching/loops increase cognitive complexity by $\ge 5$.
   - **Identifier Hallucination / Typo Guard**: Flags 1-2 character Levenshtein distance typos against repository symbol index.
@@ -37,10 +48,9 @@
   - **Security & Test Guard**: Flags SQLi, command injection, hardcoded secrets, TLS/auth bypass, and test neutering (deleted asserts, skipped tests, mock inflation).
 - **Syntax & Hunk Folding**: Vim-style folding (`zc`, `zo`, `za`, `zM`, `zR`, `zm`, `zr`) to collapse or expand unchanged lines, clean files, or reviewed hunks.
 - **Interactive Commit Forge (`C` / `:commit`)**: Craft conventional commits (`feat:`, `fix:`, `refactor:`, etc.) directly from staged hunks with automated diff-aware commit message synthesis.
-- **Tabbed Interactive Help Modal (`?` / `h`)**: 6 discrete documentation tabs covering Motions, Review & Forge, Folding, Guardrails, Ex-Commands, and CI/CD.
-- **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
+- **Tabbed Interactive Help Modal (`?` / `h`)**: 7 discrete documentation tabs covering Overview & Modes, Motions, Directives, Staging & Forge, Folding, Guardrails, and Ex-Commands & CI.
+- **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:diff <rev>`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
 - **GitHub PR Review Mode**: Review GitHub PRs directly (`lgtm pr <num>` or `:pr <num>`), write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review`.
-- **Agent Steering & Directives**: Add inline comments (`c`), delete comments (`x` / `:d`), yank exact file references (`<Space>y` or `yr`), and blast directives to your agent's `tmux` pane (`Enter` or `Ctrl-s`).
 - **Headless CI & Security Gates**:
   - `lgtm check`: Pre-commit / CI gate that blocks builds on critical security vulnerabilities or complexity spikes.
   - `lgtm scan`: Generates full Markdown audit reports or SARIF 2.1.0 output for GitHub Security Code Scanning.

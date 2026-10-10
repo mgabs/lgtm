@@ -78,6 +78,9 @@ pub struct App {
     pub command_completion_idx: Option<usize>,
     pub command_prefix: String,
 
+    // Active Git Revision
+    pub active_revision: Option<String>,
+
     // Alert navigation index
     pub selected_alert_idx: usize,
 
@@ -101,6 +104,7 @@ impl App {
         watcher_rx: Receiver<WatcherMessage>,
         explicit_pane: Option<String>,
         explicit_pr: Option<u64>,
+        explicit_rev: Option<String>,
     ) -> Self {
         let git_engine = GitEngine::new(&repo_path);
         let comment_store = CommentStore::new(&repo_path);
@@ -115,6 +119,21 @@ impl App {
                 }
                 Err(e) => {
                     let msg = format!("Failed to fetch PR #{}: {}", pr_num, e);
+                    (DiffSnapshot::default(), Some(msg))
+                }
+            }
+        } else if let Some(ref rev) = explicit_rev {
+            match git_engine.compute_revision_diff(rev) {
+                Ok(snap) => {
+                    let msg = format!(
+                        "Loaded revision diff '{}' ({} files changed)",
+                        rev,
+                        snap.files.len()
+                    );
+                    (snap, Some(msg))
+                }
+                Err(e) => {
+                    let msg = format!("Failed to load revision '{}': {}", rev, e);
                     (DiffSnapshot::default(), Some(msg))
                 }
             }
@@ -154,6 +173,7 @@ impl App {
             status_message: initial_status,
             should_quit: false,
             current_pr_number: explicit_pr,
+            active_revision: explicit_rev,
             pr_list: Vec::new(),
             pr_selected_idx: 0,
             picker_query: String::new(),
@@ -221,6 +241,27 @@ impl App {
                 self.status_message = Some(format!(
                     "PR #{} diff updated ({} alerts)",
                     pr_num,
+                    self.alerts.len()
+                ));
+            }
+            return;
+        }
+
+        if let Some(rev) = self.active_revision.clone() {
+            if let Ok(new_snapshot) = self.git_engine.compute_revision_diff(&rev) {
+                self.alerts = SecurityAndTestGuard::scan_snapshot(&new_snapshot.files);
+                self.snapshot = new_snapshot;
+                self.comments = self.comment_store.load_comments();
+
+                if self.selected_file_idx >= self.snapshot.files.len()
+                    && !self.snapshot.files.is_empty()
+                {
+                    self.selected_file_idx = self.snapshot.files.len() - 1;
+                }
+                self.update_file_picker_filter();
+                self.status_message = Some(format!(
+                    "Revision '{}' updated ({} alerts)",
+                    rev,
                     self.alerts.len()
                 ));
             }
@@ -342,6 +383,47 @@ impl App {
                     self.unfold_all_hunks();
                     return;
                 }
+                ('c', KeyCode::Char('a')) => {
+                    self.comment_input =
+                        "⚡ [COVERAGE] Add unit/regression tests covering these branches."
+                            .to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('s')) => {
+                    self.comment_input = "🔒 [SECURITY] Ensure inputs are sanitized, parameterized, and auth checks enforced.".to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('r')) => {
+                    self.comment_input = "🧹 [REFACTOR] Simplify logic, reduce cognitive nesting, eliminate duplication.".to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('p')) => {
+                    self.comment_input =
+                        "🚀 [PERF] Optimize hot-path allocations and database query batching."
+                            .to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('w')) => {
+                    self.comment_input =
+                        "❓ [WHY] Explain rationale and verify architectural invariants."
+                            .to_string();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', KeyCode::Char('c')) | ('c', KeyCode::Enter) => {
+                    self.comment_input.clear();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
+                ('c', _) => {
+                    self.comment_input.clear();
+                    self.active_view = ActiveView::CommentInput;
+                    return;
+                }
                 (' ', KeyCode::Char('y')) => {
                     self.yank_reference_to_clipboard();
                     return;
@@ -442,8 +524,7 @@ impl App {
                 self.status_message = Some(format!("View mode: {}", mode));
             }
             (_, KeyCode::Char('c')) => {
-                self.comment_input.clear();
-                self.active_view = ActiveView::CommentInput;
+                self.pending_leader = Some('c');
             }
             (_, KeyCode::Char('C')) => {
                 self.open_commit_modal();
@@ -826,6 +907,37 @@ impl App {
             "prs" => {
                 self.open_pr_picker();
             }
+            "diff" | "rev" | "range" => {
+                if let Some(rev_spec) = args.first() {
+                    match self.git_engine.compute_revision_diff(rev_spec) {
+                        Ok(snap) => {
+                            self.active_revision = Some(rev_spec.to_string());
+                            self.current_pr_number = None;
+                            self.snapshot = snap;
+                            self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+                            self.selected_file_idx = 0;
+                            self.cursor_line_idx = 0;
+                            self.diff_scroll_offset = 0;
+                            self.status_message = Some(format!(
+                                "Loaded revision '{}' ({} files changed, {} alerts)",
+                                rev_spec,
+                                self.snapshot.files.len(),
+                                self.alerts.len()
+                            ));
+                            self.active_view = ActiveView::Diff;
+                        }
+                        Err(e) => {
+                            self.status_message =
+                                Some(format!("Failed to load revision '{}': {}", rev_spec, e));
+                            self.active_view = ActiveView::Diff;
+                        }
+                    }
+                } else {
+                    self.status_message =
+                        Some("Usage: :diff <branch..branch | HEAD~N..HEAD | commit>".into());
+                    self.active_view = ActiveView::Diff;
+                }
+            }
             "pr" => {
                 if let Some(arg) = args.first() {
                     if let Ok(pr_num) = arg.parse::<u64>() {
@@ -891,9 +1003,6 @@ impl App {
                     "Unified View"
                 };
                 self.status_message = Some(format!("View mode: {}", mode));
-                self.active_view = ActiveView::Diff;
-            }
-            "diff" => {
                 self.active_view = ActiveView::Diff;
             }
             "r" | "review" => {
@@ -2614,7 +2723,7 @@ mod tests {
             .as_nanos();
         let tmp = std::env::temp_dir().join(format!("lgtm-test-{}", unique));
         let _ = std::fs::create_dir_all(&tmp);
-        let mut app = App::new(tmp, rx, None, None);
+        let mut app = App::new(tmp, rx, None, None, None);
         app.comments.clear();
         app
     }
@@ -3308,7 +3417,7 @@ mod tests {
     #[test]
     fn test_app_visual_mode_selection() {
         let (_tx, rx) = crossbeam_channel::unbounded();
-        let mut app = App::new(PathBuf::from("."), rx, None, None);
+        let mut app = App::new(PathBuf::from("."), rx, None, None, None);
 
         assert!(!app.visual_mode);
         app.toggle_visual_mode();

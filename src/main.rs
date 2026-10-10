@@ -4,6 +4,7 @@ mod coverage;
 mod git;
 mod guard;
 mod ipc;
+mod mcp;
 mod model;
 mod mutate;
 mod pr;
@@ -151,6 +152,21 @@ enum Commands {
     Status,
     /// Launch interactive diff reviewer TUI
     Review,
+    /// Launch Model Context Protocol (MCP) server over stdio for AI coding agents
+    Mcp {
+        /// Target repository path
+        #[arg(short, long, default_value = ".")]
+        repo: Option<PathBuf>,
+    },
+    /// Run background server (e.g. lgtm serve --mcp)
+    Serve {
+        /// Run in MCP stdio mode
+        #[arg(long)]
+        mcp: bool,
+        /// Target repository path
+        #[arg(short, long, default_value = ".")]
+        repo: Option<PathBuf>,
+    },
     /// Unrecognized git command passthrough
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -226,16 +242,56 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Some(Commands::External(ext_args)) => match run_git_passthrough(&ext_args) {
-            Ok(code) => ExitCode::from(code as u8),
-            Err(e) => {
-                eprintln!("Failed to execute git command: {}", e);
-                ExitCode::from(1)
+        Some(Commands::Mcp { repo }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let server = mcp::McpServer::new(&repo_path);
+            if let Err(e) = server.run_stdio() {
+                eprintln!("MCP server error: {}", e);
+                return ExitCode::from(1);
             }
-        },
+            ExitCode::SUCCESS
+        }
+        Some(Commands::Serve { mcp, repo }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            if mcp {
+                let server = mcp::McpServer::new(&repo_path);
+                if let Err(e) = server.run_stdio() {
+                    eprintln!("MCP server error: {}", e);
+                    return ExitCode::from(1);
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Some(Commands::External(ext_args)) => {
+            let first = ext_args.first().map(|s| s.as_str()).unwrap_or("");
+            if first.contains("..") || first.starts_with("HEAD~") || first.starts_with("HEAD^") {
+                let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+                if let Err(e) = run_tui(
+                    repo_path,
+                    cli.agent_pane,
+                    cli.debounce,
+                    None,
+                    Some(first.to_string()),
+                ) {
+                    eprintln!("Error reviewing revision {}: {}", first, e);
+                    return ExitCode::from(1);
+                }
+                ExitCode::SUCCESS
+            } else {
+                match run_git_passthrough(&ext_args) {
+                    Ok(code) => ExitCode::from(code as u8),
+                    Err(e) => {
+                        eprintln!("Failed to execute git command: {}", e);
+                        ExitCode::from(1)
+                    }
+                }
+            }
+        }
         Some(Commands::Pr { number }) => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
-            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, Some(number)) {
+            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, Some(number), None) {
                 eprintln!("Error reviewing PR #{}: {}", number, e);
                 return ExitCode::from(1);
             }
@@ -363,7 +419,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Diff) | Some(Commands::Status) | Some(Commands::Review) | None => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
-            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr) {
+            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr, None) {
                 eprintln!("Error running lgtm: {}", e);
                 return ExitCode::from(1);
             }
@@ -814,6 +870,7 @@ fn run_tui(
     agent_pane: Option<String>,
     debounce: u64,
     pr_number: Option<u64>,
+    revision: Option<String>,
 ) -> Result<()> {
     // Setup watcher channel
     let (watcher_tx, watcher_rx) = crossbeam_channel::unbounded();
@@ -835,8 +892,8 @@ fn run_tui(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Initialize application state (handles non-git directory and PR mode cleanly)
-    let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number);
+    // Initialize application state (handles non-git directory, PR mode, and revision diffs cleanly)
+    let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number, revision);
 
     // Main event loop
     let tick_rate = Duration::from_millis(100);

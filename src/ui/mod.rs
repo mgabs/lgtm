@@ -442,13 +442,31 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                     " [Unified]"
                 };
 
+                let active_scope = app.current_hunk_info().and_then(|(_, hunk, _)| {
+                    let parts: Vec<&str> = hunk.header.split("@@").collect();
+                    if parts.len() >= 3 {
+                        let candidate = parts[2].trim();
+                        if !candidate.is_empty() {
+                            return Some(candidate.to_string());
+                        }
+                    }
+                    None
+                });
+
+                let scope_badge = if let Some(ref scope) = active_scope {
+                    format!(" │ 📍 {}", scope)
+                } else {
+                    String::new()
+                };
+
                 let title = format!(
-                    " {}{}(+{}/-{}){} ",
+                    " {}{}(+{}/-{}){}{} ",
                     file.display_name(),
                     view_mode_tag,
                     file.additions,
                     file.deletions,
-                    alert_badge_title
+                    alert_badge_title,
+                    scope_badge
                 );
                 let mut lines = Vec::new();
 
@@ -2343,7 +2361,7 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("lgtm-test-ui-{}", unique));
         let _ = std::fs::create_dir_all(&tmp);
 
-        let mut app = App::new(tmp, rx, None, None);
+        let mut app = App::new(tmp, rx, None, None, None);
 
         // Test rendering Diff View
         terminal.draw(|f| render(f, &mut app)).unwrap();
