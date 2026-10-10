@@ -509,7 +509,7 @@ fn generate_ci_markdown_report(
         out.push_str("```\n\n</details>\n\n");
     }
 
-    out.push_str("---\n*Generated automatically by [LGTM](https://github.com/kunkka19xx/lgtm) Real-Time Diff Reviewer & Agent Steering Engine.*\n");
+    out.push_str("---\n*Generated automatically by [LGTM](https://github.com/mgabs/lgtm) Real-Time Diff Reviewer & Agent Steering Engine.*\n");
     out
 }
 
@@ -518,7 +518,7 @@ fn generate_sarif_report(alerts: &[guard::GuardAlert]) -> Result<String> {
         "tool": {
             "driver": {
                 "name": "lgtm",
-                "informationUri": "https://github.com/kunkka19xx/lgtm",
+                "informationUri": "https://github.com/mgabs/lgtm",
                 "rules": []
             }
         },
@@ -773,7 +773,7 @@ fn run_init_config(repo_path: &Path) -> Result<()> {
     }
 
     let template = r#"# LGTM Configuration File
-# Documentation: https://github.com/kunkka19xx/lgtm
+# Documentation: https://github.com/mgabs/lgtm
 
 [review]
 # Files to ignore from review

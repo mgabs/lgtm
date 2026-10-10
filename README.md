@@ -1,8 +1,8 @@
 # lgtm (Looks Good To Me)
 
-[![CI](https://github.com/mmetawea/lgtm/actions/workflows/ci.yml/badge.svg)](https://github.com/mmetawea/lgtm/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-95.6%25-brightgreen)](https://github.com/mmetawea/lgtm)
-[![Mutation Score](https://img.shields.io/badge/mutation_score-100%25-brightgreen)](https://github.com/mmetawea/lgtm)
+[![CI](https://github.com/mgabs/lgtm/actions/workflows/ci.yml/badge.svg)](https://github.com/mgabs/lgtm/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-95.6%25-brightgreen)](https://github.com/mgabs/lgtm)
+[![Mutation Score](https://img.shields.io/badge/mutation_score-100%25-brightgreen)](https://github.com/mgabs/lgtm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > **Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner built in Rust.**
@@ -197,7 +197,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install lgtm
-        run: cargo install --git https://github.com/mmetawea/lgtm.git
+        run: cargo install --git https://github.com/mgabs/lgtm.git
 
       - name: Run CI Gate
         run: lgtm check --strict

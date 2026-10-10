@@ -19,7 +19,7 @@ Thank you for contributing to `lgtm`! We welcome bug reports, feature implementa
 
 ```bash
 # Clone repository
-git clone https://github.com/mmetawea/lgtm.git
+git clone https://github.com/mgabs/lgtm.git
 cd lgtm
 
 # Build debug binary
