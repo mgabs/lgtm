@@ -1,0 +1,443 @@
+# LGTM (Looks Good To Me) — Comprehensive Wiki & User Manual
+
+> **Real-Time Terminal Diff Reviewer, AI Agent Steering Platform & Deterministic Security Guardrail Engine.**
+> *"Because code shouldn't ship until it actually looks good to you."*
+
+---
+
+## Table of Contents
+
+1. [Purpose & Architectural Philosophy](#1-purpose--architectural-philosophy)
+2. [Installation & Setup](#2-installation--setup)
+3. [Interactive TUI User Guide](#3-interactive-tui-user-guide)
+   - [Motions & Navigation](#motions--navigation)
+   - [Interactive Hunk & Visual Line Staging](#interactive-hunk--visual-line-staging)
+   - [Syntax-Aware AST & Hunk Folding](#syntax-aware-ast--hunk-folding)
+   - [Inline Directives & AI Agent Steering](#inline-directives--ai-agent-steering)
+   - [Interactive Commit Forge](#interactive-commit-forge)
+4. [Deep Static Analysis & Guardrails](#4-deep-static-analysis--guardrails)
+   - [Cognitive Complexity Spikes](#cognitive-complexity-spikes)
+   - [Identifier Hallucination & Typo Guard](#identifier-hallucination--typo-guard)
+   - [Dead Function Addition (YAGNI)](#dead-function-addition-yagni)
+   - [Breaking Public API Drift](#breaking-public-api-drift)
+   - [OWASP Security & Hardcoded Secrets](#owasp-security--hardcoded-secrets)
+   - [Test Neutering & Assertion Drop Detection](#test-neutering--assertion-drop-detection)
+5. [Git Range & Revision Diffing](#5-git-range--revision-diffing)
+6. [Model Context Protocol (MCP) Server](#6-model-context-protocol-mcp-server)
+7. [Headless CI & Security Gates](#7-headless-ci--security-gates)
+8. [Ex-Commands Dictionary (`:cmds`)](#8-ex-commands-dictionary-cmds)
+9. [Configuration Reference (`.lgtm/config.toml`)](#9-configuration-reference-lgtmconfigtoml)
+
+---
+
+## 1. Purpose & Architectural Philosophy
+
+### Why LGTM Exists
+Modern software development has fundamentally shifted with the advent of autonomous AI coding agents (Claude Code, Cursor Composer, Windsurf, Aider, GitHub Copilot). While agents generate code at superhuman speeds, they introduce novel, insidious failure modes that traditional code review tools (like browser PR interfaces or standard `git diff`) fail to capture in real time:
+
+1. **Stealth Test Neutering**: Agents quietly delete assertions, add `@pytest.mark.skip`, or introduce tautological tests (`assert True`) when encountering test failures.
+2. **Blast Radius & Architectural Sprawl**: Agents modify 8+ unrelated files, import backend database sinks into UI layers, or add redundant helper functions that already exist elsewhere in the codebase.
+3. **Identifier Typo Hallucinations**: Agents invent slightly misspelled variants of existing variables or methods (e.g. `user_token` when the project uses `usertoken`), leading to runtime `AttributeError` / `NameError` bugs.
+4. **Cognitive Complexity Spikes**: Agents generate deeply nested conditionals (5+ indent levels) instead of clean, early-exit guard clauses.
+5. **Accidental Credential & Secret Leaks**: Agents hardcode fallback API tokens, private keys, or `.env` entries during fast prototyping.
+
+### The Human-in-the-Loop Steering Paradigm
+`lgtm` bridges the speed of terminal-native developers and autonomous agents. Instead of waiting for a completed PR to review in a slow browser, `lgtm` runs locally alongside your agent in `tmux` or terminal split:
+- **Instant AST feedback**: As the agent saves files on disk, `lgtm` immediately analyzes the diff and surfaces guardrail alerts.
+- **Micro-steering via `#ref` Anchors**: Select any line, press `c` to drop a directive, and press `Enter` to inject the reference directly into the agent's active `tmux` pane.
+- **Granular Staging**: Stage verified hunks (`s`), fold clean boilerplate (`zc`), discard suspicious changes (`x`), and synthesize conventional commits (`C`) without context-switching.
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                           LGTM SYSTEM ARCHITECTURE                            │
+└───────────────────────────────────────────────────────────────────────────────┘
+                                       │
+            ┌──────────────────────────┴──────────────────────────┐
+            ▼                                                     ▼
+   [ Interactive TUI ]                                   [ Headless CI / MCP ]
+  - Ratatui / Crossterm                                 - `lgtm check` (Gate)
+  - 1-Key Motions (j/k, ], [)                           - `lgtm scan` (Audit MD)
+  - Hunk Staging & Visual Mode                          - `lgtm serve --mcp` (Stdio)
+  - Interactive Commit Forge                            - SARIF 2.1.0 Export
+            │                                                     │
+            └──────────────────────────┬──────────────────────────┘
+                                       │
+                                       ▼
+                     [ Deterministic Guardrail Engine ]
+                    ├── Shannon Entropy (Secrets: H >= 4.3)
+                    ├── OWASP Security Sniffer (SQLi, RCE, SSRF)
+                    ├── Cognitive Complexity Calculator (>= +5 spike)
+                    ├── Symbol Table Levenshtein Matcher (Typo guard)
+                    ├── YAGNI Dead Function Tracker (0 usages)
+                    ├── Public API Drift Detector (pub signatures)
+                    └── Test Neutering & Inverted Test Verifier
+```
+
+---
+
+## 2. Installation & Setup
+
+### Via Homebrew (macOS & Linux)
+```bash
+brew install mgabs/tap/lgtm
+```
+
+### From Source (Cargo)
+```bash
+# Install directly from GitHub
+cargo install --git https://github.com/mgabs/lgtm.git
+
+# Or clone and build optimized release binary
+git clone https://github.com/mgabs/lgtm.git
+cd lgtm
+make release
+cp target/release/lgtm /usr/local/bin/lgtm
+```
+
+### Requirements
+- **OS**: macOS, Linux, Windows (via WSL2 or Windows Terminal)
+- **Git**: Git 2.20+ installed
+- **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
+
+---
+
+## 3. Interactive TUI User Guide
+
+Launch `lgtm` inside any repository:
+```bash
+lgtm
+```
+
+### Motions & Navigation
+
+| Key | Action | Description |
+|---|---|---|
+| `j` / `k` or `↓` / `↑` | Line Cursor | Move cursor down / up across diff lines |
+| `]` / `[` | **File Navigation** | **Single tap immediately jumps to Next / Previous changed file** |
+| `]h` / `[h` | Hunk Navigation | Jump to next / previous diff hunk |
+| `]w` / `[w` or `w` / `W` | Alert Jump | Jump to next / previous security / quality guardrail alert |
+| `]c` / `[c` | Directive Jump | Jump to next / previous inline review comment |
+| `gg` / `G` | Top / Bottom | Jump to top / bottom of current file diff |
+| `Ctrl-d` / `Ctrl-u` | Half-Page | Scroll half-page down / up (15 lines) |
+| `Ctrl-f` / `Ctrl-b` | Full-Page | Scroll full page down / up (25 lines) |
+| `}` / `{` | Paragraph | Jump to next / previous blank line / section header |
+| `/` | Regex Search | Interactive regex search across all diff lines (`n` / `N` to cycle) |
+| `*` / `#` | Word Search | Search symbol under cursor forward / backward |
+| `zz` / `zt` / `zb` | Viewport | Center cursor / align top / align bottom |
+| `f` / `Ctrl-p` | Fuzzy Finder | Open fuzzy file switcher popup to jump to any file |
+| `Tab` | Drawer Sidebar | Toggle 35-column changed file list on the left |
+| `d` | Split View Toggle | Toggle between Unified Diff and Side-by-Side Dual Pane Diff |
+| `o` / `e` | Open in `$EDITOR` | Open current file and line in Neovim, Vim, or VS Code |
+| `?` / `h` | **Help Modal** | Open 7-tab interactive documentation modal |
+| `q` | Quit | Exit `lgtm` |
+
+---
+
+### Interactive Hunk & Visual Line Staging
+
+`lgtm` includes a complete staging engine directly connected to your Git index:
+
+- **Stage Hunk (`s`)**: Stages the entire diff hunk under the cursor into the git index.
+- **Unstage Hunk (`u`)**: Unstages the hunk under the cursor from the git index.
+- **Stage File (`S`)**: Stages all hunks in the current file into the git index.
+- **Unstage File (`U`)**: Unstages all hunks in the current file from the git index.
+- **Discard Hunk (`x` / `<Space>x`)**: Restores working tree file to index state for current hunk.
+- **Discard File (`X`)**: Discards all uncommitted changes in current file (`git restore`).
+- **Visual Line Selection Mode (`V`)**:
+  1. Press `V` on any diff line to enter Visual Mode.
+  2. Move cursor with `j` / `k` to highlight an arbitrary range of lines.
+  3. Press `s` to stage only highlighted lines into git.
+  4. Press `u` to unstage only highlighted lines.
+  5. Press `x` to discard only highlighted lines.
+  6. Press `Esc` or `V` to exit visual mode.
+
+---
+
+### Syntax-Aware AST & Hunk Folding
+
+When reviewing large pull requests or AI-generated changes, noise files (lockfiles, generated schema, boilerplate) distract from core logic. Use Vim-style folding to collapse and isolate diffs:
+
+| Fold Key | Action |
+|---|---|
+| `zc` | Fold current hunk under cursor into compact header (`▶ @@ ... @@ [Folded]`) |
+| `zo` | Unfold current hunk under cursor to expand diff lines |
+| `za` | Toggle fold state of current hunk |
+| `zM` / `zm` | Fold **ALL** hunks across the current file / diff |
+| `zR` / `zr` | Unfold **ALL** hunks across the current file / diff |
+
+---
+
+### Inline Directives & AI Agent Steering
+
+`lgtm` enables precise human-in-the-loop steering by attaching anchored directives directly to code lines:
+
+#### 1. Adding Directives
+- Press `c` on any line to open the directive input modal.
+- Type your feedback (e.g. `Use parameter binding here rather than string concatenation`) and press `Enter`.
+- Directives are immediately persisted to `.lgtm/comments.jsonl`.
+
+#### 2. Quick Steering Chords (2-Key Templates)
+To minimize typing during fast pairing sessions, use instant directive chords:
+- **`ca`**: ⚡ Test Coverage (`Add unit/regression tests covering these branches.`)
+- **`cs`**: 🔒 Security (`Ensure inputs are sanitized, parameterized, and auth checks enforced.`)
+- **`cr`**: 🧹 Refactor / DRY (`Simplify logic, reduce cognitive nesting, eliminate duplication.`)
+- **`cp`**: 🚀 Performance (`Optimize hot-path allocations and database query batching.`)
+- **`cw`**: ❓ Rationale / Why (`Explain rationale and verify architectural invariants.`)
+
+#### 3. Injecting Directives to AI Agent Panes
+- **`Enter`**: Sends `#ref <file>:<line>` directly into your agent's active `tmux` pane.
+- **`Ctrl-s` / `:review`**: Compiles all active directives into a structured batch prompt and blasts it into the agent's pane or copies it to clipboard via OSC 52.
+- **`p` / `<Space>p`**: Opens `tmux` pane selector modal to choose which pane receives steering messages.
+- **`<Space>y` / `yr`**: Yanks `#ref <file>:<line>` to system clipboard.
+- **`v` / `R`**: Marks a directive as resolved (`✓ RESOLVED`).
+
+---
+
+### Interactive Commit Forge
+
+Once you have staged your verified hunks (`s` / `S`), press **`C`** (or type **`:commit`**) to open the **Commit Forge**:
+
+1. `lgtm` inspects your staged diff and **auto-synthesizes Conventional Commit titles**:
+   - `feat(guard): add cognitive complexity analyzer`
+   - `fix(git): resolve hunk index offset calculation`
+   - `refactor(ui): extract status line paragraph widget`
+2. Edit the title or add an optional extended commit body.
+3. Press `Enter` to commit directly to git.
+4. `lgtm` immediately refreshes the working tree diff snapshot.
+
+---
+
+## 4. Deep Static Analysis & Guardrails
+
+`lgtm` runs deterministic static analysis and AST inspections across diff snapshots in real time:
+
+### Cognitive Complexity Spikes
+- **What it checks**: Measures nested `if`, `match`, `for`, `while`, and boolean chains (`&&`, `||`) added in new hunks.
+- **Trigger**: Warns if a function's cognitive complexity increases by $\ge +5$ points.
+- **Remediation**: Extract sub-functions or refactor into early return guard clauses.
+
+### Identifier Hallucination & Typo Guard
+- **What it checks**: Extracts project-wide symbol identifiers (variable names, functions, structs, methods).
+- **Trigger**: Flags new identifiers that have a Levenshtein edit distance of $1 \le d \le 2$ from existing symbols (e.g. agent typed `user_token` when the project defines `usertoken`).
+- **Remediation**: Verify symbol spelling against existing codebase conventions.
+
+### Dead Function Addition (YAGNI)
+- **What it checks**: Scans newly declared helper functions, private methods, and utility structs.
+- **Trigger**: Flags any added non-public function that has 0 references/call sites across the repository.
+- **Remediation**: Eliminate dead code or wire up the intended call site.
+
+### Breaking Public API Drift
+- **What it checks**: Monitors exported signatures (`pub fn`, `export function`, public trait methods).
+- **Trigger**: Flags changes to argument counts, parameter types, or return signatures that break backward compatibility.
+- **Remediation**: Maintain deprecation shims or update all downstream callers.
+
+### OWASP Security & Hardcoded Secrets
+- **Shannon Entropy Secrets**: Sniffs high-entropy strings ($H \ge 4.3$), OpenAI tokens (`sk-proj-...`), GitHub tokens (`ghp_...`), AWS keys (`AKIA...`), and RSA private keys.
+- **Injection Sinks**: Detects raw SQL interpolation (`SELECT ... {user_input}`), command execution (`os.system`, `exec`, `spawn`), path traversal (`../`), and SSRF sinks.
+- **Insecure Defaults**: Flags CORS `*`, `verify=False` in HTTP clients, and disabled authentication decorators.
+
+### Test Neutering & Assertion Drop Detection
+- **Assertion Drop**: Detects net loss of `assert`, `expect()`, or `assertEquals` statements inside test files (`test_*.py`, `*_test.go`, `*.spec.ts`, `tests/*.rs`).
+- **Test Skips**: Flags `@pytest.mark.skip`, `t.Skip()`, or commented-out test blocks.
+- **Tautological Tests**: Flags meaningless tests like `assert True` or `expect(true).toBe(true)`.
+
+---
+
+## 5. Git Range & Revision Diffing
+
+`lgtm` supports arbitrary Git revision ranges from the CLI and inside the TUI:
+
+### CLI Usage
+```bash
+# Compare two branches
+lgtm main..feature-auth
+
+# Compare three-dot merge base
+lgtm main...feature-auth
+
+# Review the last 3 commits
+lgtm HEAD~3..HEAD
+
+# Review a specific commit hash
+lgtm 0c20203
+
+# Review a GitHub Pull Request
+lgtm pr 42
+```
+
+### In-App Revision Switching
+Type `:` in diff view to change comparison targets dynamically:
+- `:diff main..feature`
+- `:rev HEAD~2..HEAD`
+- `:pr 104`
+- `:reload` (or `:e`) to re-scan current target from disk
+
+---
+
+## 6. Model Context Protocol (MCP) Server
+
+`lgtm` provides a native JSON-RPC Model Context Protocol (MCP) server over standard I/O (`stdio`). This allows AI agents (Claude Code, Cursor, Windsurf, Aider) to query diffs, run security audits, and read review directives programmatically.
+
+### Starting the Server
+```bash
+lgtm serve --mcp
+# or shorthand
+lgtm mcp
+```
+
+### Configuration with Claude Code / Cursor / Windsurf
+Add `lgtm` to your MCP client configuration (`~/.claude/claude_desktop_config.json` or `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["serve", "--mcp", "--repo", "/path/to/your/repo"]
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+| MCP Tool | Description | Parameters |
+|---|---|---|
+| `lgtm_diff` | Get structured diff snapshot with file-by-file stats | `rev_spec` (optional string, e.g. `main..feat`) |
+| `lgtm_security_scan` | Run static analysis guardrails for OWASP leaks, complexity spikes, and test neutering | `strict` (boolean, flag only Critical/High) |
+| `lgtm_list_directives` | Read all human review directives from `.lgtm/comments.jsonl` | *(None)* |
+| `lgtm_add_directive` | Anchor a review directive to a specific file and line | `file` (string), `line` (integer), `content` (string) |
+
+---
+
+## 7. Headless CI & Security Gates
+
+Integrate `lgtm` into pre-commit hooks, Makefiles, and GitHub Actions workflows to prevent broken or insecure agent code from merging:
+
+### 1. `lgtm check` (CI Quality Gate)
+Exits with code `1` if Critical or High severity security alerts, complexity spikes, or neutered tests are detected:
+```bash
+lgtm check --strict
+```
+
+### 2. `lgtm scan` (Full Repository Audit)
+Recursively audits all source files in the repository and generates a Markdown audit scorecard:
+```bash
+# Terminal summary with scorecard grade (Grade A/B/C/F)
+lgtm scan
+
+# Generate Markdown audit report
+lgtm scan --output security-audit.md
+
+# Generate SARIF 2.1.0 report for GitHub Security tab
+lgtm scan --format sarif --output lgtm-results.sarif
+```
+
+### GitHub Actions Workflow Example
+Create `.github/workflows/lgtm-gate.yml`:
+
+```yaml
+name: LGTM Security & Quality Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  security-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install LGTM
+        run: cargo install --git https://github.com/mgabs/lgtm.git
+
+      - name: Run LGTM Pre-Merge Gate
+        run: lgtm check --strict
+
+      - name: Generate Security SARIF
+        if: always()
+        run: lgtm scan --format sarif --output lgtm-results.sarif
+
+      - name: Upload to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: lgtm-results.sarif
+```
+
+---
+
+## 8. Ex-Commands Dictionary (`:cmds`)
+
+Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmenu auto-completion:
+
+| Command | Aliases | Description |
+|---|---|---|
+| `:w` | `:write` | Save review directives to `.lgtm/comments.jsonl` |
+| `:q` | `:quit`, `:exit` | Quit `lgtm` (`:q!` force quit without saving) |
+| `:wq` | `:x` | Save directives and quit |
+| `:commit [msg]` | `:ci` | Open Commit Forge modal or commit staged changes with message |
+| `:diff <range>` | `:rev`, `:range` | Load revision range diff (e.g. `:diff main..feat`, `:diff HEAD~2..HEAD`) |
+| `:pr <number>` | — | Fetch and review GitHub pull request diff directly (e.g. `:pr 42`) |
+| `:prs` | — | Open interactive GitHub PR picker modal |
+| `:f` | `:files`, `:find` | Open fuzzy file switcher popup |
+| `:pane [id]` | `:panes` | Select or set target `tmux` agent pane ID (e.g. `:pane %2`) |
+| `:sp` | `:split`, `:vsp` | Toggle Unified Diff vs Side-by-Side Dual Pane Diff |
+| `:c` | `:comments`, `:todo` | Open review directives management drawer |
+| `:r` | `:review`, `:send` | Compile directives batch prompt and blast to target agent pane |
+| `:risk` | `:audit`, `:scan` | Re-scan current diff for security, test fraud, and complexity risks |
+| `:reload` | `:e`, `:edit` | Reload diff snapshot from working tree or GitHub PR |
+| `:resolve [all]` | — | Mark directive on current line (or all directives) as resolved |
+| `:unresolve [all]` | — | Mark directive on current line (or all directives) as active |
+| `:clear-resolved` | — | Purge all resolved directives while preserving active ones |
+| `:<number>` | — | Jump directly to line number (e.g. `:42` or `:150`) |
+
+---
+
+## 9. Configuration Reference (`.lgtm/config.toml`)
+
+Run `lgtm --init` to create a starter configuration file at `.lgtm/config.toml`:
+
+```toml
+# LGTM Configuration File
+# Documentation: https://github.com/mgabs/lgtm
+
+[review]
+# Ignore patterns (glob expressions)
+ignore = [
+    "package-lock.json",
+    "Cargo.lock",
+    "yarn.lock",
+    "**/*.min.js",
+    "target/**",
+    "dist/**"
+]
+
+[presets]
+# Custom canned directive templates
+why = "Why this specific approach? Explain rationale and architectural invariants."
+perf = "Is this hot path allocating or creating N+1 queries?"
+security = "Please ensure all user inputs are sanitized and parameterized."
+test = "Please add unit tests covering edge cases and error branches."
+
+[ui]
+# File drawer sidebar width in columns
+drawer_width = 35
+# Default view mode: "unified" or "split"
+default_view = "unified"
+# Watcher debounce interval in milliseconds
+debounce_ms = 300
+```
+
+---
+
+## Contributing & Support
+
+- **Repository**: [https://github.com/mgabs/lgtm](https://github.com/mgabs/lgtm)
+- **Issue Tracker**: [https://github.com/mgabs/lgtm/issues](https://github.com/mgabs/lgtm/issues)
+- **Discussions**: [https://github.com/mgabs/lgtm/discussions](https://github.com/mgabs/lgtm/discussions)
+- **License**: MIT
