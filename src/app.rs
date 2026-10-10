@@ -550,10 +550,10 @@ impl App {
                 self.cursor_to_bottom();
             }
             (_, KeyCode::Char(']')) => {
-                self.pending_leader = Some(']');
+                self.next_file();
             }
             (_, KeyCode::Char('[')) => {
-                self.pending_leader = Some('[');
+                self.prev_file();
             }
             (_, KeyCode::Char(' ')) => {
                 self.pending_leader = Some(' ');
@@ -3614,7 +3614,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bracket_navigation_double_press() {
+    fn test_bracket_single_press_navigation() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut app = create_test_app();
         app.snapshot.files = vec![
@@ -3654,28 +3654,19 @@ mod tests {
         let key_close_bracket = KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE);
         let key_open_bracket = KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE);
 
-        // Press ']' (sets leader)
+        // Single press ']' immediately moves to file 1
         app.handle_diff_key(key_close_bracket);
-        assert_eq!(app.pending_leader, Some(']'));
-        assert_eq!(app.selected_file_idx, 0);
-
-        // Press ']' (completes ']]' -> moves to file 1)
-        app.handle_diff_key(key_close_bracket);
-        assert_eq!(app.pending_leader, None);
         assert_eq!(app.selected_file_idx, 1);
 
-        // Press ']' then ']' again -> moves to file 2
-        app.handle_diff_key(key_close_bracket);
+        // Single press ']' immediately moves to file 2
         app.handle_diff_key(key_close_bracket);
         assert_eq!(app.selected_file_idx, 2);
 
-        // Press '[' then '[' -> moves to file 1
-        app.handle_diff_key(key_open_bracket);
+        // Single press '[' immediately moves to file 1
         app.handle_diff_key(key_open_bracket);
         assert_eq!(app.selected_file_idx, 1);
 
-        // Press '[' then '[' -> moves to file 0
-        app.handle_diff_key(key_open_bracket);
+        // Single press '[' immediately moves to file 0
         app.handle_diff_key(key_open_bracket);
         assert_eq!(app.selected_file_idx, 0);
     }
