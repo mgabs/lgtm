@@ -1,7 +1,11 @@
+pub mod api_drift;
 pub mod arch;
+pub mod complexity;
+pub mod dead_code;
 pub mod deps;
 pub mod duplicate;
 pub mod security;
+pub mod symbols;
 
 use crate::model::{FileDiff, LineType};
 use serde::{Deserialize, Serialize};
@@ -51,6 +55,9 @@ impl SecurityAndTestGuard {
         alerts.extend(duplicate::DuplicateHelperGuard::scan_file(file));
         alerts.extend(security::AdvancedSecurityGuard::scan_file(file));
         alerts.extend(arch::ArchitectureGuard::scan_file(file));
+        alerts.extend(complexity::ComplexityGuard::scan_file(file));
+        alerts.extend(symbols::SymbolGuard::scan_file(file));
+        alerts.extend(api_drift::ApiDriftGuard::scan_file(file));
 
         let path_str = file.display_name();
         let is_test_file = is_test_path(&path_str);
@@ -259,6 +266,9 @@ impl SecurityAndTestGuard {
         // Architectural Blast Radius Gate
         all_alerts.extend(arch::ArchitectureGuard::scan_snapshot(files));
 
+        // Dead Code Gate
+        all_alerts.extend(dead_code::DeadCodeGuard::scan_snapshot(files));
+
         all_alerts
     }
 }
@@ -410,6 +420,7 @@ mod tests {
                         new_line_num: Some(3),
                     },
                 ],
+                is_folded: false,
             }],
             is_folded: false,
             is_reviewed: false,
@@ -456,6 +467,7 @@ mod tests {
                         new_line_num: None,
                     },
                 ],
+                is_folded: false,
             }],
             is_folded: false,
             is_reviewed: false,
@@ -518,6 +530,7 @@ mod tests {
                         new_line_num: Some(6),
                     },
                 ],
+                is_folded: false,
             }],
             is_folded: false,
             is_reviewed: false,
@@ -564,6 +577,7 @@ mod tests {
                 new_start: 1,
                 new_lines: 35,
                 lines,
+                is_folded: false,
             }],
             is_folded: false,
             is_reviewed: false,

@@ -248,6 +248,7 @@ mod tests {
                     old_line_num: None,
                     new_line_num: Some(1),
                 }],
+                is_folded: false,
             }],
             is_folded: false,
             is_reviewed: false,

@@ -7,6 +7,7 @@ mod ipc;
 mod model;
 mod mutate;
 mod pr;
+mod scan;
 mod turn;
 mod ui;
 mod verify;
@@ -82,6 +83,33 @@ enum Commands {
     },
     /// List open Pull Requests
     Prs,
+    /// Run headless CI / pre-commit check (fails on Critical/High risks)
+    Check {
+        /// Target repository path
+        #[arg(short, long)]
+        repo: Option<PathBuf>,
+        /// Output format: markdown, json, or sarif
+        #[arg(short, long, default_value = "markdown")]
+        format: String,
+        /// Optional output file to write the report to
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Fail on warning severity as well as critical/high
+        #[arg(long)]
+        strict: bool,
+    },
+    /// Run full repository security and architecture scan with markdown report
+    Scan {
+        /// Target repository path
+        #[arg(short, long)]
+        repo: Option<PathBuf>,
+        /// Optional output file to write the report to (default: lgtm-report.md)
+        #[arg(short, long, default_value = "lgtm-report.md")]
+        output: Option<PathBuf>,
+        /// Output format: markdown or json
+        #[arg(short, long, default_value = "markdown")]
+        format: String,
+    },
     /// Run headless CI mode: audit diff and produce sticky PR comment markdown or JSON/SARIF report
     Ci {
         /// Target repository path
@@ -230,7 +258,13 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Some(Commands::Ci {
+        Some(Commands::Check {
+            repo,
+            format,
+            output,
+            strict,
+        })
+        | Some(Commands::Ci {
             repo,
             format,
             output,
@@ -241,7 +275,48 @@ fn main() -> ExitCode {
             match run_ci_audit(&repo_path, &format, output.as_deref(), strict) {
                 Ok(code) => ExitCode::from(code as u8),
                 Err(e) => {
-                    eprintln!("Error running CI audit: {}", e);
+                    eprintln!("Error running check audit: {}", e);
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Some(Commands::Scan {
+            repo,
+            output,
+            format,
+        }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            println!("🔍 Running full codebase security and architecture audit...\n");
+            match scan::FullRepoScanner::scan_repository(&repo_path) {
+                Ok((files, alerts)) => {
+                    let output_text = if format.eq_ignore_ascii_case("json") {
+                        serde_json::to_string_pretty(&alerts).unwrap_or_default()
+                    } else {
+                        scan::FullRepoScanner::generate_markdown_report(&repo_path, &files, &alerts)
+                    };
+
+                    if let Some(path) = output {
+                        if let Err(e) = std::fs::write(&path, &output_text) {
+                            eprintln!("Failed to write report to {}: {}", path.display(), e);
+                            return ExitCode::from(1);
+                        }
+                        println!("✨ Full scan report written to: {}", path.display());
+                    } else {
+                        println!("{}", output_text);
+                    }
+
+                    let has_critical = alerts
+                        .iter()
+                        .any(|a| a.severity == guard::Severity::Critical);
+                    if has_critical {
+                        ExitCode::from(1)
+                    } else {
+                        ExitCode::SUCCESS
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error running repository scan: {}", e);
                     ExitCode::from(1)
                 }
             }

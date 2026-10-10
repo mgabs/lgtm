@@ -36,6 +36,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         ActiveView::PrPicker => render_pr_picker(frame, size, app),
         ActiveView::Help => render_help_modal(frame, size, app),
         ActiveView::Search => render_search_input(frame, size, app),
+        ActiveView::CommitModal => render_commit_modal(frame, size, app),
         ActiveView::CommandLine => {
             if !app.command_completions.is_empty() {
                 render_command_completion_column(frame, size, app);
@@ -491,6 +492,31 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                     let mut line_counter = 0;
 
                     for hunk in &file.hunks {
+                        if hunk.is_folded {
+                            let hunk_len = hunk.lines.len();
+                            let is_cursor_in_hunk = app.cursor_line_idx >= line_counter
+                                && app.cursor_line_idx < line_counter + hunk_len;
+                            let style = if is_cursor_in_hunk {
+                                Style::default()
+                                    .bg(Color::Indexed(237))
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD)
+                            };
+                            lines.push(Line::from(vec![Span::styled(
+                                format!(
+                                    "  ▶ {} [Folded - {} lines | zo to expand]",
+                                    hunk.header, hunk_len
+                                ),
+                                style,
+                            )]));
+                            line_counter += hunk_len;
+                            continue;
+                        }
+
                         lines.push(Line::from(Span::styled(
                             format!("  {} (Split View: Left=Old, Right=New)", hunk.header),
                             Style::default()
@@ -672,6 +698,31 @@ fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                 } else {
                     let mut line_counter = 0;
                     for hunk in &file.hunks {
+                        if hunk.is_folded {
+                            let hunk_len = hunk.lines.len();
+                            let is_cursor_in_hunk = app.cursor_line_idx >= line_counter
+                                && app.cursor_line_idx < line_counter + hunk_len;
+                            let style = if is_cursor_in_hunk {
+                                Style::default()
+                                    .bg(Color::Indexed(237))
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD)
+                            };
+                            lines.push(Line::from(vec![Span::styled(
+                                format!(
+                                    "  ▶ {} [Folded - {} lines | zo to expand]",
+                                    hunk.header, hunk_len
+                                ),
+                                style,
+                            )]));
+                            line_counter += hunk_len;
+                            continue;
+                        }
+
                         lines.push(Line::from(Span::styled(
                             format!("  {}", hunk.header),
                             Style::default()
@@ -1478,6 +1529,62 @@ fn render_pr_picker(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(list, popup_area);
 }
 
+fn render_commit_modal(frame: &mut Frame, area: Rect, app: &App) {
+    let popup_area = centered_rect(65, 45, area);
+    frame.render_widget(Clear, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4), // Staged files summary
+            Constraint::Length(3), // Commit message input box
+            Constraint::Min(2),    // Help & shortcuts
+        ])
+        .split(popup_area);
+
+    let staged_count = app.staged_files_count();
+    let staged_summary = vec![
+        Line::from(vec![
+            Span::styled("Staged Files: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{} file(s) ready to commit", staged_count),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Author: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "lgtm Interactive Reviewer",
+                Style::default().fg(Color::Cyan),
+            ),
+        ]),
+    ];
+
+    let summary_widget = Paragraph::new(staged_summary).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Commit Forge ")
+            .border_style(Style::default().fg(Color::Green)),
+    );
+    frame.render_widget(summary_widget, chunks[0]);
+
+    let input = Paragraph::new(app.commit_message_input.as_str()).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Commit Message (Enter: Commit | Ctrl-s: Commit | Esc: Cancel) ")
+            .border_style(Style::default().fg(Color::Yellow)),
+    );
+    frame.render_widget(input, chunks[1]);
+
+    let help = Paragraph::new(
+        "Tip: Use conventional commit format (feat: ..., fix: ..., chore: ...)\nPress Enter or Ctrl-s to commit staged changes directly to git.",
+    )
+    .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(help, chunks[2]);
+}
+
 fn render_help_modal(frame: &mut Frame, area: Rect, _app: &App) {
     let popup_area = centered_rect(72, 85, area);
     frame.render_widget(Clear, popup_area);
@@ -1545,16 +1652,32 @@ fn render_help_modal(frame: &mut Frame, area: Rect, _app: &App) {
             Span::raw("Center view / Top of view / Bottom of view"),
         ]),
         Line::from(vec![
+            Span::styled("  zc / zo          ", Style::default().fg(Color::Cyan)),
+            Span::raw("Fold / Unfold current diff hunk"),
+        ]),
+        Line::from(vec![
+            Span::styled("  zM / zR          ", Style::default().fg(Color::Cyan)),
+            Span::raw("Fold all hunks / Unfold all hunks in file"),
+        ]),
+        Line::from(vec![
             Span::styled("  o / e            ", Style::default().fg(Color::Cyan)),
             Span::raw("Open current file:line in $EDITOR (nvim/vim/code)"),
         ]),
         Line::from(vec![
-            Span::styled("  s                ", Style::default().fg(Color::Cyan)),
-            Span::raw("Stage / Unstage current file in Git"),
+            Span::styled("  s / S            ", Style::default().fg(Color::Cyan)),
+            Span::raw("Stage current hunk / current file in Git"),
         ]),
         Line::from(vec![
-            Span::styled("  X                ", Style::default().fg(Color::Cyan)),
-            Span::raw("Discard unstaged changes in current file"),
+            Span::styled("  u / U            ", Style::default().fg(Color::Cyan)),
+            Span::raw("Unstage current hunk / current file in Git"),
+        ]),
+        Line::from(vec![
+            Span::styled("  C                ", Style::default().fg(Color::Cyan)),
+            Span::raw("Open Commit Forge to commit staged changes"),
+        ]),
+        Line::from(vec![
+            Span::styled("  x / X            ", Style::default().fg(Color::Cyan)),
+            Span::raw("Discard current hunk / current file changes"),
         ]),
         Line::from(vec![
             Span::styled("  f / Ctrl-p       ", Style::default().fg(Color::Cyan)),
@@ -1758,6 +1881,7 @@ pub fn command_description(cmd: &str) -> &'static str {
         "tree" | "drawer" | "sidebar" => "Toggle file tree sidebar",
         "sp" | "split" | "vsp" | "vsplit" => "Toggle split / unified view",
         "diff" => "Return to diff view",
+        "commit" | "ci" => "Open Commit Forge to commit staged changes",
         "c" | "comments" | "directives" | "todo" => "Open review directives list",
         "r" | "review" | "send" | "push" | "submit" => "Export & blast batch review to agent",
         "risk" | "audit" | "scan" => "Re-scan diff for security & test risks",
@@ -1929,6 +2053,11 @@ mod tests {
 
         // Test rendering Search
         app.active_view = ActiveView::Search;
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+
+        // Test rendering CommitModal
+        app.active_view = ActiveView::CommitModal;
+        app.commit_message_input = "feat: add cognitive complexity guard".to_string();
         terminal.draw(|f| render(f, &mut app)).unwrap();
 
         // Test rendering Visual Mode
