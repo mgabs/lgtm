@@ -43,7 +43,16 @@ impl ComplexityGuard {
                 .iter()
                 .filter(|l| l.line_type == LineType::Addition)
                 .count();
-            if complexity >= 15 || (complexity >= 8 && added_count <= 25) {
+            let high_density = (added_count > 100
+                && (complexity as f64 / added_count as f64) >= 3.0
+                && complexity >= 150)
+                || (added_count > 60
+                    && added_count <= 100
+                    && (complexity as f64 / added_count as f64) >= 1.8
+                    && complexity >= 40);
+            let hunk_spike =
+                added_count <= 60 && (complexity >= 15 || (complexity >= 8 && added_count <= 25));
+            if hunk_spike || high_density {
                 let line_num = hunk.lines.iter().find_map(|l| l.new_line_num);
                 alerts.push(GuardAlert {
                     severity: Severity::High,

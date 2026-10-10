@@ -15,14 +15,26 @@ impl FullRepoScanner {
         for path in source_files {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let rel_path = path.strip_prefix(root_dir).unwrap_or(&path).to_path_buf();
+                let mut in_test_block = false;
                 let lines: Vec<DiffLine> = content
                     .lines()
                     .enumerate()
-                    .map(|(idx, line)| DiffLine {
-                        line_type: LineType::Addition,
-                        content: line.to_string(),
-                        old_line_num: None,
-                        new_line_num: Some((idx + 1) as u32),
+                    .map(|(idx, line)| {
+                        let trimmed = line.trim();
+                        if trimmed.contains("#[cfg(test)]") {
+                            in_test_block = true;
+                        }
+                        let content_str = if in_test_block && !trimmed.contains("lgtm:ignore") {
+                            format!("{} // lgtm:ignore", line)
+                        } else {
+                            line.to_string()
+                        };
+                        DiffLine {
+                            line_type: LineType::Addition,
+                            content: content_str,
+                            old_line_num: None,
+                            new_line_num: Some((idx + 1) as u32),
+                        }
                     })
                     .collect();
 
@@ -205,6 +217,8 @@ fn collect_files_recursive(dir: &Path, acc: &mut Vec<PathBuf>) {
                 || name == "build"
                 || name == "vendor"
                 || name == "tmp"
+                || name == "fixtures"
+                || name == "testdata"
             {
                 continue;
             }

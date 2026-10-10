@@ -24,6 +24,9 @@ impl DeadCodeGuard {
                 for line in &hunk.lines {
                     if line.line_type == LineType::Addition {
                         let text = line.content.trim();
+                        if crate::guard::is_line_ignored(text) {
+                            continue;
+                        }
                         all_diff_text.push_str(text);
                         all_diff_text.push('\n');
 

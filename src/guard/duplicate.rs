@@ -14,6 +14,11 @@ impl DuplicateHelperGuard {
                     let text = line.content.trim();
                     let line_num = line.new_line_num;
 
+                    if crate::guard::is_line_ignored(text) || crate::guard::is_test_path(&path_str)
+                    {
+                        continue;
+                    }
+
                     // Detect suspect duplicate helper suffix patterns (e.g., fn format_date_2, helper_new, custom_slugify)
                     if is_duplicate_helper_name(text) {
                         alerts.push(GuardAlert {
@@ -37,6 +42,10 @@ impl DuplicateHelperGuard {
 
 fn is_duplicate_helper_name(text: &str) -> bool {
     let t = text.to_lowercase();
+    if t.starts_with("//") || t.starts_with('#') || t.starts_with("/*") || t.contains("test_") {
+        return false;
+    }
+
     let is_fn_def = t.contains("fn ")
         || t.starts_with("def ")
         || t.contains("function ")
