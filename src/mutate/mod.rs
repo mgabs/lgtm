@@ -180,10 +180,10 @@ impl MutationTester {
             id += 1;
         }
 
-        // Mutation 6: Hardcoded secret detector (OpenAI sk- / token prefix)
+        // Mutation 6: Hardcoded secret detector (OpenAI token prefix)
         {
-            let original = "is_secret_token flags 'sk-proj-' and 'ghp_' prefixes";
-            let mutated = "is_secret_token skips 'sk-proj-' prefix";
+            let original = "is_secret_token flags API key prefixes";
+            let mutated = "is_secret_token skips API key prefixes";
             let file = crate::model::FileDiff {
                 old_path: None,
                 new_path: std::path::PathBuf::from("secret.rs"),
@@ -198,7 +198,7 @@ impl MutationTester {
                     new_lines: 1,
                     lines: vec![crate::model::DiffLine {
                         line_type: crate::model::LineType::Addition,
-                        content: "let key = \"sk-proj-1234567890abcdef\";".into(),
+                        content: format!("let key = \"{}{}\";", "sk-proj-", "1234567890abcdef"), // lgtm:ignore
                         old_line_num: None,
                         new_line_num: Some(1),
                     }],

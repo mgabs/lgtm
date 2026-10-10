@@ -26,7 +26,10 @@ impl ApiDriftGuard {
                     LineType::Deletion if is_public_function_signature(text) => {
                         deleted_signatures.push(text.to_string());
                     }
-                    LineType::Addition if is_public_function_signature(text) => {
+                    LineType::Addition
+                        if !crate::guard::is_line_ignored(text)
+                            && is_public_function_signature(text) =>
+                    {
                         added_signatures.push((text.to_string(), line.new_line_num));
                     }
                     _ => {}

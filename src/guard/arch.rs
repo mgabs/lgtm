@@ -32,6 +32,10 @@ impl ArchitectureGuard {
                     let text = line.content.trim();
                     let line_num = line.new_line_num;
 
+                    if crate::guard::is_line_ignored(text) {
+                        continue;
+                    }
+
                     // Layer Boundary Violations
                     if let Some(violation) = check_layer_boundary_violation(&path_str, text) {
                         alerts.push(GuardAlert {

@@ -24,6 +24,10 @@ impl DependencyGuard {
                     let text = line.content.trim();
                     let line_num = line.new_line_num;
 
+                    if crate::guard::is_line_ignored(text) {
+                        continue;
+                    }
+
                     // Unpinned or wildcard dependencies
                     if is_unpinned_wildcard(text, &path_str) {
                         alerts.push(GuardAlert {

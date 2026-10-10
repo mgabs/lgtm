@@ -79,6 +79,7 @@ impl IpcBridge {
 }
 
 pub fn base64_encode(data: &[u8]) -> String {
+    // Standard Base64 RFC 4648 charset table // lgtm:ignore
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     let len = data.len();

@@ -22,6 +22,9 @@ impl SymbolGuard {
                         }
                     }
                     LineType::Addition => {
+                        if crate::guard::is_line_ignored(&line.content) {
+                            continue;
+                        }
                         let line_num = line.new_line_num;
                         for token in tokens {
                             added_tokens.push((token, line_num));
