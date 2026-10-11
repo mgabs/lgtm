@@ -1189,10 +1189,18 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
             Span::raw(" Maximize | "),
             Span::styled("[b]", Style::default().fg(Color::Cyan)),
             Span::raw(" Sidebar | "),
+            Span::styled("[w/W]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Next/Prev Issue | "),
+            Span::styled("[[]/[]]", Style::default().fg(Color::Cyan)),
+            Span::raw(" File | "),
             Span::styled("[1-3/a]", Style::default().fg(Color::Cyan)),
             Span::raw(" Sev | "),
-            Span::styled("[w]", Style::default().fg(Color::Green)),
+            Span::styled("[y]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Yank | "),
+            Span::styled("[E]", Style::default().fg(Color::Green)),
             Span::raw(" Export | "),
+            Span::styled("[?]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Help | "),
             Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
             Span::raw(" Diff | "),
             Span::styled("[q]", Style::default().fg(Color::Red)),
@@ -2229,8 +2237,32 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 )]),
                 Line::from(vec![
-                    Span::styled("  1 / 2 / 3            ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Filter severity: [1] Critical only | [2] High+ | [3] All issues"),
+                    Span::styled("  Tab / h / l          ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Cycle active pane focus (Files <-> Issues <-> Inspector)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  w / W / n / N / ]c / [c", Style::default().fg(Color::Cyan)),
+                    Span::raw("Next / Previous issue in list"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  ] / [ / ]f / [f      ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Next / Previous file in audit drawer"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Space / Enter (Files)", Style::default().fg(Color::Cyan)),
+                    Span::raw("Filter issues to selected file / isolate file"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Z / m / b            ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Toggle maximized Inspector / toggle file sidebar"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  y / Ctrl-s           ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Yank directive to clipboard / batch-inject all to agent"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  1 / 2 / 3 / a        ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Filter severity: [1] Critical | [2] High+ | [3] All | [a] Reset all"),
                 ]),
                 Line::from(vec![
                     Span::styled("  Enter                ", Style::default().fg(Color::Cyan)),
@@ -2887,21 +2919,28 @@ fn render_audit_inspector(
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Inject Directive  "),
+        Span::raw(" Inject  "),
+        Span::styled(
+            "[y]",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Yank  "),
         Span::styled(
             "[e/o]",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Open in Editor  "),
+        Span::raw(" Editor  "),
         Span::styled(
-            "[w]",
+            "[E]",
             Style::default()
                 .fg(Color::Green)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Export Report  "),
+        Span::raw(" Export  "),
         Span::styled(
             "[Esc]",
             Style::default()
