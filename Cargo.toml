@@ -1,6 +1,6 @@
 [package]
 name = "lgtm"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 description = "Real-Time Terminal Diff Reviewer & Agent Steering Engine"
 authors = ["lgtm contributors"]
@@ -17,7 +17,6 @@ notify-debouncer-mini = "0.4.1"
 similar = { version = "2.6.0", features = ["inline"] }
 
 # Navigation & Search
-nucleo = "0.5.0"
 fuzzy-matcher = "0.3.7"
 
 # Concurrency & Serialization
@@ -28,7 +27,6 @@ serde_json = "1.0.134"
 # CLI & Utilities
 clap = { version = "4.5.23", features = ["derive"] }
 anyhow = "1.0.95"
-thiserror = "2.0.9"
 
 [profile.release]
 opt-level = 3
