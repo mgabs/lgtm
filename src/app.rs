@@ -1049,6 +1049,117 @@ impl App {
                 let target_path = args.first().map(std::path::Path::new);
                 let _ = self.export_audit_report(target_path);
             }
+            "next" | "n" => {
+                if self.active_view == ActiveView::AuditReport {
+                    let total = self.filtered_audit_alerts().len();
+                    if total > 0 && self.audit_selected_idx + 1 < total {
+                        self.audit_selected_idx += 1;
+                        self.audit_inspector_scroll = 0;
+                        self.sync_audit_selected_file();
+                    }
+                } else {
+                    self.next_file();
+                }
+            }
+            "prev" | "p" => {
+                if self.active_view == ActiveView::AuditReport {
+                    if self.audit_selected_idx > 0 {
+                        self.audit_selected_idx -= 1;
+                        self.audit_inspector_scroll = 0;
+                        self.sync_audit_selected_file();
+                    }
+                } else {
+                    self.prev_file();
+                }
+            }
+            "filter" | "sev" => match args.first().copied().unwrap_or("") {
+                "1" | "crit" | "critical" => {
+                    self.audit_filter_severity = Some(crate::guard::Severity::Critical);
+                    self.audit_selected_idx = 0;
+                    self.sync_audit_selected_file();
+                    self.status_message = Some("Filter: 🔴 Critical issues only".into());
+                }
+                "2" | "high" => {
+                    self.audit_filter_severity = Some(crate::guard::Severity::High);
+                    self.audit_selected_idx = 0;
+                    self.sync_audit_selected_file();
+                    self.status_message = Some("Filter: 🟠 High & 🔴 Critical issues".into());
+                }
+                "3" | "all" => {
+                    self.audit_filter_severity = None;
+                    self.audit_selected_idx = 0;
+                    self.sync_audit_selected_file();
+                    self.status_message = Some("Filter: All issues".into());
+                }
+                _ => {
+                    self.status_message = Some("Usage: :filter <1|2|3|crit|high|all>".into());
+                }
+            },
+            "file" => {
+                if let Some(target_file) = args.first() {
+                    self.audit_file_filter = Some(target_file.to_string());
+                    self.audit_selected_idx = 0;
+                    self.status_message =
+                        Some(format!("Filtered audit issues to: {}", target_file));
+                } else {
+                    self.audit_file_filter = None;
+                    self.status_message = Some("Cleared file filter: showing all issues".into());
+                }
+            }
+            "inject" => {
+                let filtered = self.filtered_audit_alerts();
+                if filtered.is_empty() {
+                    self.status_message = Some("No issues to inject".into());
+                } else if args.first() == Some(&"all") {
+                    let mut payload = String::new();
+                    for alert in &filtered {
+                        let loc = match alert.line_no {
+                            Some(l) => format!("{}:{}", alert.file_path, l),
+                            None => alert.file_path.clone(),
+                        };
+                        payload.push_str(&format!(
+                            "Fix {}: [{}] {} - {}\n",
+                            loc,
+                            alert.severity.badge(),
+                            alert.title,
+                            alert.description
+                        ));
+                    }
+                    if let Some(ref pane) = self.agent_pane {
+                        let _ = IpcBridge::send_to_tmux(pane, &payload);
+                        self.status_message = Some(format!(
+                            "Injected {} issues to pane {}",
+                            filtered.len(),
+                            pane
+                        ));
+                    } else {
+                        IpcBridge::send_osc52_clipboard(&payload);
+                        self.status_message = Some(format!(
+                            "Copied {} issues to clipboard (OSC 52)",
+                            filtered.len()
+                        ));
+                    }
+                } else if let Some(alert) = filtered.get(self.audit_selected_idx) {
+                    let loc = match alert.line_no {
+                        Some(l) => format!("{}:{}", alert.file_path, l),
+                        None => alert.file_path.clone(),
+                    };
+                    let directive = format!(
+                        "Fix security/architectural violation in {}: [{}] {} - {}\n",
+                        loc,
+                        alert.severity.badge(),
+                        alert.title,
+                        alert.description
+                    );
+                    if let Some(ref pane) = self.agent_pane {
+                        let _ = IpcBridge::send_to_tmux(pane, &directive);
+                        self.status_message = Some(format!("Injected directive to pane {}", pane));
+                    } else {
+                        IpcBridge::send_osc52_clipboard(&directive);
+                        self.status_message = Some("Copied directive to clipboard (OSC 52)".into());
+                    }
+                }
+            }
             "audit" => {
                 self.trigger_repo_scan();
             }
@@ -2264,6 +2375,23 @@ impl App {
                     self.audit_prev_file();
                     return;
                 }
+                (']', KeyCode::Char('c')) => {
+                    let total = self.filtered_audit_alerts().len();
+                    if total > 0 && self.audit_selected_idx + 1 < total {
+                        self.audit_selected_idx += 1;
+                        self.audit_inspector_scroll = 0;
+                        self.sync_audit_selected_file();
+                    }
+                    return;
+                }
+                ('[', KeyCode::Char('c')) => {
+                    if self.audit_selected_idx > 0 {
+                        self.audit_selected_idx -= 1;
+                        self.audit_inspector_scroll = 0;
+                        self.sync_audit_selected_file();
+                    }
+                    return;
+                }
                 _ => {}
             }
         }
@@ -2321,12 +2449,14 @@ impl App {
                     self.status_message = Some("Restored 3-pane layout".into());
                 }
             }
-            // File jumping
+            // File jumping (immediate jump + chord support)
             (_, KeyCode::Char(']')) => {
                 self.audit_next_file();
+                self.pending_leader = Some(']');
             }
             (_, KeyCode::Char('[')) => {
                 self.audit_prev_file();
+                self.pending_leader = Some('[');
             }
             // Up/Down navigation based on active focus
             (_, KeyCode::Char('j')) | (_, KeyCode::Down) => match self.audit_focus {
@@ -2522,8 +2652,105 @@ impl App {
                     }
                 }
             },
-            (_, KeyCode::Char('w')) | (_, KeyCode::Char('E')) => {
+            // Next issue: 'w' / 'n'
+            (_, KeyCode::Char('w')) | (_, KeyCode::Char('n')) => {
+                if total > 0 && self.audit_selected_idx + 1 < total {
+                    self.audit_selected_idx += 1;
+                    self.audit_inspector_scroll = 0;
+                    self.sync_audit_selected_file();
+                } else if total > 0 {
+                    self.audit_selected_idx = 0;
+                    self.audit_inspector_scroll = 0;
+                    self.sync_audit_selected_file();
+                }
+            }
+            // Previous issue: 'W' / 'N'
+            (_, KeyCode::Char('W')) | (_, KeyCode::Char('N')) => {
+                if self.audit_selected_idx > 0 {
+                    self.audit_selected_idx -= 1;
+                    self.audit_inspector_scroll = 0;
+                    self.sync_audit_selected_file();
+                } else if total > 0 {
+                    self.audit_selected_idx = total - 1;
+                    self.audit_inspector_scroll = 0;
+                    self.sync_audit_selected_file();
+                }
+            }
+            // Export report: 'E'
+            (_, KeyCode::Char('E')) => {
                 let _ = self.export_audit_report(None);
+            }
+            // Yank remediation directive to clipboard (OSC 52)
+            (_, KeyCode::Char('y')) => {
+                if let Some(alert) = filtered.get(self.audit_selected_idx) {
+                    let loc = match alert.line_no {
+                        Some(l) => format!("{}:{}", alert.file_path, l),
+                        None => alert.file_path.clone(),
+                    };
+                    let directive = format!(
+                        "Fix security/architectural violation in {}: [{}] {} - {}\n",
+                        loc,
+                        alert.severity.badge(),
+                        alert.title,
+                        alert.description
+                    );
+                    IpcBridge::send_osc52_clipboard(&directive);
+                    self.status_message =
+                        Some("Copied remediation directive to clipboard (OSC 52)".into());
+                }
+            }
+            // Batch inject all filtered alerts to agent pane: Ctrl-s
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
+                if filtered.is_empty() {
+                    self.status_message = Some("No issues to inject".into());
+                } else {
+                    let mut payload = String::new();
+                    for alert in &filtered {
+                        let loc = match alert.line_no {
+                            Some(l) => format!("{}:{}", alert.file_path, l),
+                            None => alert.file_path.clone(),
+                        };
+                        payload.push_str(&format!(
+                            "Fix {}: [{}] {} - {}\n",
+                            loc,
+                            alert.severity.badge(),
+                            alert.title,
+                            alert.description
+                        ));
+                    }
+                    if let Some(ref pane) = self.agent_pane {
+                        let _ = IpcBridge::send_to_tmux(pane, &payload);
+                        self.status_message = Some(format!(
+                            "Injected {} issues to pane {}",
+                            filtered.len(),
+                            pane
+                        ));
+                    } else {
+                        IpcBridge::send_osc52_clipboard(&payload);
+                        self.status_message = Some(format!(
+                            "Copied {} issues to clipboard (OSC 52)",
+                            filtered.len()
+                        ));
+                    }
+                }
+            }
+            // File picker: 'f' or Ctrl-p
+            (_, KeyCode::Char('f')) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                self.active_view = ActiveView::FilePicker;
+                self.picker_query.clear();
+                self.picker_selected_idx = 0;
+                self.update_file_picker_filter();
+            }
+            // Help modal: '?'
+            (_, KeyCode::Char('?')) => {
+                self.active_view = ActiveView::Help;
+            }
+            // Stage/Unstage selected file in git repo
+            (_, KeyCode::Char('S')) => {
+                self.toggle_stage_current_file();
+            }
+            (_, KeyCode::Char('U')) => {
+                self.unstage_current_file();
             }
             (_, KeyCode::Char('e')) | (_, KeyCode::Char('o')) => {
                 if let Some(alert) = filtered.get(self.audit_selected_idx) {
@@ -4369,6 +4596,30 @@ mod tests {
         assert_eq!(app.audit_file_filter, None);
         assert_eq!(app.filtered_audit_alerts().len(), 3);
 
+        // Next and previous issue navigation with 'w' / 'W' and 'n' / 'N'
+        assert_eq!(app.audit_selected_idx, 0);
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+        assert_eq!(app.audit_selected_idx, 1);
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        assert_eq!(app.audit_selected_idx, 2);
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('W'), KeyModifiers::NONE));
+        assert_eq!(app.audit_selected_idx, 1);
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::NONE));
+        assert_eq!(app.audit_selected_idx, 0);
+
+        // Yank remediation directive via 'y'
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert!(app
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Copied remediation directive"));
+
+        // Help modal with '?'
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Help);
+        app.active_view = ActiveView::AuditReport;
+
         // Esc returns to diff view
         app.handle_audit_report_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.active_view, ActiveView::Diff);
@@ -4392,6 +4643,21 @@ mod tests {
         // :audit audits full repo and switches to AuditReport
         app.execute_command("audit");
         assert_eq!(app.active_view, ActiveView::AuditReport);
+
+        // :filter 1 filters to Critical
+        app.execute_command("filter 1");
+        assert_eq!(
+            app.audit_filter_severity,
+            Some(crate::guard::Severity::Critical)
+        );
+
+        // :file test.rs filters to target file
+        app.execute_command("file test.rs");
+        assert_eq!(app.audit_file_filter.as_deref(), Some("test.rs"));
+
+        // :file clears filter
+        app.execute_command("file");
+        assert_eq!(app.audit_file_filter, None);
 
         // Export report
         let report_file = tmp.join("custom-report.md");
