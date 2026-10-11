@@ -63,6 +63,12 @@ struct Cli {
     init: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuditStartMode {
+    FullRepo,
+    DiffChanges,
+}
+
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
     /// Audit current diff for security risks, test neutering, and fraud
@@ -286,7 +292,7 @@ fn main() -> ExitCode {
                     cli.debounce,
                     None,
                     Some(first.to_string()),
-                    false,
+                    None,
                 ) {
                     eprintln!("Error reviewing revision {}: {}", first, e);
                     return ExitCode::from(1);
@@ -310,7 +316,7 @@ fn main() -> ExitCode {
                 cli.debounce,
                 Some(number),
                 None,
-                false,
+                None,
             ) {
                 eprintln!("Error reviewing PR #{}: {}", number, e);
                 return ExitCode::from(1);
@@ -359,7 +365,14 @@ fn main() -> ExitCode {
         Some(Commands::Audit { repo }) => {
             let target = repo.unwrap_or(cli.repo);
             let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
-            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, None, None, true) {
+            if let Err(e) = run_tui(
+                repo_path,
+                cli.agent_pane,
+                cli.debounce,
+                None,
+                None,
+                Some(AuditStartMode::FullRepo),
+            ) {
                 eprintln!("Error running audit TUI: {}", e);
                 return ExitCode::from(1);
             }
@@ -374,10 +387,12 @@ fn main() -> ExitCode {
         }) => {
             let mut resolved_repo = repo;
             let mut open_tui = tui;
+            let mut full_repo = false;
 
             if let Some(ref t) = target {
                 if t == "repo" {
                     open_tui = true;
+                    full_repo = true;
                 } else if resolved_repo.is_none() {
                     resolved_repo = Some(PathBuf::from(t));
                 }
@@ -387,8 +402,20 @@ fn main() -> ExitCode {
             let repo_path = std::fs::canonicalize(&repo_target).unwrap_or(repo_target);
 
             if open_tui {
-                if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, None, None, true) {
-                    eprintln!("Error running audit TUI: {}", e);
+                let start_mode = if full_repo {
+                    AuditStartMode::FullRepo
+                } else {
+                    AuditStartMode::DiffChanges
+                };
+                if let Err(e) = run_tui(
+                    repo_path,
+                    cli.agent_pane,
+                    cli.debounce,
+                    None,
+                    None,
+                    Some(start_mode),
+                ) {
+                    eprintln!("Error running scan TUI: {}", e);
                     return ExitCode::from(1);
                 }
                 return ExitCode::SUCCESS;
@@ -470,7 +497,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Diff) | Some(Commands::Status) | Some(Commands::Review) | None => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
-            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr, None, false) {
+            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr, None, None) {
                 eprintln!("Error running lgtm: {}", e);
                 return ExitCode::from(1);
             }
@@ -922,7 +949,7 @@ fn run_tui(
     debounce: u64,
     pr_number: Option<u64>,
     revision: Option<String>,
-    start_in_audit: bool,
+    start_audit: Option<AuditStartMode>,
 ) -> Result<()> {
     // Setup watcher channel
     let (watcher_tx, watcher_rx) = crossbeam_channel::unbounded();
@@ -947,8 +974,14 @@ fn run_tui(
     // Initialize application state (handles non-git directory, PR mode, and revision diffs cleanly)
     let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number, revision);
 
-    if start_in_audit {
-        app.trigger_repo_scan();
+    match start_audit {
+        Some(AuditStartMode::FullRepo) => {
+            app.trigger_repo_scan();
+        }
+        Some(AuditStartMode::DiffChanges) => {
+            app.trigger_diff_scan();
+        }
+        None => {}
     }
 
     // Main event loop

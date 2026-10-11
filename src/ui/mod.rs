@@ -1158,6 +1158,11 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     if app.active_view == ActiveView::AuditReport {
         let msg = app.status_message.as_deref().unwrap_or("Audit Mode");
+        let drawer_tag = if app.show_file_drawer {
+            "Hide Sidebar"
+        } else {
+            "Show Sidebar"
+        };
         let status_line = Line::from(vec![
             Span::styled(
                 format!(" {} ", msg),
@@ -1167,8 +1172,12 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" | "),
+            Span::styled("[Tab/b]", Style::default().fg(Color::Cyan)),
+            Span::raw(format!(" {} | ", drawer_tag)),
             Span::styled("[j/k]", Style::default().fg(Color::Cyan)),
             Span::raw(" Nav | "),
+            Span::styled("[]/[]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Files | "),
             Span::styled("[1-3]", Style::default().fg(Color::Cyan)),
             Span::raw(" Filter | "),
             Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
@@ -2452,22 +2461,110 @@ fn render_command_completion_column(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(list, popup_area);
 }
 
+fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
+    if app.audit_files.is_empty() {
+        let items = vec![ListItem::new(Line::from(Span::styled(
+            " (No files audited) ",
+            Style::default().fg(Color::DarkGray),
+        )))];
+        let list = List::new(items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Files (Tab) ")
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+        frame.render_widget(list, area);
+        return;
+    }
+
+    let items: Vec<ListItem> = app
+        .audit_files
+        .iter()
+        .enumerate()
+        .map(|(idx, file)| {
+            let is_selected = idx == app.selected_file_idx;
+            let display_name = file.display_name();
+
+            let file_alerts_count = app
+                .audit_alerts
+                .iter()
+                .filter(|a| a.file_path == display_name)
+                .count();
+
+            let (badge, badge_color) = if file_alerts_count > 0 {
+                (format!("⚠️{:2} ", file_alerts_count), Color::Yellow)
+            } else {
+                (" ✓   ".to_string(), Color::Green)
+            };
+
+            let spans = vec![
+                Span::styled(
+                    badge,
+                    Style::default()
+                        .fg(badge_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(display_name),
+            ];
+
+            let style = if is_selected {
+                Style::default()
+                    .bg(Color::Cyan)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            ListItem::new(Line::from(spans)).style(style)
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(format!(" Files [{}] (Tab) ", app.audit_files.len()))
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+
+    frame.render_widget(list, area);
+}
+
 fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App) {
     let filtered_alerts = app.filtered_audit_alerts();
     let total_alerts = app.audit_alerts.len();
     let filtered_count = filtered_alerts.len();
 
-    // Dual pane layout: left pane for issues list, right pane for inspector
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(45), // Issues list
-            Constraint::Percentage(55), // Inspector
-        ])
-        .split(area);
+    // Check if sidebar should be rendered
+    let (left_area, right_area) = if app.show_file_drawer && area.width >= 70 {
+        let drawer_width = if area.width >= 110 { 32 } else { 25 };
+        let top_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(drawer_width), Constraint::Min(40)])
+            .split(area);
 
-    let left_area = chunks[0];
-    let right_area = chunks[1];
+        render_audit_file_drawer(frame, top_chunks[0], app);
+
+        let sub_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(45), // Issues list
+                Constraint::Percentage(55), // Inspector
+            ])
+            .split(top_chunks[1]);
+
+        (sub_chunks[0], sub_chunks[1])
+    } else {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(45), // Issues list
+                Constraint::Percentage(55), // Inspector
+            ])
+            .split(area);
+
+        (chunks[0], chunks[1])
+    };
 
     let visible_height = (left_area.height.saturating_sub(2)) as usize;
     let total_filtered = filtered_alerts.len();

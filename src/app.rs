@@ -1011,7 +1011,6 @@ impl App {
             }
             "tree" | "drawer" | "sidebar" => {
                 self.show_file_drawer = !self.show_file_drawer;
-                self.active_view = ActiveView::Diff;
             }
             "sp" | "split" | "vsp" | "vsplit" => {
                 self.is_split_view = !self.is_split_view;
@@ -1035,17 +1034,14 @@ impl App {
                 let target_path = args.first().map(std::path::Path::new);
                 let _ = self.export_audit_report(target_path);
             }
-            "scan" | "audit" | "issues" => {
-                if args.first() == Some(&"diff") {
-                    self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
-                    self.status_message = Some(format!(
-                        "Scanned {} files — {} security & test alerts found",
-                        self.snapshot.files.len(),
-                        self.alerts.len()
-                    ));
-                    self.active_view = ActiveView::Diff;
-                } else {
+            "audit" => {
+                self.trigger_repo_scan();
+            }
+            "scan" | "issues" => {
+                if args.first() == Some(&"repo") {
                     self.trigger_repo_scan();
+                } else {
+                    self.trigger_diff_scan();
                 }
             }
             "risk" => {
@@ -2048,13 +2044,15 @@ impl App {
 
     pub fn trigger_repo_scan(&mut self) {
         self.status_message =
-            Some("Scanning repository for security & architectural issues...".to_string());
+            Some("Auditing full repository for security & architectural issues...".to_string());
         match crate::scan::FullRepoScanner::scan_repository(&self.audit_root_dir) {
             Ok((files, alerts)) => {
                 let count = alerts.len();
                 self.audit_files = files;
                 self.audit_alerts = alerts;
                 self.audit_selected_idx = 0;
+                self.audit_filter_severity = None;
+                self.sync_audit_selected_file();
                 self.active_view = ActiveView::AuditReport;
                 self.status_message = Some(format!(
                     "Audit scan complete: {} issues found across repository (press 'w' to export report)",
@@ -2063,6 +2061,94 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("Audit scan failed: {}", e));
+            }
+        }
+    }
+
+    pub fn trigger_diff_scan(&mut self) {
+        self.status_message =
+            Some("Scanning changed files for security & architectural issues...".to_string());
+        self.alerts = crate::guard::SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+        self.audit_files = self.snapshot.files.clone();
+        self.audit_alerts = self.alerts.clone();
+        self.audit_selected_idx = 0;
+        self.audit_filter_severity = None;
+        self.sync_audit_selected_file();
+        self.active_view = ActiveView::AuditReport;
+        self.status_message = Some(format!(
+            "Scan complete: {} issues found in changes across {} files (press 'w' to export report)",
+            self.audit_alerts.len(),
+            self.audit_files.len()
+        ));
+    }
+
+    pub fn sync_audit_selected_file(&mut self) {
+        let filtered = self.filtered_audit_alerts();
+        if let Some(alert) = filtered.get(self.audit_selected_idx) {
+            if let Some(pos) = self
+                .audit_files
+                .iter()
+                .position(|f| f.display_name() == alert.file_path)
+            {
+                self.selected_file_idx = pos;
+            }
+        }
+    }
+
+    pub fn audit_next_file(&mut self) {
+        let filtered = self.filtered_audit_alerts();
+        let total = filtered.len();
+        if total == 0 {
+            return;
+        }
+        if let Some(current_alert) = filtered.get(self.audit_selected_idx) {
+            let current_path = current_alert.file_path.clone();
+            if let Some(next_idx) = (self.audit_selected_idx + 1..total)
+                .find(|&i| filtered[i].file_path != current_path)
+            {
+                self.audit_selected_idx = next_idx;
+                self.sync_audit_selected_file();
+                return;
+            }
+            if let Some(wrap_idx) =
+                (0..self.audit_selected_idx).find(|&i| filtered[i].file_path != current_path)
+            {
+                self.audit_selected_idx = wrap_idx;
+                self.sync_audit_selected_file();
+            }
+        }
+    }
+
+    pub fn audit_prev_file(&mut self) {
+        let filtered = self.filtered_audit_alerts();
+        let total = filtered.len();
+        if total == 0 {
+            return;
+        }
+        if let Some(current_alert) = filtered.get(self.audit_selected_idx) {
+            let current_path = current_alert.file_path.clone();
+            let prev_diff_idx = (0..self.audit_selected_idx)
+                .rev()
+                .find(|&i| filtered[i].file_path != current_path);
+            if let Some(idx) = prev_diff_idx {
+                let target_path = filtered[idx].file_path.clone();
+                let first_of_target = (0..=idx)
+                    .find(|&i| filtered[i].file_path == target_path)
+                    .unwrap_or(idx);
+                self.audit_selected_idx = first_of_target;
+                self.sync_audit_selected_file();
+                return;
+            }
+            let last_diff_idx = (self.audit_selected_idx + 1..total)
+                .rev()
+                .find(|&i| filtered[i].file_path != current_path);
+            if let Some(idx) = last_diff_idx {
+                let target_path = filtered[idx].file_path.clone();
+                let first_of_target = (0..=idx)
+                    .find(|&i| filtered[i].file_path == target_path)
+                    .unwrap_or(idx);
+                self.audit_selected_idx = first_of_target;
+                self.sync_audit_selected_file();
             }
         }
     }
@@ -2094,67 +2180,117 @@ impl App {
     }
 
     pub fn handle_audit_report_key(&mut self, key: KeyEvent) {
+        if let Some(leader) = self.pending_leader {
+            self.pending_leader = None;
+            match (leader, key.code) {
+                ('g', KeyCode::Char('g')) => {
+                    self.audit_selected_idx = 0;
+                    self.sync_audit_selected_file();
+                    return;
+                }
+                (']', KeyCode::Char('f')) | (']', KeyCode::Char(']')) => {
+                    self.audit_next_file();
+                    return;
+                }
+                ('[', KeyCode::Char('f')) | ('[', KeyCode::Char('[')) => {
+                    self.audit_prev_file();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         let filtered = self.filtered_audit_alerts();
         let total = filtered.len();
 
-        match key.code {
-            KeyCode::Char('q') => {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Char('q')) => {
                 self.should_quit = true;
             }
-            KeyCode::Esc => {
+            (_, KeyCode::Esc) => {
                 self.active_view = ActiveView::Diff;
                 self.status_message =
-                    Some("Returned to diff view (use :scan to re-enter audit)".into());
+                    Some("Returned to diff view (use :audit or :scan to re-enter)".into());
             }
-            KeyCode::Char('j') | KeyCode::Down => {
+            (_, KeyCode::Tab) | (_, KeyCode::Char('b')) => {
+                self.show_file_drawer = !self.show_file_drawer;
+            }
+            (_, KeyCode::Char(']')) => {
+                self.audit_next_file();
+            }
+            (_, KeyCode::Char('[')) => {
+                self.audit_prev_file();
+            }
+            (_, KeyCode::Char('j')) | (_, KeyCode::Down) => {
                 if total > 0 && self.audit_selected_idx + 1 < total {
                     self.audit_selected_idx += 1;
+                    self.sync_audit_selected_file();
                 }
             }
-            KeyCode::Char('k') | KeyCode::Up => {
+            (_, KeyCode::Char('k')) | (_, KeyCode::Up) => {
                 if self.audit_selected_idx > 0 {
                     self.audit_selected_idx -= 1;
+                    self.sync_audit_selected_file();
                 }
             }
-            KeyCode::Char('g') => {
-                if self.pending_leader == Some('g') {
-                    self.audit_selected_idx = 0;
-                    self.pending_leader = None;
-                } else {
-                    self.pending_leader = Some('g');
+            (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::PageDown) => {
+                if total > 0 {
+                    self.audit_selected_idx = (self.audit_selected_idx + 10).min(total - 1);
+                    self.sync_audit_selected_file();
                 }
             }
-            KeyCode::Char('G') => {
+            (KeyModifiers::CONTROL, KeyCode::Char('u')) | (_, KeyCode::PageUp) => {
+                self.audit_selected_idx = self.audit_selected_idx.saturating_sub(10);
+                self.sync_audit_selected_file();
+            }
+            (_, KeyCode::Char('}')) => {
+                if total > 0 {
+                    self.audit_selected_idx = (self.audit_selected_idx + 5).min(total - 1);
+                    self.sync_audit_selected_file();
+                }
+            }
+            (_, KeyCode::Char('{')) => {
+                self.audit_selected_idx = self.audit_selected_idx.saturating_sub(5);
+                self.sync_audit_selected_file();
+            }
+            (_, KeyCode::Char('g')) => {
+                self.pending_leader = Some('g');
+            }
+            (_, KeyCode::Char('G')) => {
                 if total > 0 {
                     self.audit_selected_idx = total - 1;
+                    self.sync_audit_selected_file();
                 }
             }
-            KeyCode::Char('1') => {
+            (_, KeyCode::Char('1')) => {
                 self.audit_filter_severity = Some(crate::guard::Severity::Critical);
                 self.audit_selected_idx = 0;
+                self.sync_audit_selected_file();
                 self.status_message = Some("Filter: 🔴 Critical issues only".into());
             }
-            KeyCode::Char('2') => {
+            (_, KeyCode::Char('2')) => {
                 self.audit_filter_severity = Some(crate::guard::Severity::High);
                 self.audit_selected_idx = 0;
+                self.sync_audit_selected_file();
                 self.status_message = Some("Filter: 🟠 High & 🔴 Critical issues".into());
             }
-            KeyCode::Char('3') | KeyCode::Char('a') => {
+            (_, KeyCode::Char('3')) | (_, KeyCode::Char('a')) => {
                 self.audit_filter_severity = None;
                 self.audit_selected_idx = 0;
+                self.sync_audit_selected_file();
                 self.status_message = Some("Filter: All issues".into());
             }
-            KeyCode::Char('w') | KeyCode::Char('E') => {
+            (_, KeyCode::Char('w')) | (_, KeyCode::Char('E')) => {
                 let _ = self.export_audit_report(None);
             }
-            KeyCode::Char('e') | KeyCode::Char('o') => {
+            (_, KeyCode::Char('e')) | (_, KeyCode::Char('o')) => {
                 if let Some(alert) = filtered.get(self.audit_selected_idx) {
                     let file_path = alert.file_path.clone();
                     let line_no = alert.line_no.unwrap_or(1);
                     self.open_file_in_editor(&file_path, line_no);
                 }
             }
-            KeyCode::Enter => {
+            (_, KeyCode::Enter) => {
                 if let Some(alert) = filtered.get(self.audit_selected_idx) {
                     let loc = match alert.line_no {
                         Some(l) => format!("{}:{}", alert.file_path, l),
@@ -2176,7 +2312,7 @@ impl App {
                     }
                 }
             }
-            KeyCode::Char(':') => {
+            (_, KeyCode::Char(':')) => {
                 self.command_input.clear();
                 self.command_completions.clear();
                 self.command_completion_idx = None;
@@ -3935,6 +4071,22 @@ mod tests {
         assert_eq!(app.audit_filter_severity, None);
         assert_eq!(app.filtered_audit_alerts().len(), 3);
 
+        // Sidebar toggle with Tab and 'b'
+        let initial_drawer = app.show_file_drawer;
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.show_file_drawer, !initial_drawer);
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        assert_eq!(app.show_file_drawer, initial_drawer);
+
+        // File switching with ']' and '['
+        assert_eq!(app.audit_selected_idx, 0); // src/auth.rs
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        assert_eq!(app.audit_selected_idx, 1); // tests/auth_test.rs
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        assert_eq!(app.audit_selected_idx, 2); // src/engine.rs
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
+        assert_eq!(app.audit_selected_idx, 1); // tests/auth_test.rs
+
         // Esc returns to diff view
         app.handle_audit_report_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.active_view, ActiveView::Diff);
@@ -3947,7 +4099,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&tmp);
         app.audit_root_dir = tmp.clone();
 
-        // :scan switches to AuditReport
+        // :scan scans changes and switches to AuditReport
         app.execute_command("scan");
         assert_eq!(app.active_view, ActiveView::AuditReport);
 
@@ -3955,8 +4107,11 @@ mod tests {
         app.execute_command("diff");
         assert_eq!(app.active_view, ActiveView::Diff);
 
-        // Re-enter audit mode and export
-        app.active_view = ActiveView::AuditReport;
+        // :audit audits full repo and switches to AuditReport
+        app.execute_command("audit");
+        assert_eq!(app.active_view, ActiveView::AuditReport);
+
+        // Export report
         let report_file = tmp.join("custom-report.md");
         app.execute_command(&format!("w {}", report_file.display()));
         assert!(report_file.exists());
