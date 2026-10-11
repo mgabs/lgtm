@@ -42,11 +42,73 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 render_command_completion_column(frame, size, app);
             }
         }
-        ActiveView::Diff => {}
+        ActiveView::Diff | ActiveView::AuditReport => {}
     }
 }
 
 fn render_header(frame: &mut Frame, area: Rect, app: &App) {
+    if app.active_view == ActiveView::AuditReport {
+        let crit = app
+            .audit_alerts
+            .iter()
+            .filter(|a| a.severity == crate::guard::Severity::Critical)
+            .count();
+        let high = app
+            .audit_alerts
+            .iter()
+            .filter(|a| a.severity == crate::guard::Severity::High)
+            .count();
+        let warn = app
+            .audit_alerts
+            .iter()
+            .filter(|a| a.severity == crate::guard::Severity::Warn)
+            .count();
+        let filter_label = match app.audit_filter_severity {
+            Some(crate::guard::Severity::Critical) => "🔴 Crit [1]",
+            Some(crate::guard::Severity::High) => "🟠 High+ [2]",
+            _ => "All [3]",
+        };
+        let header_line = Line::from(vec![
+            Span::styled(
+                " lgtm audit ",
+                Style::default()
+                    .bg(Color::Red)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" | "),
+            Span::styled(
+                format!("Total: {} issue(s) ", app.audit_alerts.len()),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("[🔴 {} Crit] ", crit),
+                Style::default().fg(Color::Red),
+            ),
+            Span::styled(
+                format!("[🟠 {} High] ", high),
+                Style::default().fg(Color::LightRed),
+            ),
+            Span::styled(
+                format!("[🟡 {} Warn] ", warn),
+                Style::default().fg(Color::Yellow),
+            ),
+            Span::raw(format!(
+                "| Filter: {} | Scanned: {} files | ",
+                filter_label,
+                app.audit_files.len()
+            )),
+            Span::styled(
+                "[w] Export lgtm-report.md",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]);
+        frame.render_widget(Paragraph::new(header_line), area);
+        return;
+    }
+
     if !app.git_engine.is_git_repo() && app.current_pr_number.is_none() {
         let header_line = Line::from(vec![
             Span::styled(
@@ -149,6 +211,11 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_body(frame: &mut Frame, area: Rect, app: &App) {
+    if app.active_view == ActiveView::AuditReport {
+        render_audit_report_view(frame, area, app);
+        return;
+    }
+
     if app.show_file_drawer && area.width >= 50 {
         let drawer_width = if area.width >= 100 { 35 } else { 28 };
         let body_chunks = Layout::default()
@@ -1089,6 +1156,38 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    if app.active_view == ActiveView::AuditReport {
+        let msg = app.status_message.as_deref().unwrap_or("Audit Mode");
+        let status_line = Line::from(vec![
+            Span::styled(
+                format!(" {} ", msg),
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" | "),
+            Span::styled("[j/k]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Nav | "),
+            Span::styled("[1-3]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Filter | "),
+            Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Inject | "),
+            Span::styled("[e/o]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Editor | "),
+            Span::styled("[w/E]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Export | "),
+            Span::styled("[:]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Cmd | "),
+            Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Diff | "),
+            Span::styled("[q]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Quit"),
+        ]);
+        frame.render_widget(Paragraph::new(status_line), area);
+        return;
+    }
+
     let msg = app.status_message.as_deref().unwrap_or("Watching");
     let status_line = Line::from(vec![
         Span::styled(
@@ -1728,21 +1827,29 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Run 'lgtm pr <id>' or ':pr <id>' to stream and review GitHub PR diffs live"),
                 ]),
                 Line::from(vec![
+                    Span::styled("  CODEBASE AUDIT Mode", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Run 'lgtm scan repo', 'lgtm audit', or ':scan' to inspect all repository security/arch issues"),
+                ]),
+                Line::from(vec![
                     Span::styled("  HELP Mode          ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                     Span::raw("Press '?' or 'h' to open this interactive guide; switch tabs with Tab or 1-7"),
                 ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
-                    "ONLINE DOCUMENTATION & HELP",
+                    "INSTALLATION & DOCUMENTATION",
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 )]),
+                Line::from(vec![
+                    Span::styled("  Homebrew Install:  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("brew install mgabs/tap/lgtm"),
+                ]),
                 Line::from(vec![
                     Span::styled("  GitHub Repo:       ", Style::default().fg(Color::Cyan)),
                     Span::raw("https://github.com/mgabs/lgtm"),
                 ]),
                 Line::from(vec![
                     Span::styled("  Documentation:     ", Style::default().fg(Color::Cyan)),
-                    Span::raw("https://github.com/mgabs/lgtm#readme"),
+                    Span::raw("https://github.com/mgabs/lgtm#readme / docs/WIKI.md"),
                 ]),
                 Line::from(vec![
                     Span::styled("  Issues & Requests: ", Style::default().fg(Color::Cyan)),
@@ -2087,8 +2194,41 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Toggle Unified vs Side-by-Side Split Diff mode"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :risk, :audit, :scan ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Re-run security, test fraud, and architecture audits across diff"),
+                    Span::styled("  :scan, :audit        ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Launch full Codebase Audit mode (issues only, no diff view)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :export [path]       ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Export audit scorecard report to Markdown (default: lgtm-report.md)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :w [path]            ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Export audit report (in Audit mode) or save review directives (in Diff mode)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :diff                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Return to Diff review mode from Audit mode (or specify revision range)"),
+                ]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "AUDIT MODE CONTROLS (Active in Codebase Audit view)",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(vec![
+                    Span::styled("  1 / 2 / 3            ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Filter severity: [1] Critical only | [2] High+ | [3] All issues"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Enter                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Inject violation remediation directive directly to agent tmux pane / clipboard"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  e / o                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open current issue file and line in external editor ($EDITOR)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  w / E                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Quick export repository audit report to lgtm-report.md"),
                 ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
@@ -2100,8 +2240,8 @@ fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Headless gate for GitHub Actions & CI. Exits code 1 on Critical/High risks."),
                 ]),
                 Line::from(vec![
-                    Span::styled("  lgtm scan            ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                    Span::raw("Recursive audit of ALL repo source files for security & quality health."),
+                    Span::styled("  lgtm scan --tui      ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Launch interactive TUI Codebase Audit mode (`lgtm scan repo` / `lgtm audit`)."),
                 ]),
                 Line::from(vec![
                     Span::styled("  lgtm scan -o rep.md  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
@@ -2310,6 +2450,302 @@ fn render_command_completion_column(frame: &mut Frame, area: Rect, app: &App) {
     );
 
     frame.render_widget(list, popup_area);
+}
+
+fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App) {
+    let filtered_alerts = app.filtered_audit_alerts();
+    let total_alerts = app.audit_alerts.len();
+    let filtered_count = filtered_alerts.len();
+
+    // Dual pane layout: left pane for issues list, right pane for inspector
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(45), // Issues list
+            Constraint::Percentage(55), // Inspector
+        ])
+        .split(area);
+
+    let left_area = chunks[0];
+    let right_area = chunks[1];
+
+    let visible_height = (left_area.height.saturating_sub(2)) as usize;
+    let total_filtered = filtered_alerts.len();
+    let scroll_offset = if total_filtered <= visible_height || visible_height == 0 {
+        0
+    } else {
+        let half = visible_height / 2;
+        if app.audit_selected_idx > half {
+            (app.audit_selected_idx - half).min(total_filtered - visible_height)
+        } else {
+            0
+        }
+    };
+
+    let items: Vec<ListItem> = if filtered_alerts.is_empty() {
+        vec![ListItem::new(Line::from(vec![Span::styled(
+            " (No issues found matching filter) ",
+            Style::default().fg(Color::Green),
+        )]))]
+    } else {
+        filtered_alerts
+            .iter()
+            .enumerate()
+            .skip(scroll_offset)
+            .take(if visible_height > 0 {
+                visible_height
+            } else {
+                total_filtered
+            })
+            .map(|(idx, alert)| {
+                let is_selected = idx == app.audit_selected_idx;
+                let badge_style = match alert.severity {
+                    crate::guard::Severity::Critical => {
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                    }
+                    crate::guard::Severity::High => Style::default()
+                        .fg(Color::LightRed)
+                        .add_modifier(Modifier::BOLD),
+                    crate::guard::Severity::Warn => Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                };
+
+                let loc = match alert.line_no {
+                    Some(l) => format!("{}:{}", alert.file_path, l),
+                    None => alert.file_path.clone(),
+                };
+
+                let spans = vec![
+                    Span::styled(format!("[{}] ", alert.severity.badge()), badge_style),
+                    Span::styled(format!("{} ", loc), Style::default().fg(Color::Cyan)),
+                    Span::raw(&alert.title),
+                ];
+
+                let line_style = if is_selected {
+                    Style::default()
+                        .bg(Color::Cyan)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+
+                ListItem::new(Line::from(spans)).style(line_style)
+            })
+            .collect()
+    };
+
+    let filter_text = match app.audit_filter_severity {
+        Some(crate::guard::Severity::Critical) => "🔴 Crit [1]",
+        Some(crate::guard::Severity::High) => "🟠 High+ [2]",
+        _ => "All [3]",
+    };
+
+    let issues_title = format!(
+        " Repository Issues ({}/{}) Filter: {} ",
+        filtered_count, total_alerts, filter_text
+    );
+
+    let issues_block = Block::default()
+        .borders(Borders::ALL)
+        .title(issues_title)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    frame.render_widget(List::new(items).block(issues_block), left_area);
+
+    let selected_alert = filtered_alerts.get(app.audit_selected_idx).copied();
+    render_audit_inspector(frame, right_area, app, selected_alert);
+}
+
+fn render_audit_inspector(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    selected_alert: Option<&crate::guard::GuardAlert>,
+) {
+    let alert = match selected_alert {
+        Some(a) => a,
+        None => {
+            let empty_text = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  No issue selected",
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(""),
+                Line::from("  Run :scan or press 1-3 to filter issues."),
+            ];
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(" Issue Inspector ")
+                .border_style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(Paragraph::new(empty_text).block(block), area);
+            return;
+        }
+    };
+
+    let loc = match alert.line_no {
+        Some(l) => format!("{}:{}", alert.file_path, l),
+        None => alert.file_path.clone(),
+    };
+
+    let sev_color = match alert.severity {
+        crate::guard::Severity::Critical => Color::Red,
+        crate::guard::Severity::High => Color::LightRed,
+        crate::guard::Severity::Warn => Color::Yellow,
+    };
+
+    let mut lines = Vec::new();
+
+    // 1. Alert header
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!(" [{}] ", alert.severity.badge()),
+            Style::default()
+                .bg(sev_color)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            &alert.title,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Location: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            &loc,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(""));
+
+    // 2. Description
+    lines.push(Line::from(Span::styled(
+        "Description / Finding:",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )));
+    for desc_line in alert.description.lines() {
+        lines.push(Line::from(Span::raw(format!("  {}", desc_line))));
+    }
+    lines.push(Line::from(""));
+
+    // 3. Code context snippet (read lines around line_no if available)
+    if let Some(target_line) = alert.line_no {
+        let file_path = app.audit_root_dir.join(&alert.file_path);
+        if let Ok(content) = std::fs::read_to_string(&file_path) {
+            lines.push(Line::from(Span::styled(
+                "Code Snippet Context:",
+                Style::default()
+                    .fg(Color::LightBlue)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            let all_file_lines: Vec<&str> = content.lines().collect();
+            let start = (target_line as usize).saturating_sub(4);
+            let end = ((target_line as usize) + 3).min(all_file_lines.len());
+
+            for (idx, line_item) in all_file_lines.iter().enumerate().take(end).skip(start) {
+                let current_no = idx + 1;
+                let is_hit = current_no == (target_line as usize);
+                let line_text = line_item.to_string();
+
+                if is_hit {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("  ▶ {:4} │ ", current_no),
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            line_text,
+                            Style::default()
+                                .bg(Color::DarkGray)
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                } else {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("    {:4} │ ", current_no),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                        Span::styled(line_text, Style::default().fg(Color::Gray)),
+                    ]));
+                }
+            }
+            lines.push(Line::from(""));
+        }
+    }
+
+    // 4. Agent Remediation Directive
+    lines.push(Line::from(Span::styled(
+        "Remediation Directive (Press [Enter] to inject to agent):",
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD),
+    )));
+    let directive = format!(
+        "Fix security/architectural violation in {}: [{}] {} - {}",
+        loc,
+        alert.severity.badge(),
+        alert.title,
+        alert.description
+    );
+    lines.push(Line::from(Span::styled(
+        format!("  {}", directive),
+        Style::default().fg(Color::LightMagenta),
+    )));
+    lines.push(Line::from(""));
+
+    // 5. Actions footer
+    lines.push(Line::from(vec![
+        Span::styled(
+            "[Enter]",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Inject Directive  "),
+        Span::styled(
+            "[e/o]",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Open in Editor  "),
+        Span::styled(
+            "[w]",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Export Report  "),
+        Span::styled(
+            "[Esc]",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Diff View"),
+    ]));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Issue Inspector & Remediation ")
+        .border_style(Style::default().fg(Color::LightBlue));
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
 }
 
 #[cfg(test)]

@@ -110,6 +110,18 @@ enum Commands {
         /// Output format: markdown or json
         #[arg(short, long, default_value = "markdown")]
         format: String,
+        /// Open interactive TUI audit mode to inspect repository issues
+        #[arg(short = 't', long = "tui")]
+        tui: bool,
+        /// Optional target (e.g. `lgtm scan repo`)
+        #[arg(value_name = "TARGET")]
+        target: Option<String>,
+    },
+    /// Interactive repository audit mode (shows only repository issues, no diff view)
+    Audit {
+        /// Target repository path
+        #[arg(short, long)]
+        repo: Option<PathBuf>,
     },
     /// Run headless CI mode: audit diff and produce sticky PR comment markdown or JSON/SARIF report
     Ci {
@@ -274,6 +286,7 @@ fn main() -> ExitCode {
                     cli.debounce,
                     None,
                     Some(first.to_string()),
+                    false,
                 ) {
                     eprintln!("Error reviewing revision {}: {}", first, e);
                     return ExitCode::from(1);
@@ -291,7 +304,14 @@ fn main() -> ExitCode {
         }
         Some(Commands::Pr { number }) => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
-            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, Some(number), None) {
+            if let Err(e) = run_tui(
+                repo_path,
+                cli.agent_pane,
+                cli.debounce,
+                Some(number),
+                None,
+                false,
+            ) {
                 eprintln!("Error reviewing PR #{}: {}", number, e);
                 return ExitCode::from(1);
             }
@@ -336,13 +356,44 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some(Commands::Audit { repo }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, None, None, true) {
+                eprintln!("Error running audit TUI: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
         Some(Commands::Scan {
             repo,
             output,
             format,
+            tui,
+            target,
         }) => {
-            let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let mut resolved_repo = repo;
+            let mut open_tui = tui;
+
+            if let Some(ref t) = target {
+                if t == "repo" {
+                    open_tui = true;
+                } else if resolved_repo.is_none() {
+                    resolved_repo = Some(PathBuf::from(t));
+                }
+            }
+
+            let repo_target = resolved_repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&repo_target).unwrap_or(repo_target);
+
+            if open_tui {
+                if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, None, None, true) {
+                    eprintln!("Error running audit TUI: {}", e);
+                    return ExitCode::from(1);
+                }
+                return ExitCode::SUCCESS;
+            }
+
             println!("🔍 Running full codebase security and architecture audit...\n");
             match scan::FullRepoScanner::scan_repository(&repo_path) {
                 Ok((files, alerts)) => {
@@ -419,7 +470,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Diff) | Some(Commands::Status) | Some(Commands::Review) | None => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
-            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr, None) {
+            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr, None, false) {
                 eprintln!("Error running lgtm: {}", e);
                 return ExitCode::from(1);
             }
@@ -871,6 +922,7 @@ fn run_tui(
     debounce: u64,
     pr_number: Option<u64>,
     revision: Option<String>,
+    start_in_audit: bool,
 ) -> Result<()> {
     // Setup watcher channel
     let (watcher_tx, watcher_rx) = crossbeam_channel::unbounded();
@@ -894,6 +946,10 @@ fn run_tui(
 
     // Initialize application state (handles non-git directory, PR mode, and revision diffs cleanly)
     let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number, revision);
+
+    if start_in_audit {
+        app.trigger_repo_scan();
+    }
 
     // Main event loop
     let tick_rate = Duration::from_millis(100);

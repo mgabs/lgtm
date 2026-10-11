@@ -82,6 +82,9 @@ Modern software development has fundamentally shifted with the advent of autonom
 brew install mgabs/tap/lgtm
 ```
 
+> **Note on Homebrew Tap Updates**:
+> LGTM's CI/CD pipeline automatically updates the formula in `mgabs/homebrew-tap` with verified SHA-256 checksums on each release. Binaries are available for macOS (`arm64`, `x86_64`) and Linux (`x86_64`).
+
 ### From Source (Cargo)
 ```bash
 # Install directly from GitHub
@@ -320,18 +323,37 @@ Exits with code `1` if Critical or High severity security alerts, complexity spi
 lgtm check --strict
 ```
 
-### 2. `lgtm scan` (Full Repository Audit)
-Recursively audits all source files in the repository and generates a Markdown audit scorecard:
+### 2. `lgtm scan` & Interactive Codebase Audit Mode
+Recursively audits all source files in the repository for security vulnerabilities, architectural violations, and code quality issues:
+
 ```bash
-# Terminal summary with scorecard grade (Grade A/B/C/F)
+# Launch interactive in-app Codebase Audit TUI (shows only issues, no diff view)
+lgtm scan repo
+lgtm scan --tui
+lgtm audit
+
+# Headless terminal summary with scorecard grade (Grade A/B/C/F)
 lgtm scan
 
-# Generate Markdown audit report
-lgtm scan --output security-audit.md
+# Headless Markdown audit report export
+lgtm scan --output lgtm-report.md
 
 # Generate SARIF 2.1.0 report for GitHub Security tab
 lgtm scan --format sarif --output lgtm-results.sarif
 ```
+
+#### Interactive Audit Mode Keybindings
+When in Codebase Audit Mode (`ActiveView::AuditReport`):
+- `j` / `k` (or `Up` / `Down`): Navigate issues list.
+- `1`: Filter to `[🔴 CRIT]` issues only.
+- `2`: Filter to `[🟠 HIGH]` and `[🔴 CRIT]` issues.
+- `3` / `a`: Show all issues (`Critical`, `High`, `Warn`).
+- `Enter`: Inject violation remediation directive directly to agent `tmux` pane / OSC 52 clipboard.
+- `e` / `o`: Open violation file and line number directly in `$EDITOR`.
+- `w` / `E`: Export full repository audit report to `lgtm-report.md`.
+- `Esc`: Return to diff review mode.
+- `:w [path]`: Export report to a custom Markdown path.
+- `:diff`: Return to Diff mode.
 
 ### GitHub Actions Workflow Example
 Create `.github/workflows/lgtm-gate.yml`:
@@ -377,11 +399,13 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 
 | Command | Aliases | Description |
 |---|---|---|
-| `:w` | `:write` | Save review directives to `.lgtm/comments.jsonl` |
+| `:scan [repo]` | `:audit`, `:issues` | Launch interactive full repository Codebase Audit mode (issues only, no diff) |
+| `:export [path]` | — | Export audit scorecard report to Markdown (default: `lgtm-report.md`) |
+| `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/comments.jsonl` |
+| `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load revision range diff e.g. `:diff main..feat`) |
 | `:q` | `:quit`, `:exit` | Quit `lgtm` (`:q!` force quit without saving) |
 | `:wq` | `:x` | Save directives and quit |
 | `:commit [msg]` | `:ci` | Open Commit Forge modal or commit staged changes with message |
-| `:diff <range>` | `:rev`, `:range` | Load revision range diff (e.g. `:diff main..feat`, `:diff HEAD~2..HEAD`) |
 | `:pr <number>` | — | Fetch and review GitHub pull request diff directly (e.g. `:pr 42`) |
 | `:prs` | — | Open interactive GitHub PR picker modal |
 | `:f` | `:files`, `:find` | Open fuzzy file switcher popup |
@@ -389,7 +413,7 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:sp` | `:split`, `:vsp` | Toggle Unified Diff vs Side-by-Side Dual Pane Diff |
 | `:c` | `:comments`, `:todo` | Open review directives management drawer |
 | `:r` | `:review`, `:send` | Compile directives batch prompt and blast to target agent pane |
-| `:risk` | `:audit`, `:scan` | Re-scan current diff for security, test fraud, and complexity risks |
+| `:risk` | — | Re-scan current diff for security, test fraud, and complexity risks |
 | `:reload` | `:e`, `:edit` | Reload diff snapshot from working tree or GitHub PR |
 | `:resolve [all]` | — | Mark directive on current line (or all directives) as resolved |
 | `:unresolve [all]` | — | Mark directive on current line (or all directives) as active |

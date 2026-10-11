@@ -24,6 +24,7 @@ pub enum ActiveView {
     Search,
     CommandLine,
     CommitModal,
+    AuditReport,
 }
 
 pub struct App {
@@ -33,6 +34,13 @@ pub struct App {
     pub snapshot: DiffSnapshot,
     pub alerts: Vec<GuardAlert>,
     pub comments: Vec<CommentAnchor>,
+
+    // Full Repo Audit state
+    pub audit_alerts: Vec<GuardAlert>,
+    pub audit_files: Vec<FileDiff>,
+    pub audit_selected_idx: usize,
+    pub audit_filter_severity: Option<crate::guard::Severity>,
+    pub audit_root_dir: PathBuf,
 
     pub selected_file_idx: usize,
     pub diff_scroll_offset: usize,
@@ -163,6 +171,11 @@ impl App {
             snapshot,
             alerts,
             comments,
+            audit_alerts: Vec::new(),
+            audit_files: Vec::new(),
+            audit_selected_idx: 0,
+            audit_filter_severity: None,
+            audit_root_dir: repo_path.clone(),
             selected_file_idx: 0,
             diff_scroll_offset: 0,
             cursor_line_idx: 0,
@@ -296,6 +309,7 @@ impl App {
             ActiveView::Search => self.handle_search_key(key),
             ActiveView::CommandLine => self.handle_command_line_key(key),
             ActiveView::CommitModal => self.handle_commit_modal_key(key),
+            ActiveView::AuditReport => self.handle_audit_report_key(key),
         }
     }
 
@@ -877,12 +891,17 @@ impl App {
                 self.should_quit = true;
             }
             "w" | "write" => {
-                let _ = self.comment_store.save_comments(&self.comments);
-                self.status_message = Some(format!(
-                    "Saved {} review directives to .lgtm/comments.jsonl",
-                    self.comments.len()
-                ));
-                self.active_view = ActiveView::Diff;
+                if self.active_view == ActiveView::AuditReport {
+                    let target_path = args.first().map(std::path::Path::new);
+                    let _ = self.export_audit_report(target_path);
+                } else {
+                    let _ = self.comment_store.save_comments(&self.comments);
+                    self.status_message = Some(format!(
+                        "Saved {} review directives to .lgtm/comments.jsonl",
+                        self.comments.len()
+                    ));
+                    self.active_view = ActiveView::Diff;
+                }
             }
             "wq" | "x" | "exit" => {
                 let _ = self.comment_store.save_comments(&self.comments);
@@ -933,9 +952,8 @@ impl App {
                         }
                     }
                 } else {
-                    self.status_message =
-                        Some("Usage: :diff <branch..branch | HEAD~N..HEAD | commit>".into());
                     self.active_view = ActiveView::Diff;
+                    self.status_message = Some("Returned to diff view".into());
                 }
             }
             "pr" => {
@@ -1013,7 +1031,24 @@ impl App {
                 self.export_and_send_batch_review();
                 self.active_view = ActiveView::Diff;
             }
-            "risk" | "audit" | "scan" => {
+            "export" => {
+                let target_path = args.first().map(std::path::Path::new);
+                let _ = self.export_audit_report(target_path);
+            }
+            "scan" | "audit" | "issues" => {
+                if args.first() == Some(&"diff") {
+                    self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+                    self.status_message = Some(format!(
+                        "Scanned {} files — {} security & test alerts found",
+                        self.snapshot.files.len(),
+                        self.alerts.len()
+                    ));
+                    self.active_view = ActiveView::Diff;
+                } else {
+                    self.trigger_repo_scan();
+                }
+            }
+            "risk" => {
                 self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
                 self.status_message = Some(format!(
                     "Scanned {} files — {} security & test alerts found",
@@ -1978,6 +2013,179 @@ impl App {
                 line_no,
                 editor
             ));
+        }
+    }
+
+    pub fn open_file_in_editor(&mut self, file_rel_path: &str, line_no: u32) {
+        let path = self.git_engine.repo_path.join(file_rel_path);
+        let editor = std::env::var("EDITOR")
+            .or_else(|_| std::env::var("VISUAL"))
+            .unwrap_or_else(|_| "nvim".to_string());
+
+        let _ = std::process::Command::new(&editor)
+            .arg(format!("+{}", line_no))
+            .arg(&path)
+            .status();
+
+        self.status_message = Some(format!(
+            "Opened {}:{} in {}",
+            file_rel_path, line_no, editor
+        ));
+    }
+
+    pub fn filtered_audit_alerts(&self) -> Vec<&GuardAlert> {
+        self.audit_alerts
+            .iter()
+            .filter(|alert| {
+                if let Some(sev) = self.audit_filter_severity {
+                    alert.severity >= sev
+                } else {
+                    true
+                }
+            })
+            .collect()
+    }
+
+    pub fn trigger_repo_scan(&mut self) {
+        self.status_message =
+            Some("Scanning repository for security & architectural issues...".to_string());
+        match crate::scan::FullRepoScanner::scan_repository(&self.audit_root_dir) {
+            Ok((files, alerts)) => {
+                let count = alerts.len();
+                self.audit_files = files;
+                self.audit_alerts = alerts;
+                self.audit_selected_idx = 0;
+                self.active_view = ActiveView::AuditReport;
+                self.status_message = Some(format!(
+                    "Audit scan complete: {} issues found across repository (press 'w' to export report)",
+                    count
+                ));
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Audit scan failed: {}", e));
+            }
+        }
+    }
+
+    pub fn export_audit_report(
+        &mut self,
+        target_path: Option<&std::path::Path>,
+    ) -> Result<PathBuf, anyhow::Error> {
+        let path = target_path
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| self.audit_root_dir.join("lgtm-report.md"));
+
+        if self.audit_alerts.is_empty() && self.audit_files.is_empty() {
+            let (files, alerts) =
+                crate::scan::FullRepoScanner::scan_repository(&self.audit_root_dir)?;
+            self.audit_files = files;
+            self.audit_alerts = alerts;
+        }
+
+        let report_content = crate::scan::FullRepoScanner::generate_markdown_report(
+            &self.audit_root_dir,
+            &self.audit_files,
+            &self.audit_alerts,
+        );
+
+        std::fs::write(&path, report_content)?;
+        self.status_message = Some(format!("✨ Audit report exported to: {}", path.display()));
+        Ok(path)
+    }
+
+    pub fn handle_audit_report_key(&mut self, key: KeyEvent) {
+        let filtered = self.filtered_audit_alerts();
+        let total = filtered.len();
+
+        match key.code {
+            KeyCode::Char('q') => {
+                self.should_quit = true;
+            }
+            KeyCode::Esc => {
+                self.active_view = ActiveView::Diff;
+                self.status_message =
+                    Some("Returned to diff view (use :scan to re-enter audit)".into());
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if total > 0 && self.audit_selected_idx + 1 < total {
+                    self.audit_selected_idx += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if self.audit_selected_idx > 0 {
+                    self.audit_selected_idx -= 1;
+                }
+            }
+            KeyCode::Char('g') => {
+                if self.pending_leader == Some('g') {
+                    self.audit_selected_idx = 0;
+                    self.pending_leader = None;
+                } else {
+                    self.pending_leader = Some('g');
+                }
+            }
+            KeyCode::Char('G') => {
+                if total > 0 {
+                    self.audit_selected_idx = total - 1;
+                }
+            }
+            KeyCode::Char('1') => {
+                self.audit_filter_severity = Some(crate::guard::Severity::Critical);
+                self.audit_selected_idx = 0;
+                self.status_message = Some("Filter: 🔴 Critical issues only".into());
+            }
+            KeyCode::Char('2') => {
+                self.audit_filter_severity = Some(crate::guard::Severity::High);
+                self.audit_selected_idx = 0;
+                self.status_message = Some("Filter: 🟠 High & 🔴 Critical issues".into());
+            }
+            KeyCode::Char('3') | KeyCode::Char('a') => {
+                self.audit_filter_severity = None;
+                self.audit_selected_idx = 0;
+                self.status_message = Some("Filter: All issues".into());
+            }
+            KeyCode::Char('w') | KeyCode::Char('E') => {
+                let _ = self.export_audit_report(None);
+            }
+            KeyCode::Char('e') | KeyCode::Char('o') => {
+                if let Some(alert) = filtered.get(self.audit_selected_idx) {
+                    let file_path = alert.file_path.clone();
+                    let line_no = alert.line_no.unwrap_or(1);
+                    self.open_file_in_editor(&file_path, line_no);
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(alert) = filtered.get(self.audit_selected_idx) {
+                    let loc = match alert.line_no {
+                        Some(l) => format!("{}:{}", alert.file_path, l),
+                        None => alert.file_path.clone(),
+                    };
+                    let directive = format!(
+                        "Fix security/architectural violation in {}: [{}] {} - {}\n",
+                        loc,
+                        alert.severity.badge(),
+                        alert.title,
+                        alert.description
+                    );
+                    if let Some(ref pane) = self.agent_pane {
+                        let _ = IpcBridge::send_to_tmux(pane, &directive);
+                        self.status_message = Some(format!("Injected directive to pane {}", pane));
+                    } else {
+                        IpcBridge::send_osc52_clipboard(&directive);
+                        self.status_message = Some("Copied directive to clipboard (OSC 52)".into());
+                    }
+                }
+            }
+            KeyCode::Char(':') => {
+                self.command_input.clear();
+                self.command_completions.clear();
+                self.command_completion_idx = None;
+                self.command_prefix.clear();
+                self.active_view = ActiveView::CommandLine;
+            }
+            _ => {
+                self.pending_leader = None;
+            }
         }
     }
 
@@ -3669,5 +3877,89 @@ mod tests {
         // Single press '[' immediately moves to file 0
         app.handle_diff_key(key_open_bracket);
         assert_eq!(app.selected_file_idx, 0);
+    }
+
+    #[test]
+    fn test_audit_report_navigation_and_filtering() {
+        use crate::guard::{GuardAlert, Severity};
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = create_test_app();
+        app.active_view = ActiveView::AuditReport;
+        app.audit_alerts = vec![
+            GuardAlert {
+                severity: Severity::Critical,
+                title: "Secret Key".into(),
+                description: "Leak detected".into(),
+                line_no: Some(10),
+                file_path: "src/auth.rs".into(),
+            },
+            GuardAlert {
+                severity: Severity::High,
+                title: "Inverted Assert".into(),
+                description: "Fraudulent test".into(),
+                line_no: Some(25),
+                file_path: "tests/auth_test.rs".into(),
+            },
+            GuardAlert {
+                severity: Severity::Warn,
+                title: "High Complexity".into(),
+                description: "Cyclomatic 25".into(),
+                line_no: Some(50),
+                file_path: "src/engine.rs".into(),
+            },
+        ];
+
+        assert_eq!(app.filtered_audit_alerts().len(), 3);
+
+        // Key 'j' navigates down
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert_eq!(app.audit_selected_idx, 1);
+
+        // Key 'k' navigates up
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+        assert_eq!(app.audit_selected_idx, 0);
+
+        // Key '1' filters to Critical only
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
+        assert_eq!(app.audit_filter_severity, Some(Severity::Critical));
+        assert_eq!(app.filtered_audit_alerts().len(), 1);
+
+        // Key '2' filters to High and Critical
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+        assert_eq!(app.audit_filter_severity, Some(Severity::High));
+        assert_eq!(app.filtered_audit_alerts().len(), 2);
+
+        // Key '3' resets filter to all
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+        assert_eq!(app.audit_filter_severity, None);
+        assert_eq!(app.filtered_audit_alerts().len(), 3);
+
+        // Esc returns to diff view
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_execute_command_scan_and_export() {
+        let mut app = create_test_app();
+        let tmp = std::env::temp_dir().join(format!("lgtm_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        app.audit_root_dir = tmp.clone();
+
+        // :scan switches to AuditReport
+        app.execute_command("scan");
+        assert_eq!(app.active_view, ActiveView::AuditReport);
+
+        // :diff returns to Diff
+        app.execute_command("diff");
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // Re-enter audit mode and export
+        app.active_view = ActiveView::AuditReport;
+        let report_file = tmp.join("custom-report.md");
+        app.execute_command(&format!("w {}", report_file.display()));
+        assert!(report_file.exists());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

@@ -51,6 +51,7 @@
 - **Tabbed Interactive Help Modal (`?` / `h`)**: 7 discrete documentation tabs covering Overview & Modes, Motions, Directives, Staging & Forge, Folding, Guardrails, and Ex-Commands & CI.
 - **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:diff <rev>`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
 - **GitHub PR Review Mode**: Review GitHub PRs directly (`lgtm pr <num>` or `:pr <num>`), write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review`.
+- **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and instant report export (`w` / `:export`).
 - **Headless CI & Security Gates**:
   - `lgtm check`: Pre-commit / CI gate that blocks builds on critical security vulnerabilities or complexity spikes.
   - `lgtm scan`: Generates full Markdown audit reports or SARIF 2.1.0 output for GitHub Security Code Scanning.
@@ -64,6 +65,7 @@
 ```bash
 brew install mgabs/tap/lgtm
 ```
+*Note: New releases automatically update `mgabs/homebrew-tap` with verified SHA-256 binary tarballs for Apple Silicon (`arm64`), Intel (`x86_64`), and Linux (`x86_64`).*
 
 ### From Source
 ```bash
@@ -81,6 +83,10 @@ cp target/release/lgtm /usr/local/bin/lgtm
 # Launch interactive TUI on current working tree diff
 lgtm
 
+# Launch interactive Codebase Audit Mode (only issues, no diff view)
+lgtm scan repo
+# or: lgtm scan --tui / lgtm audit
+
 # Review a specific GitHub PR
 lgtm pr 42
 
@@ -90,8 +96,8 @@ lgtm prs
 # Run CI security & quality gate (exit code 1 on critical security / test neutering)
 lgtm check --strict
 
-# Run full codebase / diff audit and generate a Markdown report
-lgtm scan --output security-audit.md
+# Run full codebase audit and generate Markdown report
+lgtm scan --output lgtm-report.md
 
 # Headless SARIF 2.1.0 export for GitHub Actions Code Scanning
 lgtm scan --format sarif --output lgtm-results.sarif
