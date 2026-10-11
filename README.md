@@ -261,15 +261,24 @@ lgtm/
 │   ├── model.rs              # Diff data models (DiffSnapshot, FileDiff, DiffHunk, DiffLine)
 │   ├── git/mod.rs            # Streaming git diff engine + non-git directory fallback
 │   ├── pr/mod.rs             # GitHub PR engine via `gh` CLI & unified diff parser
+│   ├── scan.rs               # Full repository audit scanner
 │   ├── guard/
-│   │   ├── mod.rs            # AST & regex security scanner & test fraud detector
+│   │   ├── mod.rs            # Guard aggregator, severities & ignore directives
+│   │   ├── security.rs       # Entropy secrets, OWASP sinks, auth bypass
 │   │   ├── complexity.rs     # Cognitive complexity spike analyzer
-│   │   ├── hallucination.rs  # Identifier typo & symbol hallucination detector
-│   │   ├── drift.rs          # Public API signature drift detector
-│   │   └── yagni.rs          # Dead function / unused addition detector
+│   │   ├── symbols.rs        # Identifier typo & symbol hallucination detector
+│   │   ├── api_drift.rs      # Public API signature drift detector
+│   │   ├── dead_code.rs      # Dead function / unused addition detector
+│   │   ├── arch.rs           # Layer boundary, stray file & blast radius
+│   │   ├── deps.rs           # Unpinned / typosquatted dependencies
+│   │   └── duplicate.rs      # Duplicate helper anti-pattern
 │   ├── comment/mod.rs        # Directive storage, PR metadata & batch review compiler
 │   ├── turn/mod.rs           # Turn manager & reviewed file tracker (.lgtm/state.json)
 │   ├── ipc/mod.rs            # Tmux pane injector & OSC 52 clipboard fallback
+│   ├── watcher/mod.rs        # Filesystem watcher & debouncer
+│   ├── mcp/mod.rs            # MCP JSON-RPC stdio server
+│   ├── coverage/mod.rs       # LCOV parsing & delta coverage
+│   ├── verify/mod.rs         # Inverted test verification
 │   └── mutate/mod.rs         # Mutation testing engine (12 AST/binary mutant operators)
 ├── scripts/
 │   ├── coverage.sh           # Automated coverage enforcer script
