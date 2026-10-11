@@ -27,6 +27,10 @@
 7. [Headless CI & Security Gates](#7-headless-ci--security-gates)
 8. [Ex-Commands Dictionary (`:cmds`)](#8-ex-commands-dictionary-cmds)
 9. [Configuration Reference (`.lgtm/config.toml`)](#9-configuration-reference-lgtmconfigtoml)
+10. [CLI Command Reference](#10-cli-command-reference)
+11. [Additional Guardrails](#11-additional-guardrails)
+12. [Quality Tooling (`make` targets)](#12-quality-tooling-make-targets)
+13. [Source Module Map](#13-source-module-map)
 
 ---
 
@@ -457,9 +461,81 @@ default_view = "unified"
 debounce_ms = 300
 ```
 
+## 10. CLI Command Reference
+
+| Command | Description |
+|---|---|
+| `lgtm` / `diff` / `status` / `review` | Launch interactive diff reviewer TUI (default) |
+| `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
+| `lgtm init` / `--init` | Create `.lgtm/config.toml` |
+| `lgtm pr <n>` / `--pr <n>` | Review GitHub PR (requires `gh`) |
+| `lgtm prs` | List and pick open PRs |
+| `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
+| `lgtm ci [--strict] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF |
+| `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
+| `lgtm audit` | Interactive repository audit TUI |
+| `lgtm coverage [--min 90] [--delta] [--lcov file]` | Coverage gate; `--delta` checks only added lines |
+| `lgtm mutate [--min 90]` | Mutation testing gate |
+| `lgtm verify-tests` | Inverted test verification (detect tautological tests) |
+| `lgtm mcp` / `lgtm serve --mcp` | MCP stdio server |
+| `lgtm log\|commit\|add\|...` | Git passthrough |
+
+Global options: `-r/--repo <path>`, `-p/--agent-pane <id>`, `-d/--debounce <ms>` (default 300).
+
+---
+
+## 11. Additional Guardrails
+
+Beyond section 4, these guards run on every diff / scan:
+
+- **Architecture (`guard/arch.rs`)**: stray/sensitive file leaks (Critical), layer boundary violations (High), `pub` scope inflation (Warn), blast radius across many files.
+- **Dependencies (`guard/deps.rs`)**: unpinned/wildcard deps (High) and suspicious/typosquatted packages (Critical) in `Cargo.toml`, `package.json`, `pyproject.toml`, `requirements.txt`, `go.mod`.
+- **Duplicate helpers (`guard/duplicate.rs`)**: names like `format_date_2` suggesting an existing utility was reimplemented (Warn).
+
+### Suppressing alerts
+Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ignore` on a line. Code inside `#[cfg(test)]` is auto-ignored during `lgtm scan`.
+
+---
+
+## 12. Quality Tooling (`make` targets)
+
+| Target | Purpose |
+|---|---|
+| `make build` / `release` | Debug / LTO release binary |
+| `make test` | Unit + integration tests |
+| `make coverage` | `scripts/coverage.sh` — tests + coverage gate (>= 90%) |
+| `make delta-coverage` | Coverage on changed lines only |
+| `make mutate` | `scripts/mutate.sh` — mutation gate (>= 90%) |
+| `make verify-tests` | Inverted test verification |
+| `make lint` / `fmt` / `check-fmt` | Clippy (`-D warnings`) / rustfmt |
+| `make check` | fmt check + lint + test + coverage + mutate |
+| `make ci` | `check` + SARIF export |
+| `make tap` | `scripts/update-tap.sh` — update Homebrew formula |
+
+---
+
+## 13. Source Module Map
+
+| Path | Role |
+|---|---|
+| `src/main.rs` | CLI dispatcher, headless runners |
+| `src/app.rs` | TUI state machine, keys, Vim motions |
+| `src/ui/` | Ratatui rendering, modals |
+| `src/model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
+| `src/scan.rs` | Full repo scanner and report generator |
+| `src/git/`, `src/pr/` | Git diff engine; GitHub PR via `gh` |
+| `src/guard/` | Static analysis guards (see sections 4, 11) |
+| `src/comment/`, `src/turn/` | Directives; reviewed-file state |
+| `src/ipc/` | tmux injection, OSC 52 clipboard |
+| `src/watcher/` | Debounced filesystem watcher |
+| `src/mcp/` | MCP server |
+| `src/coverage/`, `src/mutate/`, `src/verify/` | Quality gates |
+
 ---
 
 ## Contributing & Support
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 - **Repository**: [https://github.com/mgabs/lgtm](https://github.com/mgabs/lgtm)
 - **Issue Tracker**: [https://github.com/mgabs/lgtm/issues](https://github.com/mgabs/lgtm/issues)
