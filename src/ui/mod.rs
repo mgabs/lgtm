@@ -1158,10 +1158,10 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     if app.active_view == ActiveView::AuditReport {
         let msg = app.status_message.as_deref().unwrap_or("Audit Mode");
-        let drawer_tag = if app.show_file_drawer {
-            "Hide Sidebar"
-        } else {
-            "Show Sidebar"
+        let focus_tag = match app.audit_focus {
+            crate::app::AuditPaneFocus::Files => "Files",
+            crate::app::AuditPaneFocus::Issues => "Issues",
+            crate::app::AuditPaneFocus::Inspector => "Inspector",
         };
         let status_line = Line::from(vec![
             Span::styled(
@@ -1171,26 +1171,31 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             ),
+            Span::raw(" | Pane: "),
+            Span::styled(
+                format!("[{}]", focus_tag),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" | "),
-            Span::styled("[Tab/b]", Style::default().fg(Color::Cyan)),
-            Span::raw(format!(" {} | ", drawer_tag)),
+            Span::styled("[Tab/h/l]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Focus | "),
             Span::styled("[j/k]", Style::default().fg(Color::Cyan)),
             Span::raw(" Nav | "),
-            Span::styled("[]/[]", Style::default().fg(Color::Cyan)),
-            Span::raw(" Files | "),
-            Span::styled("[1-3]", Style::default().fg(Color::Cyan)),
-            Span::raw(" Filter | "),
-            Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
-            Span::raw(" Inject | "),
-            Span::styled("[e/o]", Style::default().fg(Color::Cyan)),
-            Span::raw(" Editor | "),
-            Span::styled("[w/E]", Style::default().fg(Color::Cyan)),
+            Span::styled("[Space/Enter]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Filter/Action | "),
+            Span::styled("[Z/m]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Maximize | "),
+            Span::styled("[b]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Sidebar | "),
+            Span::styled("[1-3/a]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Sev | "),
+            Span::styled("[w]", Style::default().fg(Color::Green)),
             Span::raw(" Export | "),
-            Span::styled("[:]", Style::default().fg(Color::Cyan)),
-            Span::raw(" Cmd | "),
-            Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
+            Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
             Span::raw(" Diff | "),
-            Span::styled("[q]", Style::default().fg(Color::Cyan)),
+            Span::styled("[q]", Style::default().fg(Color::Red)),
             Span::raw(" Quit"),
         ]);
         frame.render_widget(Paragraph::new(status_line), area);
@@ -2462,6 +2467,13 @@ fn render_command_completion_column(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
+    let is_focused = app.audit_focus == crate::app::AuditPaneFocus::Files;
+    let border_color = if is_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+
     if app.audit_files.is_empty() {
         let items = vec![ListItem::new(Line::from(Span::styled(
             " (No files audited) ",
@@ -2471,7 +2483,7 @@ fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Files (Tab) ")
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(border_color)),
         );
         frame.render_widget(list, area);
         return;
@@ -2484,6 +2496,7 @@ fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
         .map(|(idx, file)| {
             let is_selected = idx == app.selected_file_idx;
             let display_name = file.display_name();
+            let is_filtered = app.audit_file_filter.as_deref() == Some(&display_name);
 
             let file_alerts_count = app
                 .audit_alerts
@@ -2497,7 +2510,19 @@ fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
                 (" ✓   ".to_string(), Color::Green)
             };
 
+            let prefix = if is_filtered { "● " } else { "  " };
+
             let spans = vec![
+                Span::styled(
+                    prefix,
+                    if is_filtered {
+                        Style::default()
+                            .fg(Color::LightMagenta)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    },
+                ),
                 Span::styled(
                     badge,
                     Style::default()
@@ -2508,10 +2533,17 @@ fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
             ];
 
             let style = if is_selected {
-                Style::default()
-                    .bg(Color::Cyan)
-                    .fg(Color::Black)
-                    .add_modifier(Modifier::BOLD)
+                if is_focused {
+                    Style::default()
+                        .bg(Color::Cyan)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .bg(Color::DarkGray)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                }
             } else {
                 Style::default()
             };
@@ -2520,11 +2552,17 @@ fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
+    let title = if let Some(ref filt) = app.audit_file_filter {
+        format!(" Files [{}] (Filtered: {}) ", app.audit_files.len(), filt)
+    } else {
+        format!(" Files [{}] (Tab/Space) ", app.audit_files.len())
+    };
+
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(format!(" Files [{}] (Tab) ", app.audit_files.len()))
-            .border_style(Style::default().fg(Color::Cyan)),
+            .title(title)
+            .border_style(Style::default().fg(border_color)),
     );
 
     frame.render_widget(list, area);
@@ -2534,6 +2572,13 @@ fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App) {
     let filtered_alerts = app.filtered_audit_alerts();
     let total_alerts = app.audit_alerts.len();
     let filtered_count = filtered_alerts.len();
+
+    // If inspector is maximized, allocate full screen to inspector
+    if app.audit_maximized_inspector {
+        let selected_alert = filtered_alerts.get(app.audit_selected_idx).copied();
+        render_audit_inspector(frame, area, app, selected_alert);
+        return;
+    }
 
     // Check if sidebar should be rendered
     let (left_area, right_area) = if app.show_file_drawer && area.width >= 70 {
@@ -2609,21 +2654,40 @@ fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App) {
                 };
 
                 let loc = match alert.line_no {
-                    Some(l) => format!("{}:{}", alert.file_path, l),
-                    None => alert.file_path.clone(),
+                    Some(l) => {
+                        if app.audit_file_filter.is_some() {
+                            format!("L{:4} ", l)
+                        } else {
+                            format!("{}:{} ", alert.file_path, l)
+                        }
+                    }
+                    None => {
+                        if app.audit_file_filter.is_some() {
+                            "      ".to_string()
+                        } else {
+                            format!("{} ", alert.file_path)
+                        }
+                    }
                 };
 
                 let spans = vec![
                     Span::styled(format!("[{}] ", alert.severity.badge()), badge_style),
-                    Span::styled(format!("{} ", loc), Style::default().fg(Color::Cyan)),
+                    Span::styled(loc, Style::default().fg(Color::Cyan)),
                     Span::raw(&alert.title),
                 ];
 
                 let line_style = if is_selected {
-                    Style::default()
-                        .bg(Color::Cyan)
-                        .fg(Color::Black)
-                        .add_modifier(Modifier::BOLD)
+                    if app.audit_focus == crate::app::AuditPaneFocus::Issues {
+                        Style::default()
+                            .bg(Color::Cyan)
+                            .fg(Color::Black)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD)
+                    }
                 } else {
                     Style::default()
                 };
@@ -2639,15 +2703,28 @@ fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App) {
         _ => "All [3]",
     };
 
-    let issues_title = format!(
-        " Repository Issues ({}/{}) Filter: {} ",
-        filtered_count, total_alerts, filter_text
-    );
+    let issues_title = if let Some(ref file) = app.audit_file_filter {
+        format!(
+            " Issues for {} ({}/{}) Filter: {} [a: all] ",
+            file, filtered_count, total_alerts, filter_text
+        )
+    } else {
+        format!(
+            " Repository Issues ({}/{}) Filter: {} ",
+            filtered_count, total_alerts, filter_text
+        )
+    };
+
+    let issues_border_color = if app.audit_focus == crate::app::AuditPaneFocus::Issues {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
 
     let issues_block = Block::default()
         .borders(Borders::ALL)
         .title(issues_title)
-        .border_style(Style::default().fg(Color::Cyan));
+        .border_style(Style::default().fg(issues_border_color));
 
     frame.render_widget(List::new(items).block(issues_block), left_area);
 
@@ -2834,13 +2911,29 @@ fn render_audit_inspector(
         Span::raw(" Diff View"),
     ]));
 
+    let is_focused = app.audit_focus == crate::app::AuditPaneFocus::Inspector;
+    let border_color = if is_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+
+    let title = if app.audit_maximized_inspector {
+        " Issue Inspector [MAXIMIZED - Z/m to restore] "
+    } else if is_focused {
+        " Issue Inspector & Remediation (Scroll: j/k, Ctrl-d/u) "
+    } else {
+        " Issue Inspector & Remediation "
+    };
+
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Issue Inspector & Remediation ")
-        .border_style(Style::default().fg(Color::LightBlue));
+        .title(title)
+        .border_style(Style::default().fg(border_color));
 
     let paragraph = Paragraph::new(lines)
         .block(block)
+        .scroll((app.audit_inspector_scroll as u16, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }

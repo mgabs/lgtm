@@ -27,6 +27,13 @@ pub enum ActiveView {
     AuditReport,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuditPaneFocus {
+    Files,
+    Issues,
+    Inspector,
+}
+
 pub struct App {
     pub git_engine: GitEngine,
     pub comment_store: CommentStore,
@@ -41,6 +48,10 @@ pub struct App {
     pub audit_selected_idx: usize,
     pub audit_filter_severity: Option<crate::guard::Severity>,
     pub audit_root_dir: PathBuf,
+    pub audit_focus: AuditPaneFocus,
+    pub audit_file_filter: Option<String>,
+    pub audit_inspector_scroll: usize,
+    pub audit_maximized_inspector: bool,
 
     pub selected_file_idx: usize,
     pub diff_scroll_offset: usize,
@@ -176,6 +187,10 @@ impl App {
             audit_selected_idx: 0,
             audit_filter_severity: None,
             audit_root_dir: repo_path.clone(),
+            audit_focus: AuditPaneFocus::Issues,
+            audit_file_filter: None,
+            audit_inspector_scroll: 0,
+            audit_maximized_inspector: false,
             selected_file_idx: 0,
             diff_scroll_offset: 0,
             cursor_line_idx: 0,
@@ -2033,6 +2048,11 @@ impl App {
         self.audit_alerts
             .iter()
             .filter(|alert| {
+                if let Some(ref target_file) = self.audit_file_filter {
+                    if &alert.file_path != target_file {
+                        return false;
+                    }
+                }
                 if let Some(sev) = self.audit_filter_severity {
                     alert.severity >= sev
                 } else {
@@ -2052,6 +2072,9 @@ impl App {
                 self.audit_alerts = alerts;
                 self.audit_selected_idx = 0;
                 self.audit_filter_severity = None;
+                self.audit_file_filter = None;
+                self.audit_inspector_scroll = 0;
+                self.audit_focus = AuditPaneFocus::Issues;
                 self.sync_audit_selected_file();
                 self.active_view = ActiveView::AuditReport;
                 self.status_message = Some(format!(
@@ -2073,6 +2096,9 @@ impl App {
         self.audit_alerts = self.alerts.clone();
         self.audit_selected_idx = 0;
         self.audit_filter_severity = None;
+        self.audit_file_filter = None;
+        self.audit_inspector_scroll = 0;
+        self.audit_focus = AuditPaneFocus::Issues;
         self.sync_audit_selected_file();
         self.active_view = ActiveView::AuditReport;
         self.status_message = Some(format!(
@@ -2179,13 +2205,55 @@ impl App {
         Ok(path)
     }
 
+    pub fn cycle_audit_focus(&mut self, forward: bool) {
+        if self.audit_maximized_inspector {
+            return;
+        }
+        self.audit_focus = match (self.audit_focus, forward) {
+            (AuditPaneFocus::Files, true) => AuditPaneFocus::Issues,
+            (AuditPaneFocus::Issues, true) => AuditPaneFocus::Inspector,
+            (AuditPaneFocus::Inspector, true) => {
+                if self.show_file_drawer {
+                    AuditPaneFocus::Files
+                } else {
+                    AuditPaneFocus::Issues
+                }
+            }
+            (AuditPaneFocus::Inspector, false) => AuditPaneFocus::Issues,
+            (AuditPaneFocus::Issues, false) => {
+                if self.show_file_drawer {
+                    AuditPaneFocus::Files
+                } else {
+                    AuditPaneFocus::Inspector
+                }
+            }
+            (AuditPaneFocus::Files, false) => AuditPaneFocus::Inspector,
+        };
+        let target_name = match self.audit_focus {
+            AuditPaneFocus::Files => "Files Drawer",
+            AuditPaneFocus::Issues => "Issues List",
+            AuditPaneFocus::Inspector => "Issue Inspector",
+        };
+        self.status_message = Some(format!("Focus: {}", target_name));
+    }
+
     pub fn handle_audit_report_key(&mut self, key: KeyEvent) {
         if let Some(leader) = self.pending_leader {
             self.pending_leader = None;
             match (leader, key.code) {
                 ('g', KeyCode::Char('g')) => {
-                    self.audit_selected_idx = 0;
-                    self.sync_audit_selected_file();
+                    match self.audit_focus {
+                        AuditPaneFocus::Files => {
+                            self.selected_file_idx = 0;
+                        }
+                        AuditPaneFocus::Issues => {
+                            self.audit_selected_idx = 0;
+                            self.sync_audit_selected_file();
+                        }
+                        AuditPaneFocus::Inspector => {
+                            self.audit_inspector_scroll = 0;
+                        }
+                    }
                     return;
                 }
                 (']', KeyCode::Char('f')) | (']', KeyCode::Char(']')) => {
@@ -2208,60 +2276,174 @@ impl App {
                 self.should_quit = true;
             }
             (_, KeyCode::Esc) => {
-                self.active_view = ActiveView::Diff;
-                self.status_message =
-                    Some("Returned to diff view (use :audit or :scan to re-enter)".into());
+                if self.audit_maximized_inspector {
+                    self.audit_maximized_inspector = false;
+                    self.status_message = Some("Exited full inspector view".into());
+                } else if self.audit_file_filter.is_some() {
+                    self.audit_file_filter = None;
+                    self.audit_selected_idx = 0;
+                    self.sync_audit_selected_file();
+                    self.status_message = Some("Cleared file filter: showing all issues".into());
+                } else {
+                    self.active_view = ActiveView::Diff;
+                    self.status_message =
+                        Some("Returned to diff view (use :audit or :scan to re-enter)".into());
+                }
             }
-            (_, KeyCode::Tab) | (_, KeyCode::Char('b')) => {
+            // Tab / BackTab / h / l pane focus cycling
+            (_, KeyCode::Tab) => {
+                self.cycle_audit_focus(true);
+            }
+            (_, KeyCode::BackTab) => {
+                self.cycle_audit_focus(false);
+            }
+            (_, KeyCode::Char('h')) | (_, KeyCode::Left) => {
+                self.cycle_audit_focus(false);
+            }
+            (_, KeyCode::Char('l')) | (_, KeyCode::Right) => {
+                self.cycle_audit_focus(true);
+            }
+            // Toggle sidebar drawer
+            (_, KeyCode::Char('b')) => {
                 self.show_file_drawer = !self.show_file_drawer;
+                if !self.show_file_drawer && self.audit_focus == AuditPaneFocus::Files {
+                    self.audit_focus = AuditPaneFocus::Issues;
+                }
             }
+            // Maximize / Restore inspector view
+            (_, KeyCode::Char('Z')) | (_, KeyCode::Char('m')) => {
+                self.audit_maximized_inspector = !self.audit_maximized_inspector;
+                if self.audit_maximized_inspector {
+                    self.audit_focus = AuditPaneFocus::Inspector;
+                    self.status_message =
+                        Some("Maximized Inspector [Z/m or Esc to restore]".into());
+                } else {
+                    self.status_message = Some("Restored 3-pane layout".into());
+                }
+            }
+            // File jumping
             (_, KeyCode::Char(']')) => {
                 self.audit_next_file();
             }
             (_, KeyCode::Char('[')) => {
                 self.audit_prev_file();
             }
-            (_, KeyCode::Char('j')) | (_, KeyCode::Down) => {
-                if total > 0 && self.audit_selected_idx + 1 < total {
-                    self.audit_selected_idx += 1;
-                    self.sync_audit_selected_file();
+            // Up/Down navigation based on active focus
+            (_, KeyCode::Char('j')) | (_, KeyCode::Down) => match self.audit_focus {
+                AuditPaneFocus::Files => {
+                    if !self.audit_files.is_empty()
+                        && self.selected_file_idx + 1 < self.audit_files.len()
+                    {
+                        self.selected_file_idx += 1;
+                    }
                 }
-            }
-            (_, KeyCode::Char('k')) | (_, KeyCode::Up) => {
-                if self.audit_selected_idx > 0 {
-                    self.audit_selected_idx -= 1;
-                    self.sync_audit_selected_file();
+                AuditPaneFocus::Issues => {
+                    if total > 0 && self.audit_selected_idx + 1 < total {
+                        self.audit_selected_idx += 1;
+                        self.audit_inspector_scroll = 0;
+                        self.sync_audit_selected_file();
+                    }
                 }
-            }
+                AuditPaneFocus::Inspector => {
+                    self.audit_inspector_scroll = self.audit_inspector_scroll.saturating_add(1);
+                }
+            },
+            (_, KeyCode::Char('k')) | (_, KeyCode::Up) => match self.audit_focus {
+                AuditPaneFocus::Files => {
+                    if self.selected_file_idx > 0 {
+                        self.selected_file_idx -= 1;
+                    }
+                }
+                AuditPaneFocus::Issues => {
+                    if self.audit_selected_idx > 0 {
+                        self.audit_selected_idx -= 1;
+                        self.audit_inspector_scroll = 0;
+                        self.sync_audit_selected_file();
+                    }
+                }
+                AuditPaneFocus::Inspector => {
+                    self.audit_inspector_scroll = self.audit_inspector_scroll.saturating_sub(1);
+                }
+            },
             (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::PageDown) => {
-                if total > 0 {
-                    self.audit_selected_idx = (self.audit_selected_idx + 10).min(total - 1);
-                    self.sync_audit_selected_file();
+                match self.audit_focus {
+                    AuditPaneFocus::Files => {
+                        if !self.audit_files.is_empty() {
+                            self.selected_file_idx =
+                                (self.selected_file_idx + 10).min(self.audit_files.len() - 1);
+                        }
+                    }
+                    AuditPaneFocus::Issues => {
+                        if total > 0 {
+                            self.audit_selected_idx = (self.audit_selected_idx + 10).min(total - 1);
+                            self.audit_inspector_scroll = 0;
+                            self.sync_audit_selected_file();
+                        }
+                    }
+                    AuditPaneFocus::Inspector => {
+                        self.audit_inspector_scroll =
+                            self.audit_inspector_scroll.saturating_add(10);
+                    }
                 }
             }
             (KeyModifiers::CONTROL, KeyCode::Char('u')) | (_, KeyCode::PageUp) => {
-                self.audit_selected_idx = self.audit_selected_idx.saturating_sub(10);
-                self.sync_audit_selected_file();
-            }
-            (_, KeyCode::Char('}')) => {
-                if total > 0 {
-                    self.audit_selected_idx = (self.audit_selected_idx + 5).min(total - 1);
-                    self.sync_audit_selected_file();
+                match self.audit_focus {
+                    AuditPaneFocus::Files => {
+                        self.selected_file_idx = self.selected_file_idx.saturating_sub(10);
+                    }
+                    AuditPaneFocus::Issues => {
+                        self.audit_selected_idx = self.audit_selected_idx.saturating_sub(10);
+                        self.audit_inspector_scroll = 0;
+                        self.sync_audit_selected_file();
+                    }
+                    AuditPaneFocus::Inspector => {
+                        self.audit_inspector_scroll =
+                            self.audit_inspector_scroll.saturating_sub(10);
+                    }
                 }
             }
-            (_, KeyCode::Char('{')) => {
-                self.audit_selected_idx = self.audit_selected_idx.saturating_sub(5);
-                self.sync_audit_selected_file();
-            }
+            (_, KeyCode::Char('}')) => match self.audit_focus {
+                AuditPaneFocus::Inspector => {
+                    self.audit_inspector_scroll = self.audit_inspector_scroll.saturating_add(5);
+                }
+                _ => {
+                    if total > 0 {
+                        self.audit_selected_idx = (self.audit_selected_idx + 5).min(total - 1);
+                        self.audit_inspector_scroll = 0;
+                        self.sync_audit_selected_file();
+                    }
+                }
+            },
+            (_, KeyCode::Char('{')) => match self.audit_focus {
+                AuditPaneFocus::Inspector => {
+                    self.audit_inspector_scroll = self.audit_inspector_scroll.saturating_sub(5);
+                }
+                _ => {
+                    self.audit_selected_idx = self.audit_selected_idx.saturating_sub(5);
+                    self.audit_inspector_scroll = 0;
+                    self.sync_audit_selected_file();
+                }
+            },
             (_, KeyCode::Char('g')) => {
                 self.pending_leader = Some('g');
             }
-            (_, KeyCode::Char('G')) => {
-                if total > 0 {
-                    self.audit_selected_idx = total - 1;
-                    self.sync_audit_selected_file();
+            (_, KeyCode::Char('G')) => match self.audit_focus {
+                AuditPaneFocus::Files => {
+                    if !self.audit_files.is_empty() {
+                        self.selected_file_idx = self.audit_files.len() - 1;
+                    }
                 }
-            }
+                AuditPaneFocus::Issues => {
+                    if total > 0 {
+                        self.audit_selected_idx = total - 1;
+                        self.sync_audit_selected_file();
+                    }
+                }
+                AuditPaneFocus::Inspector => {
+                    self.audit_inspector_scroll = self.audit_inspector_scroll.saturating_add(50);
+                }
+            },
+            // Filter severities
             (_, KeyCode::Char('1')) => {
                 self.audit_filter_severity = Some(crate::guard::Severity::Critical);
                 self.audit_selected_idx = 0;
@@ -2274,12 +2456,72 @@ impl App {
                 self.sync_audit_selected_file();
                 self.status_message = Some("Filter: 🟠 High & 🔴 Critical issues".into());
             }
-            (_, KeyCode::Char('3')) | (_, KeyCode::Char('a')) => {
+            (_, KeyCode::Char('3')) => {
                 self.audit_filter_severity = None;
                 self.audit_selected_idx = 0;
                 self.sync_audit_selected_file();
                 self.status_message = Some("Filter: All issues".into());
             }
+            (_, KeyCode::Char('a')) => {
+                self.audit_filter_severity = None;
+                self.audit_file_filter = None;
+                self.audit_selected_idx = 0;
+                self.sync_audit_selected_file();
+                self.status_message = Some("Filter reset: Showing all files and severities".into());
+            }
+            // Space: in Files pane toggles file filter
+            (_, KeyCode::Char(' ')) => {
+                if self.audit_focus == AuditPaneFocus::Files {
+                    if let Some(file) = self.audit_files.get(self.selected_file_idx) {
+                        let name = file.display_name();
+                        if self.audit_file_filter.as_deref() == Some(&name) {
+                            self.audit_file_filter = None;
+                            self.status_message = Some("Showing issues for all files".into());
+                        } else {
+                            self.audit_file_filter = Some(name.clone());
+                            self.status_message = Some(format!("Filtered issues to {}", name));
+                        }
+                        self.audit_selected_idx = 0;
+                    }
+                }
+            }
+            // Enter: in Files pane toggles file filter & jumps to Issues; in Issues pane injects directive
+            (_, KeyCode::Enter) => match self.audit_focus {
+                AuditPaneFocus::Files => {
+                    if let Some(file) = self.audit_files.get(self.selected_file_idx) {
+                        let name = file.display_name();
+                        self.audit_file_filter = Some(name.clone());
+                        self.audit_selected_idx = 0;
+                        self.audit_focus = AuditPaneFocus::Issues;
+                        self.status_message =
+                            Some(format!("Filtered issues to {} (Focus: Issues)", name));
+                    }
+                }
+                _ => {
+                    if let Some(alert) = filtered.get(self.audit_selected_idx) {
+                        let loc = match alert.line_no {
+                            Some(l) => format!("{}:{}", alert.file_path, l),
+                            None => alert.file_path.clone(),
+                        };
+                        let directive = format!(
+                            "Fix security/architectural violation in {}: [{}] {} - {}\n",
+                            loc,
+                            alert.severity.badge(),
+                            alert.title,
+                            alert.description
+                        );
+                        if let Some(ref pane) = self.agent_pane {
+                            let _ = IpcBridge::send_to_tmux(pane, &directive);
+                            self.status_message =
+                                Some(format!("Injected directive to pane {}", pane));
+                        } else {
+                            IpcBridge::send_osc52_clipboard(&directive);
+                            self.status_message =
+                                Some("Copied directive to clipboard (OSC 52)".into());
+                        }
+                    }
+                }
+            },
             (_, KeyCode::Char('w')) | (_, KeyCode::Char('E')) => {
                 let _ = self.export_audit_report(None);
             }
@@ -2288,28 +2530,6 @@ impl App {
                     let file_path = alert.file_path.clone();
                     let line_no = alert.line_no.unwrap_or(1);
                     self.open_file_in_editor(&file_path, line_no);
-                }
-            }
-            (_, KeyCode::Enter) => {
-                if let Some(alert) = filtered.get(self.audit_selected_idx) {
-                    let loc = match alert.line_no {
-                        Some(l) => format!("{}:{}", alert.file_path, l),
-                        None => alert.file_path.clone(),
-                    };
-                    let directive = format!(
-                        "Fix security/architectural violation in {}: [{}] {} - {}\n",
-                        loc,
-                        alert.severity.badge(),
-                        alert.title,
-                        alert.description
-                    );
-                    if let Some(ref pane) = self.agent_pane {
-                        let _ = IpcBridge::send_to_tmux(pane, &directive);
-                        self.status_message = Some(format!("Injected directive to pane {}", pane));
-                    } else {
-                        IpcBridge::send_osc52_clipboard(&directive);
-                        self.status_message = Some("Copied directive to clipboard (OSC 52)".into());
-                    }
                 }
             }
             (_, KeyCode::Char(':')) => {
@@ -4045,6 +4265,38 @@ mod tests {
                 file_path: "src/engine.rs".into(),
             },
         ];
+        app.audit_files = vec![
+            FileDiff {
+                old_path: None,
+                new_path: PathBuf::from("src/auth.rs"),
+                change_type: ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+            FileDiff {
+                old_path: None,
+                new_path: PathBuf::from("tests/auth_test.rs"),
+                change_type: ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+            FileDiff {
+                old_path: None,
+                new_path: PathBuf::from("src/engine.rs"),
+                change_type: ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+        ];
 
         assert_eq!(app.filtered_audit_alerts().len(), 3);
 
@@ -4071,12 +4323,30 @@ mod tests {
         assert_eq!(app.audit_filter_severity, None);
         assert_eq!(app.filtered_audit_alerts().len(), 3);
 
-        // Sidebar toggle with Tab and 'b'
+        // Sidebar toggle with 'b'
         let initial_drawer = app.show_file_drawer;
-        app.handle_audit_report_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
         assert_eq!(app.show_file_drawer, !initial_drawer);
         app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
         assert_eq!(app.show_file_drawer, initial_drawer);
+
+        // Tab cycles focus between Files, Issues, and Inspector
+        assert_eq!(app.audit_focus, AuditPaneFocus::Issues);
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.audit_focus, AuditPaneFocus::Inspector);
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.audit_focus, AuditPaneFocus::Files);
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.audit_focus, AuditPaneFocus::Issues);
+
+        // Inspector maximization with 'Z'
+        assert!(!app.audit_maximized_inspector);
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::NONE));
+        assert!(app.audit_maximized_inspector);
+        assert_eq!(app.audit_focus, AuditPaneFocus::Inspector);
+        // Esc exits maximized view
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.audit_maximized_inspector);
 
         // File switching with ']' and '['
         assert_eq!(app.audit_selected_idx, 0); // src/auth.rs
@@ -4086,6 +4356,18 @@ mod tests {
         assert_eq!(app.audit_selected_idx, 2); // src/engine.rs
         app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
         assert_eq!(app.audit_selected_idx, 1); // tests/auth_test.rs
+
+        // File isolation filter in Files pane
+        app.audit_focus = AuditPaneFocus::Files;
+        app.selected_file_idx = 0; // src/auth.rs
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.audit_file_filter.as_deref(), Some("src/auth.rs"));
+        assert_eq!(app.filtered_audit_alerts().len(), 1);
+
+        // Reset filter with 'a'
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        assert_eq!(app.audit_file_filter, None);
+        assert_eq!(app.filtered_audit_alerts().len(), 3);
 
         // Esc returns to diff view
         app.handle_audit_report_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
