@@ -55,6 +55,9 @@ impl App {
                     self.open_commit_modal();
                 }
             }
+            "c" | "comments" | "directives" | "todo" if args.first() == Some(&"recheck") => {
+                self.recheck_directives();
+            }
             "c" | "comments" | "directives" | "todo" => {
                 self.comment_list_selected_idx = 0;
                 self.active_view = ActiveView::CommentList;
@@ -755,6 +758,39 @@ mod tests {
         app.thread_action(&bad, &["resolve", "1", "--yes"]);
         assert_eq!(app.status_message.as_deref(), Some("rate limited"));
         assert!(!app.threads[0].resolved);
+    }
+
+    #[test]
+    fn test_directives_recheck_reports_outcomes() {
+        let mut app = create_test_app();
+        app.execute_command("directives recheck");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Directives: 0 untouched, 0 changed, 0 gone, 0 orphaned")
+        );
+        app.comments.push(lgtm_core::comment::CommentAnchor {
+            file_path: "gone.rs".into(),
+            target_line_no: 1,
+            target_code: String::new(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "x".into(),
+            replies: vec![],
+            created_at_turn: 0,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            track: lgtm_core::outcome::Tracking {
+                hunk_hash: Some("abc".into()),
+                ..Default::default()
+            },
+        });
+        app.execute_command("directives recheck");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Directives: 0 untouched, 0 changed, 1 gone, 0 orphaned")
+        );
+        assert_eq!(app.active_view, ActiveView::Diff);
     }
 
     #[test]

@@ -271,6 +271,18 @@ impl App {
         });
     }
 
+    /// `:directives recheck`: reclassify open directives against the current diff and report counts.
+    pub fn recheck_directives(&mut self) {
+        let turn = self.turn_manager.load_state().current_turn;
+        if lgtm_core::outcome::recheck(&mut self.comments, &self.snapshot.files, turn) {
+            let _ = self.comment_store.save_comments(&self.comments);
+        }
+        self.status_message = Some(format!(
+            "Directives: {}",
+            lgtm_core::outcome::Summary::of(&self.comments).line()
+        ));
+    }
+
     pub fn review_target(&self) -> String {
         match (self.pr.current_number, self.active_revision.as_deref()) {
             (Some(n), _) => format!("pr-{n}"),
