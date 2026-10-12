@@ -16,7 +16,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | R3 ✅ | Internal traits: `Guard` + registry, `DiffSource`, `AgentSink` (golden-output parity) | M | R2 |
 | R4 ✅ | Cargo workspace: `lgtm-core`, `lgtm-mcp`, `lgtm` (scripts, CI, release done; tap and `cargo install --git` flows are a manual check) | L | R3 |
 | R5 ✅ | Boundary enforcement CI check + docs | XS | R4 |
-| R6 | Async spike for `mcp`/PR (go/no-go; dropped if no-go) | S | R4 |
+| R6 ❌ | Async spike for `mcp`/PR (go/no-go; dropped if no-go)  (no-go: stdio loop is sequential, PR fetch is a `gh` subprocess; tokio would add size and churn for no gain. Dropped; A4 stays threaded) | S | R4 |
 
 ### B — Guard config, baselines, suppressions
 | ID | Item | Effort | Depends on |
