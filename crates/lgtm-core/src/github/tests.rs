@@ -22,7 +22,7 @@ fn parses_check_buckets_and_summarizes() {
 fn parses_threads() {
     let t = parse_threads(
         r#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-        {"id":"T1","isResolved":true,"path":"a.rs","line":7,"comments":{"nodes":[{"author":{"login":"bob"},"body":"hi"}]}},
+        {"id":"T1","isResolved":true,"path":"a.rs","line":7,"comments":{"nodes":[{"databaseId":42,"author":{"login":"bob"},"body":"hi"}]}},
         {"id":"T2","isResolved":false,"path":"b.rs","line":null,"comments":{"nodes":[]}}]}}}}}"#,
     )
     .unwrap();
@@ -32,6 +32,7 @@ fn parses_threads() {
         (t[0].line, t[0].comments[0].author.as_str()),
         (Some(7), "bob")
     );
+    assert_eq!(t[0].comments[0].id, 42);
     assert_eq!((t[1].line, t[1].comments.len()), (None, 0));
     assert!(parse_threads(r#"{"data":{"repository":null}}"#).is_err());
     assert!(parse_threads("x").is_err());

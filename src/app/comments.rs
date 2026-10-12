@@ -204,6 +204,73 @@ impl App {
         self.status_message = Some(report.summary());
     }
 
+    /// `:thread reply <n> <text> --yes` / `:thread resolve|unresolve <n> --yes`; `n` is the 1-based
+    /// position in `:threads`. Without `--yes` it only previews.
+    pub fn thread_action(&mut self, client: &dyn lgtm_core::github::GithubClient, args: &[&str]) {
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return;
+        };
+        let confirmed = args.last() == Some(&"--yes");
+        let args = if confirmed {
+            &args[..args.len() - 1]
+        } else {
+            args
+        };
+        let (Some(&verb), Some(n)) = (
+            args.first(),
+            args.get(1).and_then(|n| n.parse::<usize>().ok()),
+        ) else {
+            self.status_message = Some(
+                "Usage: :thread reply <n> <text> | resolve <n> | unresolve <n> (add --yes to send)"
+                    .to_string(),
+            );
+            return;
+        };
+        let Some(t) = n.checked_sub(1).and_then(|i| self.threads.get(i)) else {
+            self.status_message = Some("No such thread; run :threads first".to_string());
+            return;
+        };
+        let text = args[2..].join(" ");
+        let (id, target) = (t.id.clone(), t.comments.first().map_or(0, |c| c.id));
+        let preview = match verb {
+            "reply" if text.is_empty() => {
+                self.status_message = Some("Reply text is empty".to_string());
+                return;
+            }
+            "reply" => format!("Would reply on {}:{}", t.path, t.line.unwrap_or(0)),
+            "resolve" | "unresolve" => format!(
+                "Would {} thread on {}:{}",
+                verb,
+                t.path,
+                t.line.unwrap_or(0)
+            ),
+            _ => {
+                self.status_message = Some(format!("Unknown thread action '{verb}'"));
+                return;
+            }
+        };
+        if !confirmed {
+            self.status_message = Some(format!("{preview}; add --yes to send"));
+            return;
+        }
+        let res = match verb {
+            "reply" => client.reply(pr, target, &text).map(|_| "Reply posted"),
+            _ => client
+                .set_resolved(&id, verb == "resolve")
+                .map(|_| "Thread updated"),
+        };
+        self.status_message = Some(match res {
+            Ok(done) => {
+                if verb != "reply" {
+                    self.threads[n - 1].resolved = verb == "resolve";
+                }
+                done.to_string()
+            }
+            Err(e) => e.to_string(),
+        });
+    }
+
     pub fn review_target(&self) -> String {
         match (self.pr.current_number, self.active_revision.as_deref()) {
             (Some(n), _) => format!("pr-{n}"),

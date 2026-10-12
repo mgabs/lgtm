@@ -34,7 +34,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | C2 ✅ | Hunk marks UI, export/import (orphan handling waits for comments to move to the new store) | M | C1 |
 | C3 ✅ | `GithubClient` trait + fake; read-only CI status and remote threads (no inline thread markers yet) | M | C1 (soft: R4) |
 | C4 ✅ | Inline comment posting (resumable, preview before send) | M | C3 |
-| C5 | Thread reply/resolve + docs | S | C4 |
+| C5 ✅ | Thread reply/resolve + docs | S | C4 |
 
 ### A — Agent loop, MCP, sinks
 | ID | Item | Effort | Depends on |

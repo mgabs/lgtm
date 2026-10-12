@@ -90,6 +90,7 @@ impl CommandLine {
             "sp",
             "split",
             "submit",
+            "thread",
             "threads",
             "todo",
             "tree",

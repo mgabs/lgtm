@@ -37,6 +37,7 @@ impl CiSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadComment {
+    pub id: u64,
     pub author: String,
     pub body: String,
 }
@@ -58,6 +59,9 @@ pub trait GithubClient {
     fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64>;
     /// General PR conversation comment; returns the comment id.
     fn post_general(&self, pr: u64, body: &str) -> Result<u64>;
+    /// Reply to an existing review comment (its numeric id); returns the new comment id.
+    fn reply(&self, pr: u64, comment_id: u64, body: &str) -> Result<u64>;
+    fn set_resolved(&self, thread_id: &str, resolved: bool) -> Result<()>;
 }
 
 pub struct GhClient;
@@ -116,6 +120,10 @@ pub fn parse_threads(json: &str) -> Result<Vec<Thread>> {
                 .map(|cs| {
                     cs.iter()
                         .map(|c| ThreadComment {
+                            id: c
+                                .pointer("/databaseId")
+                                .and_then(|i| i.as_u64())
+                                .unwrap_or(0),
                             author: s(c, "/author/login"),
                             body: s(c, "/body"),
                         })
@@ -145,7 +153,7 @@ fn gh(args: &[&str]) -> Result<std::process::Output> {
         .context("`gh` is not installed or not on PATH; GitHub features are unavailable")
 }
 
-const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{author{login} body}}}}}}}";
+const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{databaseId author{login} body}}}}}}}";
 
 impl GithubClient for GhClient {
     fn checks(&self, pr: u64) -> Result<Vec<Check>> {
@@ -226,6 +234,25 @@ impl GithubClient for GhClient {
         let ep = format!("repos/{{owner}}/{{repo}}/issues/{pr}/comments");
         post_id(gh(&["api", &ep, "-f", &format!("body={body}")])?)
     }
+
+    fn reply(&self, pr: u64, comment_id: u64, body: &str) -> Result<u64> {
+        let ep = format!("repos/{{owner}}/{{repo}}/pulls/{pr}/comments/{comment_id}/replies");
+        post_id(gh(&["api", &ep, "-f", &format!("body={body}")])?)
+    }
+
+    fn set_resolved(&self, thread_id: &str, resolved: bool) -> Result<()> {
+        let op = if resolved {
+            "resolveReviewThread"
+        } else {
+            "unresolveReviewThread"
+        };
+        let q = format!("query=mutation($id:ID!){{{op}(input:{{threadId:$id}}){{thread{{id}}}}}}");
+        let out = gh(&["api", "graphql", "-F", &format!("id={thread_id}"), "-f", &q])?;
+        if !out.status.success() {
+            bail!(explain(&String::from_utf8_lossy(&out.stderr)));
+        }
+        Ok(())
+    }
 }
 
 fn post_id(out: std::process::Output) -> Result<u64> {
@@ -285,6 +312,13 @@ impl GithubClient for FakeClient {
     }
     fn post_general(&self, _pr: u64, body: &str) -> Result<u64> {
         self.record(format!("general:{body}"))
+    }
+    fn reply(&self, _pr: u64, comment_id: u64, body: &str) -> Result<u64> {
+        self.record(format!("reply:{comment_id}:{body}"))
+    }
+    fn set_resolved(&self, thread_id: &str, resolved: bool) -> Result<()> {
+        self.record(format!("resolve:{thread_id}:{resolved}"))
+            .map(|_| ())
     }
 }
 
