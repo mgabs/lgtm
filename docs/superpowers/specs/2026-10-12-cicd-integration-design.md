@@ -12,6 +12,17 @@ So CI needs packaging and a reporting contract, not new analysis.
 ## Goal
 On every PR: fail on **new** findings only, show them where reviewers look, and never require a TTY.
 
+## Scope (clarified)
+lgtm is a **pipeline step**: scan the change, enforce a quality bar, exit non-zero on failure. Not a bot, not interactive.
+
+Pipeline contract:
+1. `lgtm check --base origin/<base> --baseline` is the gate. Exit 0 pass, 1 new findings at or above threshold, 2 tool/config error (distinct so CI can tell broken from failed).
+2. `lgtm scan --format sarif` is the optional full-repo audit (scheduled/nightly, not per PR).
+3. Rules gated: security (OWASP, secrets), complexity spikes, neutered tests, identifier typos. Threshold via `--strict` (Critical/High) or `.lgtm.toml`.
+4. Per-PR scope is the diff only; legacy findings live in the baseline.
+
+Gap to verify before building: `check` needs a `--base <ref>` and a documented distinct exit code 2; today it takes the working tree diff. Confirm in code.
+
 ## Approaches
 1. **Composite GitHub Action (recommended).** `action.yml` installs a release binary (checksum-verified), runs `lgtm ci --baseline --format sarif`, uploads SARIF (code scanning annotations), writes a job summary, sets the exit code. Smallest surface; reuses everything.
 2. **Docs-only recipes.** Workflow snippets for GitHub, GitLab, Azure DevOps. Zero maintenance, but every user rewires install and upload.
