@@ -152,6 +152,17 @@ pub enum Commands {
         #[arg(short, long)]
         repo: Option<PathBuf>,
     },
+    /// Launch the TUI, or share review state: `review export [target]` prints JSON, `review import <file>` merges it
+    Review {
+        /// Optional action; without one the TUI starts
+        #[arg(value_parser = ["export", "import"])]
+        action: Option<String>,
+        /// Export: review target (default `working`). Import: JSON file to merge
+        arg: Option<String>,
+        /// Target repository path
+        #[arg(short, long)]
+        repo: Option<PathBuf>,
+    },
     /// Audit test coverage across all modules or strictly on changed lines in diff
     Coverage {
         /// Minimum coverage percentage required to pass
@@ -176,8 +187,6 @@ pub enum Commands {
     Diff,
     /// Launch interactive diff reviewer TUI
     Status,
-    /// Launch interactive diff reviewer TUI
-    Review,
     /// Launch Model Context Protocol (MCP) server over stdio for AI coding agents
     Mcp {
         /// Target repository path

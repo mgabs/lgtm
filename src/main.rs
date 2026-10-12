@@ -264,6 +264,21 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some(Commands::Review {
+            action: Some(action),
+            arg,
+            repo,
+        }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            match headless::run_review(&repo_path, &action, arg.as_deref()) {
+                Ok(code) => ExitCode::from(code as u8),
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some(Commands::Audit { repo }) => {
             let target = repo.unwrap_or(cli.repo);
             let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
@@ -406,7 +421,7 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Diff) | Some(Commands::Status) | Some(Commands::Review) | None => {
+        Some(Commands::Diff) | Some(Commands::Status) | Some(Commands::Review { .. }) | None => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
             if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr, None, None) {
                 eprintln!("Error running lgtm: {}", e);

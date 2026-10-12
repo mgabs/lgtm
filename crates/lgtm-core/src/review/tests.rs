@@ -214,3 +214,66 @@ fn open_without_legacy_is_empty() {
     let s = ReviewStore::open(d.path(), "main").unwrap();
     assert!(s.load().unwrap().hunks.is_empty());
 }
+
+#[test]
+fn set_file_marks_and_unmarks_all_hunks() {
+    let f = file("a.rs", vec![hunk(1, &["x"]), hunk(9, &["y"])]);
+    let mut marks = vec![];
+    toggle_hunk(&mut marks, &f, 0, "t");
+    set_file(&mut marks, &f, true, "t");
+    assert!(file_reviewed(&marks, &f));
+    assert_eq!(marks.len(), 2);
+    set_file(&mut marks, &f, false, "t");
+    assert!(marks.is_empty());
+}
+
+#[test]
+fn merge_dedups_and_reports_conflicts() {
+    let mk = |res: bool| {
+        let mut a = anchor("a.rs", 1, "p");
+        a.is_resolved = res;
+        ReviewComment::new(a, &[])
+    };
+    let mark = HunkMark {
+        file: "a".into(),
+        content_hash: "h".into(),
+        last_line: 1,
+        reviewed_at: "t".into(),
+    };
+    let mut base = ReviewState {
+        hunks: vec![mark.clone()],
+        comments: vec![mk(false)],
+        ..Default::default()
+    };
+    let mut other_c = ReviewComment::new(anchor("b.rs", 2, "q"), &[]);
+    other_c.anchor.comment_text = "other".into();
+    let other = ReviewState {
+        hunks: vec![
+            mark.clone(),
+            HunkMark {
+                content_hash: "h2".into(),
+                ..mark
+            },
+        ],
+        comments: vec![mk(true), other_c],
+        ..Default::default()
+    };
+    let conflicts = merge(&mut base, other);
+    assert_eq!(
+        (base.hunks.len(), base.comments.len(), conflicts.len()),
+        (2, 2, 1)
+    );
+    assert!(conflicts[0].contains("kept local"));
+    let again = base.clone();
+    assert!(merge(&mut base, again).is_empty());
+}
+
+#[test]
+fn marks_only_leaves_legacy_comments() {
+    let d = tempfile::tempdir().unwrap();
+    CommentStore::new(d.path())
+        .add_comment(&anchor("a.rs", 1, "p"))
+        .unwrap();
+    ReviewStore::open_marks_only(d.path(), "main").unwrap();
+    assert!(d.path().join(".lgtm/comments.jsonl").is_file());
+}

@@ -131,6 +131,47 @@ pub fn toggle_hunk(marks: &mut Vec<HunkMark>, file: &FileDiff, idx: usize, now: 
     }
 }
 
+/// Mark or unmark every hunk of `file`.
+pub fn set_file(marks: &mut Vec<HunkMark>, file: &FileDiff, reviewed: bool, now: &str) {
+    let flags = reviewed_flags(marks, file);
+    for (i, on) in flags.into_iter().enumerate() {
+        if on != reviewed {
+            toggle_hunk(marks, file, i, now);
+        }
+    }
+}
+
+/// Merge `other` into `base`: hunk marks by (file, hash), comments by (file, code, text).
+/// Returns conflicts (same comment, different resolution); local values win.
+pub fn merge(base: &mut ReviewState, other: ReviewState) -> Vec<String> {
+    for m in other.hunks {
+        if !base
+            .hunks
+            .iter()
+            .any(|b| b.file == m.file && b.content_hash == m.content_hash)
+        {
+            base.hunks.push(m);
+        }
+    }
+    let mut conflicts = Vec::new();
+    for c in other.comments {
+        let same = |b: &ReviewComment| {
+            b.anchor.file_path == c.anchor.file_path
+                && b.anchor.target_code == c.anchor.target_code
+                && b.anchor.comment_text == c.anchor.comment_text
+        };
+        match base.comments.iter().find(|b| same(b)) {
+            None => base.comments.push(c),
+            Some(b) if b.status != c.status => conflicts.push(format!(
+                "{}:{} status differs (local {:?}, imported {:?}); kept local",
+                b.anchor.file_path, b.anchor.target_line_no, b.status, c.status
+            )),
+            Some(_) => {}
+        }
+    }
+    conflicts
+}
+
 impl ReviewComment {
     /// Anchors to the hunk holding the comment's line; hash stays empty if the line isn't in the diff.
     pub fn new(anchor: CommentAnchor, files: &[FileDiff]) -> Self {
@@ -286,10 +327,18 @@ impl ReviewStore {
             dir: repo.join(".lgtm").join("reviews"),
             target: target.to_string(),
         };
-        if !s.dir.exists() {
-            std::fs::create_dir_all(&s.dir)?;
-            migrate(repo, &s)?;
-        }
+        std::fs::create_dir_all(&s.dir)?;
+        migrate(repo, &s)?;
+        Ok(s)
+    }
+
+    /// Like `open` but leaves legacy `comments.jsonl` alone (until comments move to this store).
+    pub fn open_marks_only(repo: &Path, target: &str) -> Result<Self> {
+        let s = Self {
+            dir: repo.join(".lgtm").join("reviews"),
+            target: target.to_string(),
+        };
+        std::fs::create_dir_all(&s.dir)?;
         Ok(s)
     }
 

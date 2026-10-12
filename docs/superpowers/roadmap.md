@@ -31,7 +31,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
 | C1 ✅ | State model, migration, content-hash re-anchoring (core only, not yet wired to the UI) | M | R2 |
-| C2 | Hunk marks UI, orphan handling, export/import | M | C1 |
+| C2 ✅ | Hunk marks UI, export/import (orphan handling waits for comments to move to the new store) | M | C1 |
 | C3 | `GithubClient` trait + fake; read-only CI status and remote threads | M | C1 (soft: R4) |
 | C4 | Inline comment posting (resumable, dry-run) | M | C3 |
 | C5 | Thread reply/resolve + docs | S | C4 |

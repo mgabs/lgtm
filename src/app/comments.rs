@@ -125,13 +125,76 @@ impl App {
         }
     }
 
-    pub fn toggle_review_current_file(&mut self) {
-        if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
-            file.is_reviewed = !file.is_reviewed;
-            if file.is_reviewed {
-                self.next_file();
-            }
+    pub fn review_target(&self) -> String {
+        match (self.pr.current_number, self.active_revision.as_deref()) {
+            (Some(n), _) => format!("pr-{n}"),
+            (None, Some(rev)) => rev.to_string(),
+            _ => "working".to_string(),
         }
+    }
+
+    fn marks_store(&self) -> Option<lgtm_core::review::ReviewStore> {
+        lgtm_core::review::ReviewStore::open_marks_only(
+            &self.git_engine.repo_path,
+            &self.review_target(),
+        )
+        .ok()
+    }
+
+    /// Reload marks for the current target and refresh each file's reviewed flag.
+    pub fn load_marks(&mut self) {
+        self.marks = self
+            .marks_store()
+            .and_then(|s| s.load().ok())
+            .map(|st| st.hunks)
+            .unwrap_or_default();
+        for f in &mut self.snapshot.files {
+            f.is_reviewed = lgtm_core::review::file_reviewed(&self.marks, f);
+        }
+    }
+
+    fn save_marks(&mut self) {
+        let Some(store) = self.marks_store() else {
+            return;
+        };
+        let mut st = store.load().unwrap_or_default();
+        st.hunks = self.marks.clone();
+        if store.save(&st).is_err() {
+            self.status_message = Some("Failed to save review marks".to_string());
+        }
+    }
+
+    pub fn toggle_review_current_file(&mut self) {
+        use lgtm_core::review::{file_reviewed, set_file};
+        let now = crate::turn::chrono_iso_now();
+        let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) else {
+            return;
+        };
+        if file.hunks.is_empty() {
+            file.is_reviewed = !file.is_reviewed;
+        } else {
+            let on = !file_reviewed(&self.marks, file);
+            set_file(&mut self.marks, file, on, &now);
+            file.is_reviewed = on;
+            self.save_marks();
+        }
+        if self.snapshot.files[self.selected_file_idx].is_reviewed {
+            self.next_file();
+        }
+    }
+
+    pub fn toggle_review_current_hunk(&mut self) {
+        let now = crate::turn::chrono_iso_now();
+        let Some((_, _, h_idx)) = self.current_hunk_info() else {
+            return;
+        };
+        let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) else {
+            return;
+        };
+        let on = lgtm_core::review::toggle_hunk(&mut self.marks, file, h_idx, &now);
+        file.is_reviewed = lgtm_core::review::file_reviewed(&self.marks, file);
+        self.status_message = Some(format!("Hunk {}", if on { "reviewed" } else { "unmarked" }));
+        self.save_marks();
     }
 
     pub fn save_current_line_comment(&mut self) {

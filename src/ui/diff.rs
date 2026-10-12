@@ -94,6 +94,16 @@ pub(crate) fn render_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
                 ),
                 Span::raw(file.display_name()),
             ];
+            let done = lgtm_core::review::reviewed_flags(&app.marks, file)
+                .iter()
+                .filter(|&&b| b)
+                .count();
+            if done > 0 && !file.is_reviewed {
+                spans.push(Span::styled(
+                    format!(" ✓{}/{}", done, file.hunks.len()),
+                    Style::default().fg(Color::Green),
+                ));
+            }
 
             if !alert_tag.is_empty() {
                 spans.push(Span::styled(

@@ -55,6 +55,8 @@ pub struct App {
     pub snapshot: DiffSnapshot,
     pub alerts: Vec<GuardAlert>,
     pub comments: Vec<CommentAnchor>,
+    /// Reviewed hunks for the current review target, keyed by content hash.
+    pub marks: Vec<lgtm_core::review::HunkMark>,
 
     // Full Repo Audit state
     pub audit: AuditState,
@@ -218,6 +220,7 @@ impl App {
             turn_manager,
             snapshot,
             alerts,
+            marks: Vec::new(),
             config,
             hidden: std::cell::RefCell::new(hidden),
             comments,
@@ -252,6 +255,7 @@ impl App {
             watcher_rx,
         };
 
+        app.load_marks();
         app.update_file_picker_filter();
         app
     }
@@ -298,6 +302,7 @@ impl App {
         self.alerts = self.scan(&new_snapshot.files);
         self.snapshot = new_snapshot;
         self.comments = self.comment_store.load_comments();
+        self.load_marks();
         if self.selected_file_idx >= self.snapshot.files.len() && !self.snapshot.files.is_empty() {
             self.selected_file_idx = self.snapshot.files.len() - 1;
         }
