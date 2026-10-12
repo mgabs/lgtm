@@ -21,7 +21,7 @@ Pipeline contract:
 3. Rules gated: security (OWASP, secrets), complexity spikes, neutered tests, identifier typos. Threshold via `--strict` (Critical/High) or `.lgtm.toml`.
 4. Per-PR scope is the diff only; legacy findings live in the baseline.
 
-Gap to verify before building: `check` needs a `--base <ref>` and a documented distinct exit code 2; today it takes the working tree diff. Confirm in code.
+Confirmed gaps (checked `src/cli.rs`): `check` and `ci` have no `--base <ref>` (they audit the working tree), and exit codes are not documented (error vs fail). Both are small CLI additions and are the first implementation tasks.
 
 ## Approaches
 1. **Composite GitHub Action (recommended).** `action.yml` installs a release binary (checksum-verified), runs `lgtm ci --baseline --format sarif`, uploads SARIF (code scanning annotations), writes a job summary, sets the exit code. Smallest surface; reuses everything.
