@@ -224,7 +224,18 @@ Once you have staged your verified hunks (`s` / `S`), press **`C`** (or type **`
 - **Remediation**: Extract sub-functions or refactor into early return guard clauses.
 
 ### AST-based web rules
-`lgtm-ast` parses JS/TS/JSX/TSX with tree-sitter and guards query syntax nodes instead of text. Only matches on added lines are reported. Each hunk's new-side lines are parsed as a fragment, so rules needing whole-file context are not possible yet. Current rule: `web/dangerous-html` (High) flags a newly added `dangerouslySetInnerHTML`.
+`lgtm-ast` parses JS/TS/JSX/TSX with tree-sitter and guards query syntax nodes instead of text. Only matches on added lines are reported. Each hunk's new-side lines are parsed as a fragment, so rules needing whole-file context are not possible yet. Rules (added lines only):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `web/dangerous-html` | High | `dangerouslySetInnerHTML` |
+| `web/inner-html` | High | `innerHTML` / `outerHTML` assignment |
+| `web/eval` | Critical | `eval(...)` |
+| `next/public-secret` | Critical | `process.env.NEXT_PUBLIC_*` with SECRET/TOKEN/PASSWORD/PRIVATE/API_KEY |
+| `web/hook-conditional` | High | `useX()` inside if/loop/ternary (within one function) |
+| `web/ts-escape` | Warn | `@ts-ignore` / `@ts-nocheck` |
+
+Not yet: `"use client"` boundary leaks and unvalidated server actions (need whole-file context).
 
 ### Identifier Hallucination & Typo Guard
 - **What it checks**: Extracts project-wide symbol identifiers (variable names, functions, structs, methods).

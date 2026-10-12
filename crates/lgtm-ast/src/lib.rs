@@ -27,6 +27,20 @@ fn grammar(lang: Lang) -> Language {
 /// 0-based rows where `query` captures `@hit`. Broken code still parses
 /// (tree-sitter recovers), so partial agent output is fine.
 pub fn hits(lang: Lang, src: &str, query: &str) -> Result<Vec<usize>> {
+    hits_within(lang, src, query, &[])
+}
+
+const FUNCTION_KINDS: [&str; 5] = [
+    "function_declaration",
+    "function_expression",
+    "arrow_function",
+    "method_definition",
+    "generator_function_declaration",
+];
+
+/// Like `hits`, but when `inside` is non-empty a hit only counts if an
+/// ancestor of that kind exists before the enclosing function boundary.
+pub fn hits_within(lang: Lang, src: &str, query: &str, inside: &[&str]) -> Result<Vec<usize>> {
     let language = grammar(lang);
     let mut parser = Parser::new();
     parser.set_language(&language)?;
@@ -42,12 +56,28 @@ pub fn hits(lang: Lang, src: &str, query: &str) -> Result<Vec<usize>> {
     let mut it = cursor.matches(&q, tree.root_node(), src.as_bytes());
     while let Some(m) = it.next() {
         for c in m.captures.iter().filter(|c| c.index == idx) {
-            rows.push(c.node.start_position().row);
+            if inside.is_empty() || within(c.node, inside) {
+                rows.push(c.node.start_position().row);
+            }
         }
     }
     rows.sort_unstable();
     rows.dedup();
     Ok(rows)
+}
+
+fn within(node: tree_sitter::Node, kinds: &[&str]) -> bool {
+    let mut cur = node.parent();
+    while let Some(n) = cur {
+        if kinds.contains(&n.kind()) {
+            return true;
+        }
+        if FUNCTION_KINDS.contains(&n.kind()) {
+            return false;
+        }
+        cur = n.parent();
+    }
+    false
 }
 
 #[cfg(test)]
@@ -72,6 +102,17 @@ mod tests {
         assert_eq!(hits(Lang::Tsx, src, Q).unwrap(), vec![1]);
         assert!(hits(Lang::Tsx, "x", "(nope) @hit").is_err());
         assert!(hits(Lang::Tsx, "x", "(identifier) @other").is_err());
+    }
+
+    #[test]
+    fn within_stops_at_function_boundary() {
+        let q = r#"(call_expression function: (identifier) @hit (#match? @hit "^use[A-Z]"))"#;
+        let src = "function A() {\n  if (x) {\n    useA();\n  }\n  useB();\n  if (y) {\n    const f = () => useC();\n  }\n}\n";
+        assert_eq!(
+            hits_within(Lang::Tsx, src, q, &["if_statement"]).unwrap(),
+            vec![2]
+        );
+        assert_eq!(hits(Lang::Tsx, src, q).unwrap(), vec![2, 4, 6]);
     }
 
     #[test]

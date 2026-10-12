@@ -1,8 +1,73 @@
 use crate::guard::{Guard, GuardAlert, Severity};
 use crate::model::{FileDiff, LineType};
 
-const DANGEROUS_HTML: &str =
-    r#"(jsx_attribute (property_identifier) @n (#eq? @n "dangerouslySetInnerHTML")) @hit"#;
+struct Rule {
+    id: &'static str,
+    severity: Severity,
+    title: &'static str,
+    description: &'static str,
+    query: &'static str,
+    inside: &'static [&'static str],
+}
+
+const RULES: &[Rule] = &[
+    Rule {
+        id: "web/dangerous-html",
+        severity: Severity::High,
+        title: "dangerouslySetInnerHTML",
+        description: "Raw HTML injected into the DOM; sanitize or render as text",
+        query: r#"(jsx_attribute (property_identifier) @n (#eq? @n "dangerouslySetInnerHTML")) @hit"#,
+        inside: &[],
+    },
+    Rule {
+        id: "web/inner-html",
+        severity: Severity::High,
+        title: "innerHTML / outerHTML assignment",
+        description: "Assigning HTML strings to the DOM enables XSS; use textContent or sanitize",
+        query: r#"(assignment_expression left: (member_expression property: (property_identifier) @hit (#match? @hit "^(inner|outer)HTML$")))"#,
+        inside: &[],
+    },
+    Rule {
+        id: "web/eval",
+        severity: Severity::Critical,
+        title: "eval()",
+        description: "Dynamic code execution on possibly untrusted input",
+        query: r#"(call_expression function: (identifier) @hit (#eq? @hit "eval"))"#,
+        inside: &[],
+    },
+    Rule {
+        id: "next/public-secret",
+        severity: Severity::Critical,
+        title: "Secret exposed via NEXT_PUBLIC_ env var",
+        description: "NEXT_PUBLIC_ variables are inlined into the client bundle",
+        query: r#"(member_expression property: (property_identifier) @hit (#match? @hit "^NEXT_PUBLIC_.*(SECRET|TOKEN|PASSWORD|PRIVATE|API_?KEY)"))"#,
+        inside: &[],
+    },
+    Rule {
+        id: "web/hook-conditional",
+        severity: Severity::High,
+        title: "React hook called conditionally",
+        description:
+            "Hooks must run in the same order every render; move it above the condition or loop",
+        query: r#"(call_expression function: (identifier) @hit (#match? @hit "^use[A-Z]"))"#,
+        inside: &[
+            "if_statement",
+            "for_statement",
+            "for_in_statement",
+            "while_statement",
+            "do_statement",
+            "ternary_expression",
+        ],
+    },
+    Rule {
+        id: "web/ts-escape",
+        severity: Severity::Warn,
+        title: "TypeScript check bypassed",
+        description: "@ts-ignore / @ts-nocheck hides type errors instead of fixing them",
+        query: r#"((comment) @hit (#match? @hit "@ts-(ignore|nocheck)"))"#,
+        inside: &[],
+    },
+];
 
 pub struct WebGuard;
 
@@ -29,23 +94,25 @@ impl Guard for WebGuard {
                 .map(|l| l.content.as_str())
                 .collect::<Vec<_>>()
                 .join("\n");
-            let Ok(rows) = lgtm_ast::hits(lang, &src, DANGEROUS_HTML) else {
-                continue;
-            };
-            for row in rows {
-                let Some(l) = side.get(row).filter(|l| l.line_type == LineType::Addition) else {
+            for r in RULES {
+                let Ok(rows) = lgtm_ast::hits_within(lang, &src, r.query, r.inside) else {
                     continue;
                 };
-                alerts.push(GuardAlert {
-                    rule_id: "web/dangerous-html".into(),
-                    fingerprint: String::new(),
-                    severity: Severity::High,
-                    title: "dangerouslySetInnerHTML".into(),
-                    description: "Raw HTML injected into the DOM; sanitize or render as text"
-                        .into(),
-                    line_no: l.new_line_num,
-                    file_path: path.clone(),
-                });
+                for row in rows {
+                    let Some(l) = side.get(row).filter(|l| l.line_type == LineType::Addition)
+                    else {
+                        continue;
+                    };
+                    alerts.push(GuardAlert {
+                        rule_id: r.id.into(),
+                        fingerprint: String::new(),
+                        severity: r.severity,
+                        title: r.title.into(),
+                        description: r.description.into(),
+                        line_no: l.new_line_num,
+                        file_path: path.clone(),
+                    });
+                }
             }
         }
         alerts
@@ -85,6 +152,51 @@ mod tests {
             }],
             is_folded: false,
             is_reviewed: false,
+        }
+    }
+
+    fn ids(path: &str, code: &str) -> Vec<String> {
+        let lines: Vec<_> = code.lines().map(|c| (LineType::Addition, c)).collect();
+        WebGuard
+            .scan_file(&file(path, &lines))
+            .into_iter()
+            .map(|a| a.rule_id)
+            .collect()
+    }
+
+    #[test]
+    fn rules_fire_on_bad_code_and_not_on_good() {
+        let cases = [
+            (
+                "a.tsx",
+                "<div dangerouslySetInnerHTML={{ __html: h }} />",
+                "web/dangerous-html",
+            ),
+            ("a.ts", "el.innerHTML = html;", "web/inner-html"),
+            ("a.ts", "eval(code);", "web/eval"),
+            (
+                "a.ts",
+                "const k = process.env.NEXT_PUBLIC_STRIPE_SECRET;",
+                "next/public-secret",
+            ),
+            (
+                "a.tsx",
+                "function A() {\n  if (x) {\n    useState(0);\n  }\n}",
+                "web/hook-conditional",
+            ),
+            ("a.ts", "// @ts-ignore\nfoo();", "web/ts-escape"),
+        ];
+        for (path, code, id) in cases {
+            assert_eq!(ids(path, code), [id], "{id}");
+        }
+        for (path, code) in [
+            ("a.tsx", "<p>{text}</p>"),
+            ("a.ts", "el.textContent = t;"),
+            ("a.ts", "const u = process.env.NEXT_PUBLIC_API_URL;"),
+            ("a.tsx", "function A() {\n  const [a] = useState(0);\n}"),
+            ("a.ts", "// regular comment"),
+        ] {
+            assert!(ids(path, code).is_empty(), "{code}");
         }
     }
 

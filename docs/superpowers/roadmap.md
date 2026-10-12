@@ -58,7 +58,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
 | E1 ✅ | `lgtm-ast` crate (tree-sitter), TS/TSX, diff mapping, one rule end to end | L | B |
-| E2 | `web/` + `next/` guard pack | M | E1 |
+| E2 ✅ | `web/` + `next/` guard pack (6 rules; `"use client"` leak and server-action validation deferred, need whole-file parse) | M | E1 |
 | E3 | Swift grammar + `swift/` pack | M | E1 |
 | E4 | Complexity, test-neutering and symbol guards on AST | M | E1 |
 | E5 | TUI folding on AST | S | E1 |
