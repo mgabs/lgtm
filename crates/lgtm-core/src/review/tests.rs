@@ -48,6 +48,7 @@ fn anchor(path: &str, ln: u32, code: &str) -> CommentAnchor {
         is_resolved: false,
         pr_number: None,
         remote_id: None,
+        track: Default::default(),
     }
 }
 

@@ -39,7 +39,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 ### A — Agent loop, MCP, sinks
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
-| A1 | Directive outcome tracking + per-turn summary | M | C1 |
+| A1 ✅ | Directive outcome tracking + per-turn summary | M | C1 |
 | A2 | TUI outcomes, filters, `:directives recheck`, confirm-resolve | S | A1 |
 | A3 | New MCP tools incl. claims | M | A1, R4 |
 | A4 | MCP resources, subscriptions, notifications | L | A3 |

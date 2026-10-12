@@ -70,6 +70,16 @@ pub fn hunk_hash(h: &DiffHunk) -> String {
     format!("{:016x}", crate::guard::fnv1a(&body.join("\n")))
 }
 
+/// Hash of the hunk holding new-side line `line` of `path`, if that line is in the diff.
+pub fn hunk_hash_at(files: &[FileDiff], path: &str, line: u32) -> Option<String> {
+    files
+        .iter()
+        .filter(|f| f.display_name() == path)
+        .flat_map(|f| &f.hunks)
+        .find(|h| h.lines.iter().any(|l| l.new_line_num == Some(line)))
+        .map(hunk_hash)
+}
+
 /// Per hunk of `file`: is there a mark with the same hash? Duplicate hashes pair with the
 /// nearest unused mark by line, so identical hunks stay distinct.
 pub fn reviewed_flags(marks: &[HunkMark], file: &FileDiff) -> Vec<bool> {

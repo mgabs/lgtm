@@ -676,6 +676,7 @@ mod tests {
                     is_resolved: false,
                     pr_number: None,
                     remote_id: None,
+                    track: Default::default(),
                 });
         c.pr_number = Some(4);
         c.remote_id = None;

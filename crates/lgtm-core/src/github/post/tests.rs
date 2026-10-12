@@ -36,6 +36,7 @@ fn c(path: &str, line: u32, pr: Option<u64>) -> CommentAnchor {
         is_resolved: false,
         pr_number: pr,
         remote_id: None,
+        track: Default::default(),
     }
 }
 

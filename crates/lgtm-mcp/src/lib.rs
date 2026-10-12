@@ -254,6 +254,7 @@ impl McpServer {
                     is_resolved: false,
                     pr_number: None,
                     remote_id: None,
+                    track: Default::default(),
                 };
 
                 let comment_store =

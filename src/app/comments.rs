@@ -363,7 +363,7 @@ impl App {
 
             let turn_state = self.turn_manager.load_state();
             let anchor = CommentAnchor {
-                file_path: path_str,
+                file_path: path_str.clone(),
                 target_line_no,
                 target_code,
                 context_before: Vec::new(),
@@ -374,6 +374,14 @@ impl App {
                 is_resolved: false,
                 pr_number: self.pr.current_number,
                 remote_id: None,
+                track: lgtm_core::outcome::Tracking {
+                    hunk_hash: lgtm_core::review::hunk_hash_at(
+                        &self.snapshot.files,
+                        &path_str,
+                        target_line_no,
+                    ),
+                    ..Default::default()
+                },
             };
 
             let _ = self.comment_store.add_comment(&anchor);
@@ -491,6 +499,7 @@ mod tests {
             is_resolved: false,
             pr_number: None,
             remote_id: None,
+            track: Default::default(),
         };
         app.comments.push(anchor);
 

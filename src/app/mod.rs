@@ -307,6 +307,10 @@ impl App {
         self.alerts = self.scan(&new_snapshot.files);
         self.snapshot = new_snapshot;
         self.comments = self.comment_store.load_comments();
+        let turn = self.turn_manager.load_state().current_turn;
+        if lgtm_core::outcome::recheck(&mut self.comments, &self.snapshot.files, turn) {
+            let _ = self.comment_store.save_comments(&self.comments);
+        }
         self.load_marks();
         if self.selected_file_idx >= self.snapshot.files.len() && !self.snapshot.files.is_empty() {
             self.selected_file_idx = self.snapshot.files.len() - 1;

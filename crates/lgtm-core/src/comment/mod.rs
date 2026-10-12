@@ -21,6 +21,9 @@ pub struct CommentAnchor {
     /// GitHub comment id once posted; posted comments are never posted again.
     #[serde(default)]
     pub remote_id: Option<u64>,
+    /// Baseline and observed outcome used to tell whether the agent acted on a directive.
+    #[serde(default)]
+    pub track: crate::outcome::Tracking,
 }
 
 impl CommentAnchor {
@@ -185,6 +188,7 @@ mod tests {
             is_resolved: false,
             pr_number: None,
             remote_id: None,
+            track: Default::default(),
         };
 
         store.add_comment(&c1).unwrap();
@@ -223,6 +227,7 @@ mod tests {
             is_resolved: false,
             pr_number: Some(99),
             remote_id: None,
+            track: Default::default(),
         };
 
         store.save_comments(&[c1.clone(), c2.clone()]).unwrap();
