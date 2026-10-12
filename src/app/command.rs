@@ -67,7 +67,7 @@ impl App {
                     match self.git_engine.compute_revision_diff(rev_spec) {
                         Ok(snap) => {
                             self.active_revision = Some(rev_spec.to_string());
-                            self.current_pr_number = None;
+                            self.pr.current_number = None;
                             self.snapshot = snap;
                             self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
                             self.selected_file_idx = 0;
@@ -97,7 +97,7 @@ impl App {
                     if let Ok(pr_num) = arg.parse::<u64>() {
                         match crate::pr::PrEngine::fetch_pr_diff(pr_num) {
                             Ok(snap) => {
-                                self.current_pr_number = Some(pr_num);
+                                self.pr.current_number = Some(pr_num);
                                 self.snapshot = snap;
                                 self.alerts =
                                     SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
@@ -173,9 +173,9 @@ impl App {
             "next" | "n" => {
                 if self.active_view == ActiveView::AuditReport {
                     let total = self.filtered_audit_alerts().len();
-                    if total > 0 && self.audit_selected_idx + 1 < total {
-                        self.audit_selected_idx += 1;
-                        self.audit_inspector_scroll = 0;
+                    if total > 0 && self.audit.selected_idx + 1 < total {
+                        self.audit.selected_idx += 1;
+                        self.audit.inspector_scroll = 0;
                         self.sync_audit_selected_file();
                     }
                 } else {
@@ -184,9 +184,9 @@ impl App {
             }
             "prev" | "p" => {
                 if self.active_view == ActiveView::AuditReport {
-                    if self.audit_selected_idx > 0 {
-                        self.audit_selected_idx -= 1;
-                        self.audit_inspector_scroll = 0;
+                    if self.audit.selected_idx > 0 {
+                        self.audit.selected_idx -= 1;
+                        self.audit.inspector_scroll = 0;
                         self.sync_audit_selected_file();
                     }
                 } else {
@@ -195,20 +195,20 @@ impl App {
             }
             "filter" | "sev" => match args.first().copied().unwrap_or("") {
                 "1" | "crit" | "critical" => {
-                    self.audit_filter_severity = Some(crate::guard::Severity::Critical);
-                    self.audit_selected_idx = 0;
+                    self.audit.filter_severity = Some(crate::guard::Severity::Critical);
+                    self.audit.selected_idx = 0;
                     self.sync_audit_selected_file();
                     self.status_message = Some("Filter: 🔴 Critical issues only".into());
                 }
                 "2" | "high" => {
-                    self.audit_filter_severity = Some(crate::guard::Severity::High);
-                    self.audit_selected_idx = 0;
+                    self.audit.filter_severity = Some(crate::guard::Severity::High);
+                    self.audit.selected_idx = 0;
                     self.sync_audit_selected_file();
                     self.status_message = Some("Filter: 🟠 High & 🔴 Critical issues".into());
                 }
                 "3" | "all" => {
-                    self.audit_filter_severity = None;
-                    self.audit_selected_idx = 0;
+                    self.audit.filter_severity = None;
+                    self.audit.selected_idx = 0;
                     self.sync_audit_selected_file();
                     self.status_message = Some("Filter: All issues".into());
                 }
@@ -218,12 +218,12 @@ impl App {
             },
             "file" => {
                 if let Some(target_file) = args.first() {
-                    self.audit_file_filter = Some(target_file.to_string());
-                    self.audit_selected_idx = 0;
+                    self.audit.file_filter = Some(target_file.to_string());
+                    self.audit.selected_idx = 0;
                     self.status_message =
                         Some(format!("Filtered audit issues to: {}", target_file));
                 } else {
-                    self.audit_file_filter = None;
+                    self.audit.file_filter = None;
                     self.status_message = Some("Cleared file filter: showing all issues".into());
                 }
             }
@@ -260,7 +260,7 @@ impl App {
                             filtered.len()
                         ));
                     }
-                } else if let Some(alert) = filtered.get(self.audit_selected_idx) {
+                } else if let Some(alert) = filtered.get(self.audit.selected_idx) {
                     let loc = match alert.line_no {
                         Some(l) => format!("{}:{}", alert.file_path, l),
                         None => alert.file_path.clone(),
@@ -301,7 +301,7 @@ impl App {
                 self.active_view = ActiveView::Diff;
             }
             "reload" | "e" | "edit" => {
-                if let Some(pr_num) = self.current_pr_number {
+                if let Some(pr_num) = self.pr.current_number {
                     if let Ok(snap) = crate::pr::PrEngine::fetch_pr_diff(pr_num) {
                         self.snapshot = snap;
                         self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
@@ -555,7 +555,7 @@ mod tests {
         let mut app = create_test_app();
         let tmp = std::env::temp_dir().join(format!("lgtm_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp);
-        app.audit_root_dir = tmp.clone();
+        app.audit.root_dir = tmp.clone();
 
         // :scan scans changes and switches to AuditReport
         app.execute_command("scan");
@@ -572,17 +572,17 @@ mod tests {
         // :filter 1 filters to Critical
         app.execute_command("filter 1");
         assert_eq!(
-            app.audit_filter_severity,
+            app.audit.filter_severity,
             Some(crate::guard::Severity::Critical)
         );
 
         // :file test.rs filters to target file
         app.execute_command("file test.rs");
-        assert_eq!(app.audit_file_filter.as_deref(), Some("test.rs"));
+        assert_eq!(app.audit.file_filter.as_deref(), Some("test.rs"));
 
         // :file clears filter
         app.execute_command("file");
-        assert_eq!(app.audit_file_filter, None);
+        assert_eq!(app.audit.file_filter, None);
 
         // Export report
         let report_file = tmp.join("custom-report.md");

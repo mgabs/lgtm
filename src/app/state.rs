@@ -137,6 +137,52 @@ impl CommandLine {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AuditState {
+    pub alerts: Vec<crate::guard::GuardAlert>,
+    pub files: Vec<crate::model::FileDiff>,
+    pub selected_idx: usize,
+    pub filter_severity: Option<crate::guard::Severity>,
+    pub root_dir: std::path::PathBuf,
+    pub focus: super::AuditPaneFocus,
+    pub file_filter: Option<String>,
+    pub inspector_scroll: usize,
+    pub maximized_inspector: bool,
+}
+
+impl AuditState {
+    pub fn new(root_dir: std::path::PathBuf) -> Self {
+        Self {
+            alerts: Vec::new(),
+            files: Vec::new(),
+            selected_idx: 0,
+            filter_severity: None,
+            root_dir,
+            focus: super::AuditPaneFocus::Issues,
+            file_filter: None,
+            inspector_scroll: 0,
+            maximized_inspector: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PrState {
+    pub current_number: Option<u64>,
+    pub list: Vec<crate::pr::PullRequestSummary>,
+    pub selected_idx: usize,
+}
+
+impl PrState {
+    pub fn new(current_number: Option<u64>) -> Self {
+        Self {
+            current_number,
+            list: Vec::new(),
+            selected_idx: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +207,23 @@ mod tests {
         p.selected_idx = 2;
         p.refilter(&names);
         assert_eq!(p.filtered_indices, vec![2]);
+        assert_eq!(p.selected_idx, 0);
+    }
+
+    #[test]
+    fn audit_state_new_starts_on_issues_pane() {
+        let a = AuditState::new(std::path::PathBuf::from("/repo"));
+        assert!(a.alerts.is_empty() && a.files.is_empty());
+        assert_eq!(a.selected_idx, 0);
+        assert_eq!(a.focus, super::super::AuditPaneFocus::Issues);
+        assert!(a.filter_severity.is_none() && a.file_filter.is_none() && !a.maximized_inspector);
+    }
+
+    #[test]
+    fn pr_state_new_keeps_explicit_number() {
+        let p = PrState::new(Some(42));
+        assert_eq!(p.current_number, Some(42));
+        assert!(p.list.is_empty());
         assert_eq!(p.selected_idx, 0);
     }
 }

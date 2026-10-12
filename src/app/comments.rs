@@ -164,12 +164,12 @@ impl App {
                 replies: Vec::new(),
                 created_at_turn: turn_state.current_turn,
                 is_resolved: false,
-                pr_number: self.current_pr_number,
+                pr_number: self.pr.current_number,
             };
 
             let _ = self.comment_store.add_comment(&anchor);
             self.comments.push(anchor);
-            if let Some(pr_num) = self.current_pr_number {
+            if let Some(pr_num) = self.pr.current_number {
                 self.status_message = Some(format!("Comment added to PR #{} review", pr_num));
             } else {
                 self.status_message = Some("Comment added to .lgtm/comments.jsonl".to_string());
@@ -217,7 +217,7 @@ mod tests {
             is_reviewed: false,
         };
         app.snapshot = DiffSnapshot::new(vec![file]);
-        app.current_pr_number = Some(99);
+        app.pr.current_number = Some(99);
 
         app.cursor_line_idx = 0;
         app.comment_input = "Do not hardcode secret".into();

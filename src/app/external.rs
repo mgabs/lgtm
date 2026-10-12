@@ -2,7 +2,7 @@ use super::*;
 
 impl App {
     pub fn export_and_send_batch_review(&mut self) {
-        if let Some(pr_num) = self.current_pr_number {
+        if let Some(pr_num) = self.pr.current_number {
             let (prompt, file_path) =
                 CommentStore::compile_pr_review_prompt(&self.comments, pr_num);
             let full_path = self.git_engine.repo_path.join(&file_path);

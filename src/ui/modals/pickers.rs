@@ -125,7 +125,7 @@ pub(crate) fn render_pr_picker(frame: &mut Frame, area: Rect, app: &App) {
     let popup_area = centered_rect(75, 65, area);
     frame.render_widget(Clear, popup_area);
 
-    if app.pr_list.is_empty() {
+    if app.pr.list.is_empty() {
         let text = vec![
             Line::from(""),
             Line::from(Span::styled(
@@ -147,11 +147,12 @@ pub(crate) fn render_pr_picker(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     let items: Vec<ListItem> = app
-        .pr_list
+        .pr
+        .list
         .iter()
         .enumerate()
         .map(|(idx, pr)| {
-            let is_selected = idx == app.pr_selected_idx;
+            let is_selected = idx == app.pr.selected_idx;
             let line = Line::from(vec![
                 Span::styled(
                     format!("#{} ", pr.number),
@@ -192,7 +193,7 @@ pub(crate) fn render_pr_picker(frame: &mut Frame, area: Rect, app: &App) {
             .borders(Borders::ALL)
             .title(format!(
                 " Select Pull Request [{}] (Enter: Load Diff | Esc: Close) ",
-                app.pr_list.len()
+                app.pr.list.len()
             ))
             .border_style(Style::default().fg(Color::Blue)),
     );

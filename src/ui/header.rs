@@ -3,21 +3,24 @@ use super::*;
 pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
     if app.active_view == ActiveView::AuditReport {
         let crit = app
-            .audit_alerts
+            .audit
+            .alerts
             .iter()
             .filter(|a| a.severity == crate::guard::Severity::Critical)
             .count();
         let high = app
-            .audit_alerts
+            .audit
+            .alerts
             .iter()
             .filter(|a| a.severity == crate::guard::Severity::High)
             .count();
         let warn = app
-            .audit_alerts
+            .audit
+            .alerts
             .iter()
             .filter(|a| a.severity == crate::guard::Severity::Warn)
             .count();
-        let filter_label = match app.audit_filter_severity {
+        let filter_label = match app.audit.filter_severity {
             Some(crate::guard::Severity::Critical) => "🔴 Crit [1]",
             Some(crate::guard::Severity::High) => "🟠 High+ [2]",
             _ => "All [3]",
@@ -32,7 +35,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             ),
             Span::raw(" | "),
             Span::styled(
-                format!("Total: {} issue(s) ", app.audit_alerts.len()),
+                format!("Total: {} issue(s) ", app.audit.alerts.len()),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::styled(
@@ -50,7 +53,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             Span::raw(format!(
                 "| Filter: {} | Scanned: {} files | ",
                 filter_label,
-                app.audit_files.len()
+                app.audit.files.len()
             )),
             Span::styled(
                 "[w] Export lgtm-report.md",
@@ -63,7 +66,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    if !app.git_engine.is_git_repo() && app.current_pr_number.is_none() {
+    if !app.git_engine.is_git_repo() && app.pr.current_number.is_none() {
         let header_line = Line::from(vec![
             Span::styled(
                 " lgtm ",
@@ -105,7 +108,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             .add_modifier(Modifier::BOLD),
     )];
 
-    if let Some(pr_num) = app.current_pr_number {
+    if let Some(pr_num) = app.pr.current_number {
         header_spans.push(Span::styled(
             format!(" PR #{} | ", pr_num),
             Style::default()

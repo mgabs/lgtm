@@ -56,15 +56,7 @@ pub struct App {
     pub comments: Vec<CommentAnchor>,
 
     // Full Repo Audit state
-    pub audit_alerts: Vec<GuardAlert>,
-    pub audit_files: Vec<FileDiff>,
-    pub audit_selected_idx: usize,
-    pub audit_filter_severity: Option<crate::guard::Severity>,
-    pub audit_root_dir: PathBuf,
-    pub audit_focus: AuditPaneFocus,
-    pub audit_file_filter: Option<String>,
-    pub audit_inspector_scroll: usize,
-    pub audit_maximized_inspector: bool,
+    pub audit: AuditState,
 
     pub selected_file_idx: usize,
     pub diff_scroll_offset: usize,
@@ -77,9 +69,7 @@ pub struct App {
     pub should_quit: bool,
 
     // PR Forge state
-    pub current_pr_number: Option<u64>,
-    pub pr_list: Vec<crate::pr::PullRequestSummary>,
-    pub pr_selected_idx: usize,
+    pub pr: PrState,
 
     // File picker state
     pub file_picker: FilePicker,
@@ -187,15 +177,7 @@ impl App {
             snapshot,
             alerts,
             comments,
-            audit_alerts: Vec::new(),
-            audit_files: Vec::new(),
-            audit_selected_idx: 0,
-            audit_filter_severity: None,
-            audit_root_dir: repo_path.clone(),
-            audit_focus: AuditPaneFocus::Issues,
-            audit_file_filter: None,
-            audit_inspector_scroll: 0,
-            audit_maximized_inspector: false,
+            audit: AuditState::new(repo_path.clone()),
             selected_file_idx: 0,
             diff_scroll_offset: 0,
             cursor_line_idx: 0,
@@ -205,10 +187,8 @@ impl App {
             agent_pane,
             status_message: initial_status,
             should_quit: false,
-            current_pr_number: explicit_pr,
+            pr: PrState::new(explicit_pr),
             active_revision: explicit_rev,
-            pr_list: Vec::new(),
-            pr_selected_idx: 0,
             file_picker: FilePicker::default(),
             pane_picker: PanePicker::default(),
             comment_input: String::new(),
@@ -251,7 +231,7 @@ impl App {
     }
 
     pub fn reload_diff(&mut self) {
-        if let Some(pr_num) = self.current_pr_number {
+        if let Some(pr_num) = self.pr.current_number {
             if let Ok(new_snapshot) = crate::pr::PrEngine::fetch_pr_diff(pr_num) {
                 self.alerts = SecurityAndTestGuard::scan_snapshot(&new_snapshot.files);
                 self.snapshot = new_snapshot;

@@ -89,7 +89,7 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     if app.active_view == ActiveView::AuditReport {
         let msg = app.status_message.as_deref().unwrap_or("Audit Mode");
-        let focus_tag = match app.audit_focus {
+        let focus_tag = match app.audit.focus {
             crate::app::AuditPaneFocus::Files => "Files",
             crate::app::AuditPaneFocus::Issues => "Issues",
             crate::app::AuditPaneFocus::Inspector => "Inspector",

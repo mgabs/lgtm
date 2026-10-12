@@ -1,14 +1,14 @@
 use super::*;
 
 pub(crate) fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
-    let is_focused = app.audit_focus == crate::app::AuditPaneFocus::Files;
+    let is_focused = app.audit.focus == crate::app::AuditPaneFocus::Files;
     let border_color = if is_focused {
         Color::Cyan
     } else {
         Color::DarkGray
     };
 
-    if app.audit_files.is_empty() {
+    if app.audit.files.is_empty() {
         let items = vec![ListItem::new(Line::from(Span::styled(
             " (No files audited) ",
             Style::default().fg(Color::DarkGray),
@@ -24,16 +24,18 @@ pub(crate) fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App)
     }
 
     let items: Vec<ListItem> = app
-        .audit_files
+        .audit
+        .files
         .iter()
         .enumerate()
         .map(|(idx, file)| {
             let is_selected = idx == app.selected_file_idx;
             let display_name = file.display_name();
-            let is_filtered = app.audit_file_filter.as_deref() == Some(&display_name);
+            let is_filtered = app.audit.file_filter.as_deref() == Some(&display_name);
 
             let file_alerts_count = app
-                .audit_alerts
+                .audit
+                .alerts
                 .iter()
                 .filter(|a| a.file_path == display_name)
                 .count();
@@ -86,10 +88,10 @@ pub(crate) fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App)
         })
         .collect();
 
-    let title = if let Some(ref filt) = app.audit_file_filter {
-        format!(" Files [{}] (Filtered: {}) ", app.audit_files.len(), filt)
+    let title = if let Some(ref filt) = app.audit.file_filter {
+        format!(" Files [{}] (Filtered: {}) ", app.audit.files.len(), filt)
     } else {
-        format!(" Files [{}] (Tab/Space) ", app.audit_files.len())
+        format!(" Files [{}] (Tab/Space) ", app.audit.files.len())
     };
 
     let list = List::new(items).block(
@@ -104,12 +106,12 @@ pub(crate) fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App)
 
 pub(crate) fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App) {
     let filtered_alerts = app.filtered_audit_alerts();
-    let total_alerts = app.audit_alerts.len();
+    let total_alerts = app.audit.alerts.len();
     let filtered_count = filtered_alerts.len();
 
     // If inspector is maximized, allocate full screen to inspector
-    if app.audit_maximized_inspector {
-        let selected_alert = filtered_alerts.get(app.audit_selected_idx).copied();
+    if app.audit.maximized_inspector {
+        let selected_alert = filtered_alerts.get(app.audit.selected_idx).copied();
         render_audit_inspector(frame, area, app, selected_alert);
         return;
     }
@@ -151,8 +153,8 @@ pub(crate) fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App)
         0
     } else {
         let half = visible_height / 2;
-        if app.audit_selected_idx > half {
-            (app.audit_selected_idx - half).min(total_filtered - visible_height)
+        if app.audit.selected_idx > half {
+            (app.audit.selected_idx - half).min(total_filtered - visible_height)
         } else {
             0
         }
@@ -174,7 +176,7 @@ pub(crate) fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App)
                 total_filtered
             })
             .map(|(idx, alert)| {
-                let is_selected = idx == app.audit_selected_idx;
+                let is_selected = idx == app.audit.selected_idx;
                 let badge_style = match alert.severity {
                     crate::guard::Severity::Critical => {
                         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
@@ -189,14 +191,14 @@ pub(crate) fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App)
 
                 let loc = match alert.line_no {
                     Some(l) => {
-                        if app.audit_file_filter.is_some() {
+                        if app.audit.file_filter.is_some() {
                             format!("L{:4} ", l)
                         } else {
                             format!("{}:{} ", alert.file_path, l)
                         }
                     }
                     None => {
-                        if app.audit_file_filter.is_some() {
+                        if app.audit.file_filter.is_some() {
                             "      ".to_string()
                         } else {
                             format!("{} ", alert.file_path)
@@ -211,7 +213,7 @@ pub(crate) fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App)
                 ];
 
                 let line_style = if is_selected {
-                    if app.audit_focus == crate::app::AuditPaneFocus::Issues {
+                    if app.audit.focus == crate::app::AuditPaneFocus::Issues {
                         Style::default()
                             .bg(Color::Cyan)
                             .fg(Color::Black)
@@ -231,13 +233,13 @@ pub(crate) fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App)
             .collect()
     };
 
-    let filter_text = match app.audit_filter_severity {
+    let filter_text = match app.audit.filter_severity {
         Some(crate::guard::Severity::Critical) => "🔴 Crit [1]",
         Some(crate::guard::Severity::High) => "🟠 High+ [2]",
         _ => "All [3]",
     };
 
-    let issues_title = if let Some(ref file) = app.audit_file_filter {
+    let issues_title = if let Some(ref file) = app.audit.file_filter {
         format!(
             " Issues for {} ({}/{}) Filter: {} [a: all] ",
             file, filtered_count, total_alerts, filter_text
@@ -249,7 +251,7 @@ pub(crate) fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App)
         )
     };
 
-    let issues_border_color = if app.audit_focus == crate::app::AuditPaneFocus::Issues {
+    let issues_border_color = if app.audit.focus == crate::app::AuditPaneFocus::Issues {
         Color::Cyan
     } else {
         Color::DarkGray
@@ -262,7 +264,7 @@ pub(crate) fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App)
 
     frame.render_widget(List::new(items).block(issues_block), left_area);
 
-    let selected_alert = filtered_alerts.get(app.audit_selected_idx).copied();
+    let selected_alert = filtered_alerts.get(app.audit.selected_idx).copied();
     render_audit_inspector(frame, right_area, app, selected_alert);
 }
 
@@ -348,7 +350,7 @@ pub(crate) fn render_audit_inspector(
 
     // 3. Code context snippet (read lines around line_no if available)
     if let Some(target_line) = alert.line_no {
-        let file_path = app.audit_root_dir.join(&alert.file_path);
+        let file_path = app.audit.root_dir.join(&alert.file_path);
         if let Ok(content) = std::fs::read_to_string(&file_path) {
             lines.push(Line::from(Span::styled(
                 "Code Snippet Context:",
@@ -452,14 +454,14 @@ pub(crate) fn render_audit_inspector(
         Span::raw(" Diff View"),
     ]));
 
-    let is_focused = app.audit_focus == crate::app::AuditPaneFocus::Inspector;
+    let is_focused = app.audit.focus == crate::app::AuditPaneFocus::Inspector;
     let border_color = if is_focused {
         Color::Cyan
     } else {
         Color::DarkGray
     };
 
-    let title = if app.audit_maximized_inspector {
+    let title = if app.audit.maximized_inspector {
         " Issue Inspector [MAXIMIZED - Z/m to restore] "
     } else if is_focused {
         " Issue Inspector & Remediation (Scroll: j/k, Ctrl-d/u) "
@@ -474,7 +476,7 @@ pub(crate) fn render_audit_inspector(
 
     let paragraph = Paragraph::new(lines)
         .block(block)
-        .scroll((app.audit_inspector_scroll as u16, 0))
+        .scroll((app.audit.inspector_scroll as u16, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
