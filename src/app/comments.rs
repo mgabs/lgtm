@@ -125,13 +125,234 @@ impl App {
         }
     }
 
-    pub fn toggle_review_current_file(&mut self) {
-        if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
-            file.is_reviewed = !file.is_reviewed;
-            if file.is_reviewed {
-                self.next_file();
+    /// Fetch CI checks or review threads for the open PR; failures only set the status message.
+    pub fn refresh_github(&mut self, client: &dyn lgtm_core::github::GithubClient, threads: bool) {
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return;
+        };
+        self.status_message = Some(if threads {
+            match client.threads(pr) {
+                Ok(t) => {
+                    let open: Vec<String> = t
+                        .iter()
+                        .filter(|t| !t.resolved)
+                        .take(5)
+                        .map(|t| format!("{}:{}", t.path, t.line.unwrap_or(0)))
+                        .collect();
+                    let msg = format!(
+                        "{} threads, {} open: {}",
+                        t.len(),
+                        open.len(),
+                        open.join(", ")
+                    );
+                    self.threads = t;
+                    msg
+                }
+                Err(e) => e.to_string(),
             }
+        } else {
+            match client.checks(pr) {
+                Ok(c) => {
+                    let s = lgtm_core::github::CiSummary::of(&c);
+                    let msg = format!(
+                        "CI: {} passed, {} failed, {} pending",
+                        s.passed, s.failed, s.pending
+                    );
+                    self.ci = Some(s);
+                    msg
+                }
+                Err(e) => e.to_string(),
+            }
+        });
+    }
+
+    /// `:pr post`: preview unless `confirmed` (`--yes`); nothing is sent without it.
+    pub fn post_pr_comments(
+        &mut self,
+        client: &dyn lgtm_core::github::GithubClient,
+        confirmed: bool,
+    ) {
+        use lgtm_core::github::post;
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return;
+        };
+        let plan = post::plan(&self.comments, &self.snapshot.files, pr);
+        if plan.total() == 0 {
+            self.status_message = Some("No unposted comments for this PR".to_string());
+            return;
         }
+        if !confirmed {
+            self.status_message = Some(format!(
+                "Would post {} inline + {} general comment(s) to PR #{}; run `:pr post --yes` to send",
+                plan.inline.len(),
+                plan.general.len(),
+                pr
+            ));
+            return;
+        }
+        let store = &self.comment_store;
+        let report = post::post(
+            client,
+            pr,
+            &mut self.comments,
+            &plan,
+            std::time::Duration::from_millis(500),
+            |c| store.save_comments(c),
+        );
+        self.status_message = Some(report.summary());
+    }
+
+    /// `:thread reply <n> <text> --yes` / `:thread resolve|unresolve <n> --yes`; `n` is the 1-based
+    /// position in `:threads`. Without `--yes` it only previews.
+    pub fn thread_action(&mut self, client: &dyn lgtm_core::github::GithubClient, args: &[&str]) {
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return;
+        };
+        let confirmed = args.last() == Some(&"--yes");
+        let args = if confirmed {
+            &args[..args.len() - 1]
+        } else {
+            args
+        };
+        let (Some(&verb), Some(n)) = (
+            args.first(),
+            args.get(1).and_then(|n| n.parse::<usize>().ok()),
+        ) else {
+            self.status_message = Some(
+                "Usage: :thread reply <n> <text> | resolve <n> | unresolve <n> (add --yes to send)"
+                    .to_string(),
+            );
+            return;
+        };
+        let Some(t) = n.checked_sub(1).and_then(|i| self.threads.get(i)) else {
+            self.status_message = Some("No such thread; run :threads first".to_string());
+            return;
+        };
+        let text = args[2..].join(" ");
+        let (id, target) = (t.id.clone(), t.comments.first().map_or(0, |c| c.id));
+        let preview = match verb {
+            "reply" if text.is_empty() => {
+                self.status_message = Some("Reply text is empty".to_string());
+                return;
+            }
+            "reply" => format!("Would reply on {}:{}", t.path, t.line.unwrap_or(0)),
+            "resolve" | "unresolve" => format!(
+                "Would {} thread on {}:{}",
+                verb,
+                t.path,
+                t.line.unwrap_or(0)
+            ),
+            _ => {
+                self.status_message = Some(format!("Unknown thread action '{verb}'"));
+                return;
+            }
+        };
+        if !confirmed {
+            self.status_message = Some(format!("{preview}; add --yes to send"));
+            return;
+        }
+        let res = match verb {
+            "reply" => client.reply(pr, target, &text).map(|_| "Reply posted"),
+            _ => client
+                .set_resolved(&id, verb == "resolve")
+                .map(|_| "Thread updated"),
+        };
+        self.status_message = Some(match res {
+            Ok(done) => {
+                if verb != "reply" {
+                    self.threads[n - 1].resolved = verb == "resolve";
+                }
+                done.to_string()
+            }
+            Err(e) => e.to_string(),
+        });
+    }
+
+    /// `:directives recheck`: reclassify open directives against the current diff and report counts.
+    pub fn recheck_directives(&mut self) {
+        let turn = self.turn_manager.load_state().current_turn;
+        if lgtm_core::outcome::recheck(&mut self.comments, &self.snapshot.files, turn) {
+            let _ = self.comment_store.save_comments(&self.comments);
+        }
+        self.status_message = Some(format!(
+            "Directives: {}",
+            lgtm_core::outcome::Summary::of(&self.comments).line()
+        ));
+    }
+
+    pub fn review_target(&self) -> String {
+        match (self.pr.current_number, self.active_revision.as_deref()) {
+            (Some(n), _) => format!("pr-{n}"),
+            (None, Some(rev)) => rev.to_string(),
+            _ => "working".to_string(),
+        }
+    }
+
+    fn marks_store(&self) -> Option<lgtm_core::review::ReviewStore> {
+        lgtm_core::review::ReviewStore::open_marks_only(
+            &self.git_engine.repo_path,
+            &self.review_target(),
+        )
+        .ok()
+    }
+
+    /// Reload marks for the current target and refresh each file's reviewed flag.
+    pub fn load_marks(&mut self) {
+        self.marks = self
+            .marks_store()
+            .and_then(|s| s.load().ok())
+            .map(|st| st.hunks)
+            .unwrap_or_default();
+        for f in &mut self.snapshot.files {
+            f.is_reviewed = lgtm_core::review::file_reviewed(&self.marks, f);
+        }
+    }
+
+    fn save_marks(&mut self) {
+        let Some(store) = self.marks_store() else {
+            return;
+        };
+        let mut st = store.load().unwrap_or_default();
+        st.hunks = self.marks.clone();
+        if store.save(&st).is_err() {
+            self.status_message = Some("Failed to save review marks".to_string());
+        }
+    }
+
+    pub fn toggle_review_current_file(&mut self) {
+        use lgtm_core::review::{file_reviewed, set_file};
+        let now = crate::turn::chrono_iso_now();
+        let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) else {
+            return;
+        };
+        if file.hunks.is_empty() {
+            file.is_reviewed = !file.is_reviewed;
+        } else {
+            let on = !file_reviewed(&self.marks, file);
+            set_file(&mut self.marks, file, on, &now);
+            file.is_reviewed = on;
+            self.save_marks();
+        }
+        if self.snapshot.files[self.selected_file_idx].is_reviewed {
+            self.next_file();
+        }
+    }
+
+    pub fn toggle_review_current_hunk(&mut self) {
+        let now = crate::turn::chrono_iso_now();
+        let Some((_, _, h_idx)) = self.current_hunk_info() else {
+            return;
+        };
+        let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) else {
+            return;
+        };
+        let on = lgtm_core::review::toggle_hunk(&mut self.marks, file, h_idx, &now);
+        file.is_reviewed = lgtm_core::review::file_reviewed(&self.marks, file);
+        self.status_message = Some(format!("Hunk {}", if on { "reviewed" } else { "unmarked" }));
+        self.save_marks();
     }
 
     pub fn save_current_line_comment(&mut self) {
@@ -154,7 +375,7 @@ impl App {
 
             let turn_state = self.turn_manager.load_state();
             let anchor = CommentAnchor {
-                file_path: path_str,
+                file_path: path_str.clone(),
                 target_line_no,
                 target_code,
                 context_before: Vec::new(),
@@ -164,6 +385,15 @@ impl App {
                 created_at_turn: turn_state.current_turn,
                 is_resolved: false,
                 pr_number: self.pr.current_number,
+                remote_id: None,
+                track: lgtm_core::outcome::Tracking {
+                    hunk_hash: lgtm_core::review::hunk_hash_at(
+                        &self.snapshot.files,
+                        &path_str,
+                        target_line_no,
+                    ),
+                    ..Default::default()
+                },
             };
 
             let _ = self.comment_store.add_comment(&anchor);
@@ -280,6 +510,8 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
+            remote_id: None,
+            track: Default::default(),
         };
         app.comments.push(anchor);
 

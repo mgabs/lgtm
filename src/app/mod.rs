@@ -55,6 +55,11 @@ pub struct App {
     pub snapshot: DiffSnapshot,
     pub alerts: Vec<GuardAlert>,
     pub comments: Vec<CommentAnchor>,
+    /// Reviewed hunks for the current review target, keyed by content hash.
+    pub marks: Vec<lgtm_core::review::HunkMark>,
+    /// Read-only GitHub state for the open PR, refreshed on demand via `:checks` / `:threads`.
+    pub ci: Option<lgtm_core::github::CiSummary>,
+    pub threads: Vec<lgtm_core::github::Thread>,
 
     // Full Repo Audit state
     pub audit: AuditState,
@@ -218,6 +223,9 @@ impl App {
             turn_manager,
             snapshot,
             alerts,
+            marks: Vec::new(),
+            ci: None,
+            threads: Vec::new(),
             config,
             hidden: std::cell::RefCell::new(hidden),
             comments,
@@ -252,6 +260,7 @@ impl App {
             watcher_rx,
         };
 
+        app.load_marks();
         app.update_file_picker_filter();
         app
     }
@@ -298,6 +307,11 @@ impl App {
         self.alerts = self.scan(&new_snapshot.files);
         self.snapshot = new_snapshot;
         self.comments = self.comment_store.load_comments();
+        let turn = self.turn_manager.load_state().current_turn;
+        if lgtm_core::outcome::recheck(&mut self.comments, &self.snapshot.files, turn) {
+            let _ = self.comment_store.save_comments(&self.comments);
+        }
+        self.load_marks();
         if self.selected_file_idx >= self.snapshot.files.len() && !self.snapshot.files.is_empty() {
             self.selected_file_idx = self.snapshot.files.len() - 1;
         }

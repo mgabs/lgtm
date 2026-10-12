@@ -140,6 +140,33 @@ impl McpServer {
                                 },
                                 "required": ["file", "line", "content"]
                             }
+                        },
+                        {
+                            "name": "lgtm_directive_status",
+                            "description": "List directives with id, resolved flag, observed outcome (untouched/changed/gone/orphaned), agent claim and a one-line verdict, plus per-turn counts.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "lgtm_review_state",
+                            "description": "Summarize the human review: reviewed hunk marks for the working tree and directive outcome counts.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "lgtm_scan_changes",
+                            "description": "Security/quality findings that are new since the previous call (by fingerprint). The first call reports everything.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "lgtm_resolve_directive",
+                            "description": "Record that you handled a directive. This only stores a claim; the human decides whether it is resolved, and lgtm checks the claim against the diff.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "id": { "type": "integer", "description": "Directive id from lgtm_directive_status" },
+                                    "note": { "type": "string", "description": "What you changed" }
+                                },
+                                "required": ["id", "note"]
+                            }
                         }
                     ]
                 }
@@ -242,18 +269,26 @@ impl McpServer {
                     .and_then(|c| c.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
-                let comment = lgtm_core::comment::CommentAnchor {
-                    file_path: file.to_string(),
-                    target_line_no: line,
-                    target_code: String::new(),
-                    context_before: Vec::new(),
-                    context_after: Vec::new(),
-                    comment_text: content.to_string(),
-                    replies: Vec::new(),
-                    created_at_turn: 1,
-                    is_resolved: false,
-                    pr_number: None,
-                };
+                let comment =
+                    lgtm_core::comment::CommentAnchor {
+                        file_path: file.to_string(),
+                        target_line_no: line,
+                        target_code: String::new(),
+                        context_before: Vec::new(),
+                        context_after: Vec::new(),
+                        comment_text: content.to_string(),
+                        replies: Vec::new(),
+                        created_at_turn: self.turn(),
+                        is_resolved: false,
+                        pr_number: None,
+                        remote_id: None,
+                        track: lgtm_core::outcome::Tracking {
+                            hunk_hash: self.git_engine.compute_diff_snapshot().ok().and_then(|s| {
+                                lgtm_core::review::hunk_hash_at(&s.files, file, line)
+                            }),
+                            ..Default::default()
+                        },
+                    };
 
                 let comment_store =
                     lgtm_core::comment::CommentStore::new(&self.git_engine.repo_path);
@@ -266,8 +301,113 @@ impl McpServer {
                     file, line
                 ))
             }
+            "lgtm_directive_status" => self.directive_status(),
+            "lgtm_review_state" => self.review_state(),
+            "lgtm_scan_changes" => self.scan_changes(),
+            "lgtm_resolve_directive" => {
+                let id = args
+                    .get("id")
+                    .and_then(|i| i.as_u64())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?
+                    as usize;
+                let note = args
+                    .get("note")
+                    .and_then(|n| n.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'note' parameter"))?;
+                self.claim_directive(id, note)
+            }
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
+    }
+
+    fn store(&self) -> lgtm_core::comment::CommentStore {
+        lgtm_core::comment::CommentStore::new(&self.git_engine.repo_path)
+    }
+
+    fn turn(&self) -> u64 {
+        lgtm_core::turn::TurnManager::new(&self.git_engine.repo_path)
+            .load_state()
+            .current_turn
+    }
+
+    /// Directive ids are 1-based positions in `.lgtm/comments.jsonl`.
+    fn directive_status(&self) -> Result<String> {
+        let comments = self.store().load_comments();
+        let items: Vec<Value> = comments
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                json!({
+                    "id": i + 1,
+                    "file": c.file_path,
+                    "line": c.target_line_no,
+                    "text": c.comment_text,
+                    "resolved": c.is_resolved,
+                    "outcome": c.track.outcome,
+                    "claim": c.track.claim,
+                    "verdict": lgtm_core::outcome::verdict(c),
+                })
+            })
+            .collect();
+        Ok(serde_json::to_string_pretty(&json!({
+            "turn": self.turn(),
+            "summary": lgtm_core::outcome::Summary::of(&comments).line(),
+            "directives": items,
+        }))?)
+    }
+
+    fn review_state(&self) -> Result<String> {
+        let comments = self.store().load_comments();
+        let marks =
+            lgtm_core::review::ReviewStore::open_marks_only(&self.git_engine.repo_path, "working")?
+                .load()?
+                .hunks
+                .len();
+        Ok(serde_json::to_string_pretty(&json!({
+            "turn": self.turn(),
+            "reviewed_hunks": marks,
+            "open_directives": comments.iter().filter(|c| !c.is_resolved).count(),
+            "resolved_directives": comments.iter().filter(|c| c.is_resolved).count(),
+            "outcomes": lgtm_core::outcome::Summary::of(&comments).line(),
+        }))?)
+    }
+
+    fn scan_changes(&self) -> Result<String> {
+        let snapshot = self.git_engine.compute_diff_snapshot()?;
+        let alerts = SecurityAndTestGuard::scan_snapshot(&snapshot.files);
+        let path = self.git_engine.repo_path.join(".lgtm/last_scan.json");
+        let seen: std::collections::HashSet<String> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let new: Vec<_> = alerts
+            .iter()
+            .filter(|a| !seen.contains(&a.fingerprint))
+            .collect();
+        let now: std::collections::BTreeSet<&str> =
+            alerts.iter().map(|a| a.fingerprint.as_str()).collect();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(&path, serde_json::to_string(&now)?)?;
+        Ok(serde_json::to_string_pretty(&new)?)
+    }
+
+    /// Writes only a claim; never resolves, edits code or touches git.
+    fn claim_directive(&self, id: usize, note: &str) -> Result<String> {
+        let store = self.store();
+        let mut comments = store.load_comments();
+        let turn = self.turn();
+        let c = id
+            .checked_sub(1)
+            .and_then(|i| comments.get_mut(i))
+            .ok_or_else(|| anyhow::anyhow!("No directive with id {}", id))?;
+        lgtm_core::outcome::claim(c, note, turn);
+        store.save_comments(&comments)?;
+        Ok(format!(
+            "Claim recorded for directive {}. It stays open until the reviewer resolves it.",
+            id
+        ))
     }
 
     fn format_diff_summary(&self, snapshot: &DiffSnapshot) -> Result<String> {
@@ -328,5 +468,104 @@ mod tests {
         let tools = resp["result"]["tools"].as_array().unwrap();
         assert!(tools.iter().any(|t| t["name"] == "lgtm_diff"));
         assert!(tools.iter().any(|t| t["name"] == "lgtm_security_scan"));
+        for n in [
+            "lgtm_directive_status",
+            "lgtm_review_state",
+            "lgtm_scan_changes",
+            "lgtm_resolve_directive",
+        ] {
+            assert!(tools.iter().any(|t| t["name"] == n), "{n}");
+        }
+    }
+
+    fn call(s: &McpServer, name: &str, args: Value) -> Value {
+        s.handle_request(
+            "tools/call",
+            &json!({"name": name, "arguments": args}),
+            Some(json!(1)),
+        )
+        .unwrap()
+    }
+
+    fn text(v: &Value) -> Value {
+        serde_json::from_str(v["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+    }
+
+    fn repo() -> tempfile::TempDir {
+        let d = tempfile::tempdir().unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "t@t"],
+            vec!["config", "user.name", "t"],
+        ] {
+            std::process::Command::new("git")
+                .args(&args)
+                .current_dir(d.path())
+                .output()
+                .unwrap();
+        }
+        d
+    }
+
+    #[test]
+    fn test_claims_are_recorded_but_never_resolve() {
+        let d = repo();
+        let s = McpServer::new(d.path());
+        let r = call(
+            &s,
+            "lgtm_add_directive",
+            json!({"file": "a.rs", "line": 1, "content": "fix"}),
+        );
+        assert!(r["result"].is_object());
+        let r = call(
+            &s,
+            "lgtm_resolve_directive",
+            json!({"id": 1, "note": "done"}),
+        );
+        assert!(r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("stays open"));
+        let st = text(&call(&s, "lgtm_directive_status", json!({})));
+        assert_eq!(st["directives"][0]["id"], 1);
+        assert_eq!(st["directives"][0]["resolved"], false);
+        assert_eq!(st["directives"][0]["claim"]["note"], "done");
+        assert_eq!(st["directives"][0]["verdict"], "claimed");
+        for bad in [
+            json!({"id": 9, "note": "x"}),
+            json!({"id": 0, "note": "x"}),
+            json!({"id": 1}),
+            json!({"note": "x"}),
+        ] {
+            assert!(call(&s, "lgtm_resolve_directive", bad)["error"].is_object());
+        }
+    }
+
+    #[test]
+    fn test_review_state_and_scan_changes() {
+        let d = repo();
+        std::fs::write(
+            d.path().join("a.py"),
+            "import requests\nrequests.get(u, verify=False)\n",
+        )
+        .unwrap();
+        std::process::Command::new("git")
+            .args(["add", "-N", "a.py"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        let s = McpServer::new(d.path());
+        let rs = text(&call(&s, "lgtm_review_state", json!({})));
+        assert_eq!(
+            (
+                rs["reviewed_hunks"].as_u64(),
+                rs["open_directives"].as_u64()
+            ),
+            (Some(0), Some(0))
+        );
+        let first = text(&call(&s, "lgtm_scan_changes", json!({})));
+        assert!(!first.as_array().unwrap().is_empty());
+        let second = text(&call(&s, "lgtm_scan_changes", json!({})));
+        assert!(second.as_array().unwrap().is_empty());
     }
 }

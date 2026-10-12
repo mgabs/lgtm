@@ -63,7 +63,7 @@ impl TurnManager {
     }
 }
 
-fn chrono_iso_now() -> String {
+pub fn chrono_iso_now() -> String {
     // Basic timestamp helper without extra dependency
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

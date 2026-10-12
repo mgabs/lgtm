@@ -398,10 +398,13 @@ impl MutationTester {
         {
             let original = "current_turn += 1";
             let mutated = "current_turn = 1";
-            let unique = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
+            // timestamps alone collide when parallel tests start in the same clock tick
+            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let unique = format!(
+                "{}-{}",
+                std::process::id(),
+                SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
             let tmp = std::env::temp_dir().join(format!("lgtm-test-mut-{}", unique));
             let tmp = if std::fs::create_dir_all(&tmp).is_ok() {
                 tmp

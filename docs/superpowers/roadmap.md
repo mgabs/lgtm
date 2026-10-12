@@ -1,6 +1,17 @@
 # lgtm Roadmap
 
-Date: 2026-10-12 · Status: draft, prioritization in progress · Baseline: `main` @ a90d5b0 (v0.7.0)
+Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
+
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. Pending: A4–A6, D1–D4.
+
+| Branch | Contents | Release | State |
+|---|---|---|---|
+| `rel.0.8` | R1–R5 + B1–B5 | v0.8.0 | version bumped, pushed; PR to `main` not opened yet (`gh` unauthenticated) |
+| `rel.0.10` | C1–C5 | v0.10.0 | local only |
+| `rel.0.11` | A1–A3 | v0.11.0 (A4–A6 pending) | local only |
+| `rel.0.12` | E1–E4 (AST, web, Swift) | v0.12.0 | local only |
+
+v0.9.0 is skipped: B shipped inside v0.8.0. Branches are layered (each cut from the previous), so merge in order and carry the version bump forward.
 
 Specs: [refactor](specs/2026-10-12-modular-breakdown-design.md) · [B guards](specs/2026-10-12-guard-config-baselines-design.md) · [C review state + GitHub](specs/2026-10-12-review-state-github-design.md) · [A agent loop + MCP](specs/2026-10-12-agent-loop-mcp-design.md)
 
@@ -30,21 +41,40 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 ### C — Durable review state and GitHub
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
-| C1 | State model, migration, content-hash re-anchoring | M | R2 |
-| C2 | Hunk marks UI, orphan handling, export/import | M | C1 |
-| C3 | `GithubClient` trait + fake; read-only CI status and remote threads | M | C1 (soft: R4) |
-| C4 | Inline comment posting (resumable, dry-run) | M | C3 |
-| C5 | Thread reply/resolve + docs | S | C4 |
+| C1 ✅ | State model, migration, content-hash re-anchoring (core only, not yet wired to the UI) | M | R2 |
+| C2 ✅ | Hunk marks UI, export/import (orphan handling waits for comments to move to the new store) | M | C1 |
+| C3 ✅ | `GithubClient` trait + fake; read-only CI status and remote threads (no inline thread markers yet) | M | C1 (soft: R4) |
+| C4 ✅ | Inline comment posting (resumable, preview before send) | M | C3 |
+| C5 ✅ | Thread reply/resolve + docs | S | C4 |
 
 ### A — Agent loop, MCP, sinks
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
-| A1 | Directive outcome tracking + per-turn summary | M | C1 |
-| A2 | TUI outcomes, filters, `:directives recheck`, confirm-resolve | S | A1 |
-| A3 | New MCP tools incl. claims | M | A1, R4 |
+| A1 ✅ | Directive outcome tracking + per-turn summary | M | C1 |
+| A2 ✅ | TUI outcomes, filters, `:directives recheck`, confirm-resolve | S | A1 |
+| A3 ✅ | New MCP tools incl. claims | M | A1, R4 |
 | A4 | MCP resources, subscriptions, notifications | L | A3 |
 | A5 | Agent sinks: Zellij, WezTerm, kitty | M | R3 |
 | A6 | Docs incl. MCP client setup | S | A4, A5 |
+
+### D — CI/CD step (spec: `specs/2026-10-12-cicd-integration-design.md`, draft)
+| ID | Item | Effort | Depends on |
+|---|---|---|---|
+| D1 | Shared `DiffMode` + `--rev` on `check`/`ci`; exit codes 0/1/2 | S | B |
+| D2 | Composite GitHub Action: verified install, gate, SARIF upload, job summary | M | D1 |
+| D3 | CI recipes (GitLab, Azure DevOps), pre-commit hook, WIKI section | S | D1 |
+| D4 | Self-test workflow against fixture PR branches | S | D2 |
+
+### E — AST layer, web (React/Next.js) and Swift packs (spec: `specs/2026-10-12-ast-web-swift-design.md`, draft)
+| ID | Item | Effort | Depends on |
+|---|---|---|---|
+| E1 ✅ | `lgtm-ast` crate (tree-sitter), TS/TSX, diff mapping, one rule end to end | L | B |
+| E2 ✅ | `web/` + `next/` guard pack (6 rules; `"use client"` leak and server-action validation deferred, need whole-file parse) | M | E1 |
+| E3 ✅ | Swift grammar + `swift/` pack | M | E1 |
+| E4 ✅ | Complexity and symbol guards on AST for TS/JS/Swift. Test-neutering stays line-based: its rules are one-line patterns, so the AST adds little | M | E1 |
+| E5 ❌ | TUI folding on AST. Dropped: fold state is per hunk and cursor motion indexes hunk lines, so in-hunk blocks would touch every motion path for a feature unverifiable without interactive use. Revisit on demand | S | E1 |
+
+Order: web first (E1 → E2), then Swift (E3), then E4/E5.
 
 Soft dependency: A3's `lgtm_scan_changes` prefers B1 fingerprints but has a fallback.
 
@@ -75,6 +105,10 @@ Open: none. Prioritization complete; next step is implementation plans (writing-
 | 1 Refactor | v0.8.0 | `make check` green on trunk; `app.rs`, `ui/mod.rs`, `main.rs` split into submodules (R1 splitter output accepted as-is: `app/input.rs` 1288, `app/motion.rs` 968, `ui/diff.rs` 911 lines; further splits only where R2 state extraction naturally shrinks them); workspace builds; `cargo install --git` verified; Homebrew tap flow verified; golden outputs of `check`/`scan`/`ci` identical to v0.7.0; boundary CI check in place |
 | 2 B | v0.9.0 | No-config output byte-identical to v0.8.0 (except added `rule_id`); `.lgtm.toml`, scoped suppressions and baselines work end to end on a fixture repo; Critical never baselined by default |
 | 3 C | v0.10.0 | Re-anchoring property tests pass (insert above, move, rename); migration from old files tested; posting resumable against the fake client; manual smoke test against a real PR |
-| 4 A | v0.11.0 | Claim-vs-diff matrix tested; one real MCP client smoke-tested; sinks smoke-checklist completed; existing MCP tools backward compatible |
+| 4 A | v0.11.0 (A1–A3 done; A4–A6 open) | Claim-vs-diff matrix tested; one real MCP client smoke-tested; sinks smoke-checklist completed; existing MCP tools backward compatible |
+| 5 E | v0.12.0 | E1–E4 done: web and Swift rules have positive/negative fixtures; complexity/typo guards on AST; non-AST languages unchanged. Open: whole-file parse for `"use client"` and server-action rules |
+| 6 D | v0.13.0 | Pending: `--rev` on `check`/`ci`, exit codes 0/1/2, composite Action |
+
+Unverified in the field (manual checks before release): `gh` calls (`checks`, GraphQL threads, REST post/reply/resolve), TUI parts (`M`, `✓n/m`, CI header, verdict tags), Homebrew tap and `cargo install --git`.
 
 Branch protection / required status checks on trunk is a manual human step (not verifiable from the checkout); confirm before wave 1 starts.

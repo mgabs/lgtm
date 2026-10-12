@@ -176,6 +176,15 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
                 ));
             }
 
+            let verdict = lgtm_core::outcome::verdict(comment);
+            if !comment.is_resolved && verdict != "sent" {
+                let warn = verdict == "claimed but not changed";
+                spans.push(Span::styled(
+                    format!(" [{}]", verdict),
+                    Style::default().fg(if warn { Color::Red } else { Color::Yellow }),
+                ));
+            }
+
             let style = if is_selected {
                 Style::default()
                     .bg(Color::Magenta)
@@ -193,8 +202,9 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
         Block::default()
             .borders(Borders::ALL)
             .title(format!(
-                " Review Directives [{}] (Enter: Jump | r: Reply | v/Space: Resolve | a: Action | d: Delete | Esc: Close) ",
-                app.comments.len()
+                " Review Directives [{}] {} (Enter: Jump | r: Reply | v/Space: Resolve | a: Action | d: Delete | Esc: Close) ",
+                app.comments.len(),
+                lgtm_core::outcome::Summary::of(&app.comments).line()
             ))
             .border_style(Style::default().fg(Color::Magenta)),
     );

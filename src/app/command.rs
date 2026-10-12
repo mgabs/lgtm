@@ -55,6 +55,9 @@ impl App {
                     self.open_commit_modal();
                 }
             }
+            "c" | "comments" | "directives" | "todo" if args.first() == Some(&"recheck") => {
+                self.recheck_directives();
+            }
             "c" | "comments" | "directives" | "todo" => {
                 self.comment_list_selected_idx = 0;
                 self.active_view = ActiveView::CommentList;
@@ -93,6 +96,11 @@ impl App {
                 }
             }
             "pr" => {
+                if args.first() == Some(&"post") {
+                    let confirmed = args.contains(&"--yes");
+                    self.post_pr_comments(&lgtm_core::github::GhClient, confirmed);
+                    return;
+                }
                 if let Some(arg) = args.first() {
                     if let Ok(pr_num) = arg.parse::<u64>() {
                         match crate::diff_source::DiffSource::snapshot(
@@ -274,6 +282,13 @@ impl App {
             }
             "audit" => {
                 self.trigger_repo_scan();
+            }
+            "thread" => {
+                self.thread_action(&lgtm_core::github::GhClient, &args);
+            }
+            "checks" | "threads" => {
+                let threads = cmd_name == "threads";
+                self.refresh_github(&lgtm_core::github::GhClient, threads);
             }
             "hidden" => {
                 let h = self.hidden.borrow();
@@ -570,6 +585,212 @@ mod tests {
         // Jump to specific file and line
         app.jump_to_file_and_line("src/main.rs", 3);
         assert_eq!(app.cursor_line_idx, 2);
+    }
+
+    #[test]
+    fn test_github_refresh_uses_client_and_needs_a_pr() {
+        use lgtm_core::github::{Bucket, Check, FakeClient, Thread};
+        let mut app = create_test_app();
+        app.refresh_github(&FakeClient::default(), false);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+        app.pr.current_number = Some(3);
+        let fake = FakeClient {
+            checks: vec![
+                Check {
+                    name: "a".into(),
+                    bucket: Bucket::Pass,
+                },
+                Check {
+                    name: "b".into(),
+                    bucket: Bucket::Fail,
+                },
+            ],
+            threads: vec![
+                Thread {
+                    id: "1".into(),
+                    path: "a.rs".into(),
+                    line: Some(4),
+                    resolved: false,
+                    comments: vec![],
+                },
+                Thread {
+                    id: "2".into(),
+                    path: "b.rs".into(),
+                    line: None,
+                    resolved: true,
+                    comments: vec![],
+                },
+            ],
+            error: None,
+            ..Default::default()
+        };
+        app.refresh_github(&fake, false);
+        assert_eq!(app.ci.as_ref().map(|c| (c.passed, c.failed)), Some((1, 1)));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("CI: 1 passed, 1 failed, 0 pending")
+        );
+        app.refresh_github(&fake, true);
+        assert_eq!(app.threads.len(), 2);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("2 threads, 1 open: a.rs:4")
+        );
+        let bad = FakeClient {
+            error: Some("gh missing".into()),
+            ..Default::default()
+        };
+        app.refresh_github(&bad, true);
+        assert_eq!(app.status_message.as_deref(), Some("gh missing"));
+        assert_eq!(app.threads.len(), 2);
+    }
+
+    #[test]
+    fn test_pr_post_previews_then_posts_with_confirmation() {
+        use lgtm_core::github::FakeClient;
+        let mut app = create_test_app();
+        app.post_pr_comments(&FakeClient::default(), true);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+        app.pr.current_number = Some(4);
+        app.post_pr_comments(&FakeClient::default(), true);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No unposted comments for this PR")
+        );
+        let mut c =
+            app.comments
+                .first()
+                .cloned()
+                .unwrap_or_else(|| lgtm_core::comment::CommentAnchor {
+                    file_path: "nowhere.rs".into(),
+                    target_line_no: 1,
+                    target_code: String::new(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    comment_text: "hi".into(),
+                    replies: vec![],
+                    created_at_turn: 1,
+                    is_resolved: false,
+                    pr_number: None,
+                    remote_id: None,
+                    track: Default::default(),
+                });
+        c.pr_number = Some(4);
+        c.remote_id = None;
+        c.is_resolved = false;
+        app.comments = vec![c];
+        let fake = FakeClient::default();
+        app.post_pr_comments(&fake, false);
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Would post"));
+        assert!(fake.posted.borrow().is_empty());
+        app.post_pr_comments(&fake, true);
+        assert_eq!(app.status_message.as_deref(), Some("1 of 1 posted"));
+        assert_eq!(fake.posted.borrow().len(), 1);
+        assert!(app.comments[0].remote_id.is_some());
+    }
+
+    #[test]
+    fn test_thread_actions_preview_then_send() {
+        use lgtm_core::github::{FakeClient, Thread, ThreadComment};
+        let mut app = create_test_app();
+        let fake = FakeClient::default();
+        app.thread_action(&fake, &["resolve", "1"]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+        app.pr.current_number = Some(2);
+        app.thread_action(&fake, &["resolve"]);
+        assert!(app.status_message.as_deref().unwrap().starts_with("Usage"));
+        app.thread_action(&fake, &["resolve", "1"]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No such thread; run :threads first")
+        );
+        app.threads = vec![Thread {
+            id: "T1".into(),
+            path: "a.rs".into(),
+            line: Some(3),
+            resolved: false,
+            comments: vec![ThreadComment {
+                id: 9,
+                author: "bob".into(),
+                body: "x".into(),
+            }],
+        }];
+        app.thread_action(&fake, &["resolve", "1"]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Would resolve thread on a.rs:3; add --yes to send")
+        );
+        app.thread_action(&fake, &["reply", "1"]);
+        assert_eq!(app.status_message.as_deref(), Some("Reply text is empty"));
+        app.thread_action(&fake, &["nuke", "1"]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Unknown thread action 'nuke'")
+        );
+        assert!(fake.posted.borrow().is_empty());
+        app.thread_action(&fake, &["reply", "1", "thanks", "all", "--yes"]);
+        assert_eq!(app.status_message.as_deref(), Some("Reply posted"));
+        app.thread_action(&fake, &["resolve", "1", "--yes"]);
+        assert!(app.threads[0].resolved);
+        app.thread_action(&fake, &["unresolve", "1", "--yes"]);
+        assert!(!app.threads[0].resolved);
+        assert_eq!(
+            *fake.posted.borrow(),
+            vec!["reply:9:thanks all", "resolve:T1:true", "resolve:T1:false"]
+        );
+        let bad = FakeClient {
+            fail_post_after: Some(0),
+            ..Default::default()
+        };
+        app.thread_action(&bad, &["resolve", "1", "--yes"]);
+        assert_eq!(app.status_message.as_deref(), Some("rate limited"));
+        assert!(!app.threads[0].resolved);
+    }
+
+    #[test]
+    fn test_directives_recheck_reports_outcomes() {
+        let mut app = create_test_app();
+        app.execute_command("directives recheck");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Directives: 0 untouched, 0 changed, 0 gone, 0 orphaned")
+        );
+        app.comments.push(lgtm_core::comment::CommentAnchor {
+            file_path: "gone.rs".into(),
+            target_line_no: 1,
+            target_code: String::new(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "x".into(),
+            replies: vec![],
+            created_at_turn: 0,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            track: lgtm_core::outcome::Tracking {
+                hunk_hash: Some("abc".into()),
+                ..Default::default()
+            },
+        });
+        app.execute_command("directives recheck");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Directives: 0 untouched, 0 changed, 1 gone, 0 orphaned")
+        );
+        assert_eq!(app.active_view, ActiveView::Diff);
     }
 
     #[test]

@@ -5,7 +5,9 @@ pub mod dead_code;
 pub mod deps;
 pub mod duplicate;
 pub mod security;
+pub mod swift;
 pub mod symbols;
+pub mod web;
 
 use crate::model::{FileDiff, LineType};
 use serde::{Deserialize, Serialize};
@@ -68,6 +70,8 @@ pub fn registry() -> &'static [&'static dyn Guard] {
         &symbols::SymbolGuard,
         &api_drift::ApiDriftGuard,
         &dead_code::DeadCodeGuard,
+        &web::WebGuard,
+        &swift::SwiftGuard,
     ]
 }
 
@@ -313,7 +317,7 @@ impl SecurityAndTestGuard {
     }
 }
 
-fn fnv1a(s: &str) -> u64 {
+pub fn fnv1a(s: &str) -> u64 {
     s.bytes().fold(0xcbf29ce484222325, |h, b| {
         (h ^ b as u64).wrapping_mul(0x100000001b3)
     })
@@ -488,7 +492,9 @@ mod tests {
                 "complexity",
                 "symbols",
                 "api_drift",
-                "dead_code"
+                "dead_code",
+                "web",
+                "swift"
             ]
         );
     }

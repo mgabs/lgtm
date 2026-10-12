@@ -491,6 +491,41 @@ pub(crate) fn run_git_passthrough(args: &[String]) -> Result<i32> {
     Ok(status.code().unwrap_or(1))
 }
 
+/// `review export [target]` prints the state JSON; `review import <file>` merges it into its target.
+pub(crate) fn run_review(repo_path: &Path, action: &str, arg: Option<&str>) -> Result<i32> {
+    use lgtm_core::review::{merge, ReviewState, ReviewStore};
+    if action == "export" {
+        let st = ReviewStore::open(repo_path, arg.unwrap_or("working"))?.load()?;
+        println!("{}", serde_json::to_string_pretty(&st)?);
+        return Ok(0);
+    }
+    let file = arg.ok_or_else(|| anyhow::anyhow!("usage: lgtm review import <file>"))?;
+    let other: ReviewState = serde_json::from_str(&std::fs::read_to_string(file)?)?;
+    if other.version > lgtm_core::review::VERSION {
+        anyhow::bail!(
+            "{} was written by a newer lgtm (version {})",
+            file,
+            other.version
+        );
+    }
+    let store = ReviewStore::open(repo_path, &other.target)?;
+    let mut base = store.load()?;
+    let target = other.target.clone();
+    let conflicts = merge(&mut base, other);
+    store.save(&base)?;
+    for c in &conflicts {
+        eprintln!("conflict: {}", c);
+    }
+    println!(
+        "Imported into '{}': {} hunk marks, {} comments, {} conflicts",
+        target,
+        base.hunks.len(),
+        base.comments.len(),
+        conflicts.len()
+    );
+    Ok(0)
+}
+
 pub(crate) fn run_baseline_update(repo_path: &Path, prune: bool) -> Result<i32> {
     let cfg = load_config(repo_path, false)?;
     let (_, alerts) = scan::FullRepoScanner::scan_unbaselined(repo_path, &cfg)?;
@@ -606,5 +641,26 @@ mod tests {
         assert_eq!(run_baseline_update(&tmp, true).unwrap(), 0);
         let bl = lgtm_core::baseline::Baseline::load(&tmp.join(".lgtm-baseline.json")).unwrap();
         assert!(bl.entries.is_empty());
+    }
+
+    #[test]
+    fn review_export_import_round_trip() {
+        let tmp = std::env::temp_dir().join(format!("lgtm-rev-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let st = r#"{"version":1,"target":"feat","hunks":[{"file":"a","content_hash":"h","last_line":1,"reviewed_at":"t"}]}"#;
+        let f = tmp.join("in.json");
+        std::fs::write(&f, st).unwrap();
+        assert_eq!(run_review(&tmp, "import", f.to_str()).unwrap(), 0);
+        assert_eq!(run_review(&tmp, "export", Some("feat")).unwrap(), 0);
+        let back = lgtm_core::review::ReviewStore::open(&tmp, "feat")
+            .unwrap()
+            .load()
+            .unwrap();
+        assert_eq!(back.hunks.len(), 1);
+        assert!(run_review(&tmp, "import", None).is_err());
+        std::fs::write(&f, r#"{"version":9,"target":"feat"}"#).unwrap();
+        assert!(run_review(&tmp, "import", f.to_str()).is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

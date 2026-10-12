@@ -1,0 +1,12 @@
+[package]
+name = "lgtm-ast"
+version.workspace = true
+edition.workspace = true
+description = "tree-sitter parsing and queries for lgtm guards (UI-free)"
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tree-sitter = "0.25"
+tree-sitter-swift = "0.7"
+tree-sitter-typescript = "0.23"

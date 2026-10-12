@@ -340,6 +340,9 @@ impl App {
             (_, KeyCode::Char('U')) => {
                 self.unstage_current_file();
             }
+            (_, KeyCode::Char('M')) => {
+                self.toggle_review_current_hunk();
+            }
             (_, KeyCode::Char('X')) => {
                 self.discard_current_file_changes();
             }

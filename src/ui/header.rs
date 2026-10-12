@@ -116,6 +116,16 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         ));
+        if let Some(ci) = &app.ci {
+            header_spans.push(Span::styled(
+                format!("CI ✓{} ✗{} ⏳{} | ", ci.passed, ci.failed, ci.pending),
+                Style::default().fg(if ci.failed > 0 {
+                    Color::Red
+                } else {
+                    Color::Green
+                }),
+            ));
+        }
     } else {
         let turn = app.turn_manager.load_state().current_turn;
         header_spans.push(Span::raw(format!(" Turn #{} | ", turn)));

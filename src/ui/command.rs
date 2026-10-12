@@ -14,8 +14,13 @@ pub fn command_description(cmd: &str) -> &'static str {
         "sp" | "split" | "vsp" | "vsplit" => "Toggle split / unified view",
         "diff" => "Return to diff view",
         "commit" | "ci" => "Open Commit Forge to commit staged changes",
-        "c" | "comments" | "directives" | "todo" => "Open review directives list",
+        "c" | "comments" | "directives" | "todo" => {
+            "Open review directives list (`:directives recheck` reclassifies outcomes)"
+        }
         "r" | "review" | "send" | "push" | "submit" => "Export & blast batch review to agent",
+        "thread" => "Reply to or resolve a remote thread (:thread reply|resolve|unresolve <n>)",
+        "checks" => "Refresh CI check status for the open PR",
+        "threads" => "List remote review threads for the open PR",
         "hidden" => "List suppressed and baselined findings",
         "risk" | "audit" | "scan" => "Re-scan diff for security & test risks",
         "e" | "edit" | "reload" => "Reload diff from disk / PR",

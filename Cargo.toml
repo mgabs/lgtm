@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/lgtm-core", "crates/lgtm-mcp"]
+members = ["crates/lgtm-core", "crates/lgtm-mcp", "crates/lgtm-ast"]
 
 [workspace.package]
 version = "0.8.0"
@@ -17,6 +17,7 @@ fuzzy-matcher = "0.3.7"
 toml = "0.8"
 notify-debouncer-mini = "0.4.1"
 lgtm-core = { path = "crates/lgtm-core" }
+lgtm-ast = { path = "crates/lgtm-ast" }
 lgtm-mcp = { path = "crates/lgtm-mcp" }
 
 [package]
