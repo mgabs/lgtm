@@ -235,7 +235,19 @@ Once you have staged your verified hunks (`s` / `S`), press **`C`** (or type **`
 | `web/hook-conditional` | High | `useX()` inside if/loop/ternary (within one function) |
 | `web/ts-escape` | Warn | `@ts-ignore` / `@ts-nocheck` |
 
-Not yet: `"use client"` boundary leaks and unvalidated server actions (need whole-file context).
+Swift (`.swift`, same engine):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `swift/force-unwrap` | Warn | `x!` |
+| `swift/try-bang` | High | `try!` |
+| `swift/force-cast` | Warn | `as!` |
+| `swift/weak-crypto` | High | `CC_MD5`, `CC_SHA1`, `Insecure.MD5/SHA1` |
+| `swift/secret-in-userdefaults` | High | `UserDefaults ... forKey: "…token/password/secret/apikey…"` |
+| `test/xctskip` | Warn | `XCTSkip` |
+| `swift/empty-catch` | Warn | `catch { }` |
+
+Not yet: ATS disabled (`NSAllowsArbitraryLoads` lives in a plist, not Swift), permissive `WKWebView`. Web: `"use client"` boundary leaks and unvalidated server actions (need whole-file context).
 
 ### Identifier Hallucination & Typo Guard
 - **What it checks**: Extracts project-wide symbol identifiers (variable names, functions, structs, methods).

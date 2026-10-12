@@ -6,12 +6,14 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 pub enum Lang {
     Ts,
     Tsx,
+    Swift,
 }
 
 /// JS/JSX parse with the TSX grammar, which is a superset.
 pub fn lang_of(path: &Path) -> Option<Lang> {
     match path.extension()?.to_str()? {
         "ts" | "mts" | "cts" => Some(Lang::Ts),
+        "swift" => Some(Lang::Swift),
         "tsx" | "jsx" | "js" | "mjs" | "cjs" => Some(Lang::Tsx),
         _ => None,
     }
@@ -21,6 +23,7 @@ fn grammar(lang: Lang) -> Language {
     match lang {
         Lang::Ts => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         Lang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        Lang::Swift => tree_sitter_swift::LANGUAGE.into(),
     }
 }
 
@@ -120,6 +123,7 @@ mod tests {
         assert_eq!(lang_of(Path::new("a/b.tsx")), Some(Lang::Tsx));
         assert_eq!(lang_of(Path::new("a.js")), Some(Lang::Tsx));
         assert_eq!(lang_of(Path::new("a.ts")), Some(Lang::Ts));
+        assert_eq!(lang_of(Path::new("a.swift")), Some(Lang::Swift));
         assert_eq!(lang_of(Path::new("a.rs")), None);
     }
 }

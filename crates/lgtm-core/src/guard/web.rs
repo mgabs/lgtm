@@ -1,13 +1,14 @@
 use crate::guard::{Guard, GuardAlert, Severity};
 use crate::model::{FileDiff, LineType};
+use lgtm_ast::Lang;
 
-struct Rule {
-    id: &'static str,
-    severity: Severity,
-    title: &'static str,
-    description: &'static str,
-    query: &'static str,
-    inside: &'static [&'static str],
+pub(super) struct Rule {
+    pub(super) id: &'static str,
+    pub(super) severity: Severity,
+    pub(super) title: &'static str,
+    pub(super) description: &'static str,
+    pub(super) query: &'static str,
+    pub(super) inside: &'static [&'static str],
 }
 
 const RULES: &[Rule] = &[
@@ -77,46 +78,50 @@ impl Guard for WebGuard {
     }
 
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
-        let Some(lang) = lgtm_ast::lang_of(&file.new_path) else {
-            return Vec::new();
-        };
-        let path = file.display_name();
-        let mut alerts = Vec::new();
-        for hunk in &file.hunks {
-            // ponytail: parses each hunk's new-side lines as a fragment; full-file parse if context-sensitive rules need it
-            let side: Vec<_> = hunk
-                .lines
-                .iter()
-                .filter(|l| matches!(l.line_type, LineType::Addition | LineType::Context))
-                .collect();
-            let src = side
-                .iter()
-                .map(|l| l.content.as_str())
-                .collect::<Vec<_>>()
-                .join("\n");
-            for r in RULES {
-                let Ok(rows) = lgtm_ast::hits_within(lang, &src, r.query, r.inside) else {
+        run(file, RULES, |l| matches!(l, Lang::Ts | Lang::Tsx))
+    }
+}
+
+/// Shared by the AST guard packs: runs `rules` over the added lines of files whose language passes `accept`.
+pub(super) fn run(file: &FileDiff, rules: &[Rule], accept: fn(Lang) -> bool) -> Vec<GuardAlert> {
+    let Some(lang) = lgtm_ast::lang_of(&file.new_path).filter(|l| accept(*l)) else {
+        return Vec::new();
+    };
+    let path = file.display_name();
+    let mut alerts = Vec::new();
+    for hunk in &file.hunks {
+        // ponytail: parses each hunk's new-side lines as a fragment; full-file parse if context-sensitive rules need it
+        let side: Vec<_> = hunk
+            .lines
+            .iter()
+            .filter(|l| matches!(l.line_type, LineType::Addition | LineType::Context))
+            .collect();
+        let src = side
+            .iter()
+            .map(|l| l.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for r in rules {
+            let Ok(rows) = lgtm_ast::hits_within(lang, &src, r.query, r.inside) else {
+                continue;
+            };
+            for row in rows {
+                let Some(l) = side.get(row).filter(|l| l.line_type == LineType::Addition) else {
                     continue;
                 };
-                for row in rows {
-                    let Some(l) = side.get(row).filter(|l| l.line_type == LineType::Addition)
-                    else {
-                        continue;
-                    };
-                    alerts.push(GuardAlert {
-                        rule_id: r.id.into(),
-                        fingerprint: String::new(),
-                        severity: r.severity,
-                        title: r.title.into(),
-                        description: r.description.into(),
-                        line_no: l.new_line_num,
-                        file_path: path.clone(),
-                    });
-                }
+                alerts.push(GuardAlert {
+                    rule_id: r.id.into(),
+                    fingerprint: String::new(),
+                    severity: r.severity,
+                    title: r.title.into(),
+                    description: r.description.into(),
+                    line_no: l.new_line_num,
+                    file_path: path.clone(),
+                });
             }
         }
-        alerts
     }
+    alerts
 }
 
 #[cfg(test)]

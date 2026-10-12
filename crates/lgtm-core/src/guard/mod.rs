@@ -5,6 +5,7 @@ pub mod dead_code;
 pub mod deps;
 pub mod duplicate;
 pub mod security;
+pub mod swift;
 pub mod symbols;
 pub mod web;
 
@@ -70,6 +71,7 @@ pub fn registry() -> &'static [&'static dyn Guard] {
         &api_drift::ApiDriftGuard,
         &dead_code::DeadCodeGuard,
         &web::WebGuard,
+        &swift::SwiftGuard,
     ]
 }
 
@@ -491,7 +493,8 @@ mod tests {
                 "symbols",
                 "api_drift",
                 "dead_code",
-                "web"
+                "web",
+                "swift"
             ]
         );
     }

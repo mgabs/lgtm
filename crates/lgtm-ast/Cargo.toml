@@ -8,4 +8,5 @@ authors.workspace = true
 [dependencies]
 anyhow.workspace = true
 tree-sitter = "0.25"
+tree-sitter-swift = "0.7"
 tree-sitter-typescript = "0.23"
