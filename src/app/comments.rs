@@ -167,6 +167,43 @@ impl App {
         });
     }
 
+    /// `:pr post`: preview unless `confirmed` (`--yes`); nothing is sent without it.
+    pub fn post_pr_comments(
+        &mut self,
+        client: &dyn lgtm_core::github::GithubClient,
+        confirmed: bool,
+    ) {
+        use lgtm_core::github::post;
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return;
+        };
+        let plan = post::plan(&self.comments, &self.snapshot.files, pr);
+        if plan.total() == 0 {
+            self.status_message = Some("No unposted comments for this PR".to_string());
+            return;
+        }
+        if !confirmed {
+            self.status_message = Some(format!(
+                "Would post {} inline + {} general comment(s) to PR #{}; run `:pr post --yes` to send",
+                plan.inline.len(),
+                plan.general.len(),
+                pr
+            ));
+            return;
+        }
+        let store = &self.comment_store;
+        let report = post::post(
+            client,
+            pr,
+            &mut self.comments,
+            &plan,
+            std::time::Duration::from_millis(500),
+            |c| store.save_comments(c),
+        );
+        self.status_message = Some(report.summary());
+    }
+
     pub fn review_target(&self) -> String {
         match (self.pr.current_number, self.active_revision.as_deref()) {
             (Some(n), _) => format!("pr-{n}"),
@@ -269,6 +306,7 @@ impl App {
                 created_at_turn: turn_state.current_turn,
                 is_resolved: false,
                 pr_number: self.pr.current_number,
+                remote_id: None,
             };
 
             let _ = self.comment_store.add_comment(&anchor);
@@ -385,6 +423,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
+            remote_id: None,
         };
         app.comments.push(anchor);
 

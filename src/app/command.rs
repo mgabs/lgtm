@@ -93,6 +93,11 @@ impl App {
                 }
             }
             "pr" => {
+                if args.first() == Some(&"post") {
+                    let confirmed = args.contains(&"--yes");
+                    self.post_pr_comments(&lgtm_core::github::GhClient, confirmed);
+                    return;
+                }
                 if let Some(arg) = args.first() {
                     if let Ok(pr_num) = arg.parse::<u64>() {
                         match crate::diff_source::DiffSource::snapshot(
@@ -614,6 +619,7 @@ mod tests {
                 },
             ],
             error: None,
+            ..Default::default()
         };
         app.refresh_github(&fake, false);
         assert_eq!(app.ci.as_ref().map(|c| (c.passed, c.failed)), Some((1, 1)));
@@ -634,6 +640,56 @@ mod tests {
         app.refresh_github(&bad, true);
         assert_eq!(app.status_message.as_deref(), Some("gh missing"));
         assert_eq!(app.threads.len(), 2);
+    }
+
+    #[test]
+    fn test_pr_post_previews_then_posts_with_confirmation() {
+        use lgtm_core::github::FakeClient;
+        let mut app = create_test_app();
+        app.post_pr_comments(&FakeClient::default(), true);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+        app.pr.current_number = Some(4);
+        app.post_pr_comments(&FakeClient::default(), true);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No unposted comments for this PR")
+        );
+        let mut c =
+            app.comments
+                .first()
+                .cloned()
+                .unwrap_or_else(|| lgtm_core::comment::CommentAnchor {
+                    file_path: "nowhere.rs".into(),
+                    target_line_no: 1,
+                    target_code: String::new(),
+                    context_before: vec![],
+                    context_after: vec![],
+                    comment_text: "hi".into(),
+                    replies: vec![],
+                    created_at_turn: 1,
+                    is_resolved: false,
+                    pr_number: None,
+                    remote_id: None,
+                });
+        c.pr_number = Some(4);
+        c.remote_id = None;
+        c.is_resolved = false;
+        app.comments = vec![c];
+        let fake = FakeClient::default();
+        app.post_pr_comments(&fake, false);
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Would post"));
+        assert!(fake.posted.borrow().is_empty());
+        app.post_pr_comments(&fake, true);
+        assert_eq!(app.status_message.as_deref(), Some("1 of 1 posted"));
+        assert_eq!(fake.posted.borrow().len(), 1);
+        assert!(app.comments[0].remote_id.is_some());
     }
 
     #[test]

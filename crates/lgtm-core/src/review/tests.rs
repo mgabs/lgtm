@@ -47,6 +47,7 @@ fn anchor(path: &str, ln: u32, code: &str) -> CommentAnchor {
         created_at_turn: 1,
         is_resolved: false,
         pr_number: None,
+        remote_id: None,
     }
 }
 

@@ -39,8 +39,6 @@ pub struct ReviewComment {
     #[serde(default)]
     pub status: Status,
     #[serde(default)]
-    pub remote_id: Option<u64>,
-    #[serde(default)]
     pub remote_thread: Option<String>,
 }
 
@@ -186,7 +184,6 @@ impl ReviewComment {
             content_hash: String::new(),
             hunk_start: 0,
             line_idx: 0,
-            remote_id: None,
             remote_thread: None,
         };
         let line = c.anchor.target_line_no;

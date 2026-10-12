@@ -18,6 +18,9 @@ pub struct CommentAnchor {
     pub is_resolved: bool,
     #[serde(default)]
     pub pr_number: Option<u64>,
+    /// GitHub comment id once posted; posted comments are never posted again.
+    #[serde(default)]
+    pub remote_id: Option<u64>,
 }
 
 impl CommentAnchor {
@@ -181,6 +184,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
+            remote_id: None,
         };
 
         store.add_comment(&c1).unwrap();
@@ -218,6 +222,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: Some(99),
+            remote_id: None,
         };
 
         store.save_comments(&[c1.clone(), c2.clone()]).unwrap();

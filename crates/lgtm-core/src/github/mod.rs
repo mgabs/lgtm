@@ -53,6 +53,11 @@ pub struct Thread {
 pub trait GithubClient {
     fn checks(&self, pr: u64) -> Result<Vec<Check>>;
     fn threads(&self, pr: u64) -> Result<Vec<Thread>>;
+    fn head_sha(&self, pr: u64) -> Result<String>;
+    /// Inline review comment on the new side of `path:line`; returns the comment id.
+    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64>;
+    /// General PR conversation comment; returns the comment id.
+    fn post_general(&self, pr: u64, body: &str) -> Result<u64>;
 }
 
 pub struct GhClient;
@@ -176,14 +181,84 @@ impl GithubClient for GhClient {
         }
         parse_threads(&String::from_utf8_lossy(&out.stdout))
     }
+
+    fn head_sha(&self, pr: u64) -> Result<String> {
+        let out = gh(&[
+            "pr",
+            "view",
+            &pr.to_string(),
+            "--json",
+            "headRefOid",
+            "-q",
+            ".headRefOid",
+        ])?;
+        if !out.status.success() {
+            bail!(explain(&String::from_utf8_lossy(&out.stderr)));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
+    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+        let ep = format!("repos/{{owner}}/{{repo}}/pulls/{pr}/comments");
+        let (b, c, p, l) = (
+            format!("body={body}"),
+            format!("commit_id={sha}"),
+            format!("path={path}"),
+            format!("line={line}"),
+        );
+        post_id(gh(&[
+            "api",
+            &ep,
+            "-f",
+            &b,
+            "-f",
+            &c,
+            "-f",
+            &p,
+            "-F",
+            &l,
+            "-f",
+            "side=RIGHT",
+        ])?)
+    }
+
+    fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
+        let ep = format!("repos/{{owner}}/{{repo}}/issues/{pr}/comments");
+        post_id(gh(&["api", &ep, "-f", &format!("body={body}")])?)
+    }
 }
 
-/// In-memory client for tests; set `error` to simulate a failure.
+fn post_id(out: std::process::Output) -> Result<u64> {
+    if !out.status.success() {
+        bail!(explain(&String::from_utf8_lossy(&out.stderr)));
+    }
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.stdout).context("unexpected comment response")?;
+    v.get("id")
+        .and_then(|i| i.as_u64())
+        .context("comment response had no id")
+}
+
+/// In-memory client for tests; set `error` to simulate a failure and `fail_post_after` to
+/// fail every post once that many have succeeded. Posts are recorded as `path:line:body`.
 #[derive(Default)]
 pub struct FakeClient {
     pub checks: Vec<Check>,
     pub threads: Vec<Thread>,
     pub error: Option<String>,
+    pub fail_post_after: Option<usize>,
+    pub posted: std::cell::RefCell<Vec<String>>,
+}
+
+impl FakeClient {
+    fn record(&self, entry: String) -> Result<u64> {
+        let mut p = self.posted.borrow_mut();
+        if self.fail_post_after.is_some_and(|n| p.len() >= n) {
+            bail!("rate limited");
+        }
+        p.push(entry);
+        Ok(100 + p.len() as u64)
+    }
 }
 
 impl GithubClient for FakeClient {
@@ -199,7 +274,21 @@ impl GithubClient for FakeClient {
             None => Ok(self.threads.clone()),
         }
     }
+    fn head_sha(&self, _pr: u64) -> Result<String> {
+        match &self.error {
+            Some(e) => bail!("{e}"),
+            None => Ok("sha1".to_string()),
+        }
+    }
+    fn post_inline(&self, _pr: u64, _sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+        self.record(format!("{path}:{line}:{body}"))
+    }
+    fn post_general(&self, _pr: u64, body: &str) -> Result<u64> {
+        self.record(format!("general:{body}"))
+    }
 }
+
+pub mod post;
 
 #[cfg(test)]
 mod tests;
