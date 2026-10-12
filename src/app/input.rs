@@ -1088,15 +1088,11 @@ impl App {
                             alert.title,
                             alert.description
                         );
-                        if let Some(ref pane) = self.agent_pane {
-                            let _ = IpcBridge::send_to_tmux(pane, &directive);
-                            self.status_message =
-                                Some(format!("Injected directive to pane {}", pane));
-                        } else {
-                            IpcBridge::send_osc52_clipboard(&directive);
-                            self.status_message =
-                                Some("Copied directive to clipboard (OSC 52)".into());
-                        }
+                        let sink = self.agent_sink();
+                        let _ = sink.send(&directive);
+                        let label = sink.label();
+                        drop(sink);
+                        self.status_message = Some(format!("Sent directive to {}", label));
                     }
                 }
             },
@@ -1166,20 +1162,12 @@ impl App {
                             alert.description
                         ));
                     }
-                    if let Some(ref pane) = self.agent_pane {
-                        let _ = IpcBridge::send_to_tmux(pane, &payload);
-                        self.status_message = Some(format!(
-                            "Injected {} issues to pane {}",
-                            filtered.len(),
-                            pane
-                        ));
-                    } else {
-                        IpcBridge::send_osc52_clipboard(&payload);
-                        self.status_message = Some(format!(
-                            "Copied {} issues to clipboard (OSC 52)",
-                            filtered.len()
-                        ));
-                    }
+                    let sink = self.agent_sink();
+                    let _ = sink.send(&payload);
+                    let label = sink.label();
+                    drop(sink);
+                    self.status_message =
+                        Some(format!("Sent {} issues to {}", filtered.len(), label));
                 }
             }
             // File picker: 'f' or Ctrl-p

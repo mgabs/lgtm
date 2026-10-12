@@ -1,3 +1,5 @@
+pub mod sink;
+
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 

@@ -108,21 +108,20 @@ impl App {
             for reply in &comment.replies {
                 payload.push_str(&format!("\n↳ Reply: {}", reply));
             }
-            if let Some(ref pane) = self.agent_pane {
-                if let Err(e) = IpcBridge::send_to_tmux(pane, &payload) {
-                    self.status_message = Some(format!("Send failed: {}", e));
-                    IpcBridge::send_osc52_clipboard(&payload);
-                } else {
-                    self.status_message =
-                        Some(format!("Sent to pane {}: {}", pane, comment.file_path));
+            let sink = self.agent_sink();
+            let result = sink.send(&payload);
+            let label = sink.label();
+            drop(sink);
+            self.status_message = Some(match result {
+                Ok(()) => format!(
+                    "Sent to {}: {}:{}",
+                    label, comment.file_path, comment.target_line_no
+                ),
+                Err(e) => {
+                    let _ = crate::ipc::sink::ClipboardSink.send(&payload);
+                    format!("Send failed: {}", e)
                 }
-            } else {
-                IpcBridge::send_osc52_clipboard(&payload);
-                self.status_message = Some(format!(
-                    "Copied directive to clipboard: {}:{}",
-                    comment.file_path, comment.target_line_no
-                ));
-            }
+            });
         }
     }
 

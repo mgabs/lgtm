@@ -1,6 +1,7 @@
 use crate::comment::{CommentAnchor, CommentStore};
 use crate::git::GitEngine;
 use crate::guard::{GuardAlert, SecurityAndTestGuard};
+use crate::ipc::sink::AgentSink;
 use crate::ipc::IpcBridge;
 use crate::model::{DiffHunk, DiffSnapshot, FileDiff};
 use crate::turn::TurnManager;

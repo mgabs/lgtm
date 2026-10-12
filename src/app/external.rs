@@ -17,14 +17,16 @@ impl App {
                 }
             }
 
-            if let Some(ref pane) = self.agent_pane {
-                let inject_msg = format!("Please review directives in {}", file_path.display());
-                let _ = IpcBridge::send_to_tmux(pane, &inject_msg);
-                notes.push(format!("Notified pane {}", pane));
+            let sink = self.agent_sink();
+            let text = if self.agent_pane.is_some() {
+                format!("Please review directives in {}", file_path.display())
             } else {
-                IpcBridge::send_osc52_clipboard(&prompt);
-                notes.push("Copied prompt to clipboard".to_string());
-            }
+                prompt.clone()
+            };
+            let _ = sink.send(&text);
+            let label = sink.label();
+            drop(sink);
+            notes.push(format!("Delivered to {}", label));
 
             self.status_message = Some(notes.join(" | "));
             return;
@@ -36,21 +38,20 @@ impl App {
         let full_path = self.git_engine.repo_path.join(&file_path);
         let _ = std::fs::write(&full_path, &prompt);
 
-        if let Some(ref pane) = self.agent_pane {
-            let inject_msg = format!("Please review directives in {}", file_path.display());
-            let _ = IpcBridge::send_to_tmux(pane, &inject_msg);
-            self.status_message = Some(format!(
-                "Exported {} and notified pane {}",
-                file_path.display(),
-                pane
-            ));
+        let sink = self.agent_sink();
+        let text = if self.agent_pane.is_some() {
+            format!("Please review directives in {}", file_path.display())
         } else {
-            IpcBridge::send_osc52_clipboard(&prompt);
-            self.status_message = Some(format!(
-                "Exported {} and copied prompt to clipboard",
-                file_path.display()
-            ));
-        }
+            prompt.clone()
+        };
+        let _ = sink.send(&text);
+        let label = sink.label();
+        drop(sink);
+        self.status_message = Some(format!(
+            "Exported {} and delivered to {}",
+            file_path.display(),
+            label
+        ));
 
         let _ = self.turn_manager.advance_turn(None);
     }
@@ -85,17 +86,25 @@ impl App {
                 None => format!("#ref {}", path_str),
             };
 
-            if let Some(ref pane) = self.agent_pane {
-                if let Err(e) = IpcBridge::send_to_tmux(pane, &payload) {
-                    self.status_message = Some(format!("Send failed: {}", e));
-                    IpcBridge::send_osc52_clipboard(&payload);
-                } else {
-                    self.status_message = Some(format!("Sent to pane {}: {}", pane, payload));
+            let sink = self.agent_sink();
+            let result = sink.send(&payload);
+            let label = sink.label();
+            drop(sink);
+            self.status_message = Some(match result {
+                Ok(()) => format!("Sent to {}: {}", label, payload),
+                Err(e) => {
+                    let _ = crate::ipc::sink::ClipboardSink.send(&payload);
+                    format!("Send failed: {}", e)
                 }
-            } else {
-                IpcBridge::send_osc52_clipboard(&payload);
-                self.status_message = Some(format!("Copied to clipboard: {}", payload));
-            }
+            });
+        }
+    }
+
+    pub fn agent_sink(&self) -> Box<dyn crate::ipc::sink::AgentSink + '_> {
+        use crate::ipc::sink::*;
+        match self.agent_pane.as_deref() {
+            Some(pane) => Box::new(TmuxSink(pane)),
+            None => Box::new(ClipboardSink),
         }
     }
 
