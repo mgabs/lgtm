@@ -46,6 +46,14 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | A5 | Agent sinks: Zellij, WezTerm, kitty | M | R3 |
 | A6 | Docs incl. MCP client setup | S | A4, A5 |
 
+### D — CI/CD step (spec: `specs/2026-10-12-cicd-integration-design.md`, draft)
+| ID | Item | Effort | Depends on |
+|---|---|---|---|
+| D1 | Shared `DiffMode` + `--rev` on `check`/`ci`; exit codes 0/1/2 | S | B |
+| D2 | Composite GitHub Action: verified install, gate, SARIF upload, job summary | M | D1 |
+| D3 | CI recipes (GitLab, Azure DevOps), pre-commit hook, WIKI section | S | D1 |
+| D4 | Self-test workflow against fixture PR branches | S | D2 |
+
 Soft dependency: A3's `lgtm_scan_changes` prefers B1 fingerprints but has a fallback.
 
 ## Dependency spine
