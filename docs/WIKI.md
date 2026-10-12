@@ -520,7 +520,7 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 |---|---|
 | `src/main.rs` | Entry point, TUI launcher |
 | `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `coverage`, `init`) |
-| `src/app/` | TUI state machine split by concern: input, motion, command, comments, staging, audit, pr, commit, external |
+| `src/app/` | TUI state machine split by concern: input, motion, command, comments, staging, audit, pr, commit, external; `state` holds CommandLine, pickers, AuditState, PrState |
 | `src/ui/` | Ratatui rendering split by view; `modals/` for dialogs |
 | `src/model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
 | `src/scan.rs` | Full repo scanner and report generator |

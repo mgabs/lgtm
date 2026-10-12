@@ -12,7 +12,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
 | R1 ✅ | Mechanical split of `app`, `ui`, `main` (+ fix hard-coded `mutate` labels) — done on `refactor/r1-mechanical-split` | M | — |
-| R2 | State extraction: `CommandLine`, `Picker`, `AuditState`, `PrState`, `CommitForge` | M | R1 |
+| R2 ✅ | State extraction: `CommandLine`, `FilePicker`/`PanePicker`, `AuditState`, `PrState` (no `CommitForge`: one field) | M | R1 |
 | R3 | Internal traits: `Guard` + registry, `DiffSource`, `AgentSink` (golden-output parity) | M | R2 |
 | R4 | Cargo workspace: `lgtm-core`, `lgtm-mcp`, `lgtm` (scripts, CI, release, tap) | L | R3 |
 | R5 | Boundary enforcement CI check + docs | XS | R4 |
