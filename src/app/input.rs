@@ -369,8 +369,8 @@ impl App {
                 self.prev_paragraph();
             }
             (_, KeyCode::Char(':')) => {
-                self.command_input.clear();
-                self.command_history_idx = None;
+                self.command.input.clear();
+                self.command.history_idx = None;
                 self.active_view = ActiveView::CommandLine;
             }
             (_, KeyCode::Enter) => {
@@ -405,64 +405,64 @@ impl App {
     pub(crate) fn handle_command_line_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
-                self.command_input.clear();
-                self.command_history_idx = None;
-                self.command_completions.clear();
-                self.command_completion_idx = None;
-                self.command_prefix.clear();
+                self.command.input.clear();
+                self.command.history_idx = None;
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Backspace) => {
-                self.command_completions.clear();
-                self.command_completion_idx = None;
-                self.command_prefix.clear();
-                if self.command_input.is_empty() {
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
+                if self.command.input.is_empty() {
                     self.active_view = ActiveView::Diff;
                 } else {
-                    self.command_input.pop();
+                    self.command.input.pop();
                 }
             }
             (_, KeyCode::Up) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
-                if !self.command_history.is_empty() {
-                    let next_idx = match self.command_history_idx {
+                if !self.command.history.is_empty() {
+                    let next_idx = match self.command.history_idx {
                         Some(0) => 0,
                         Some(i) => i - 1,
-                        None => self.command_history.len() - 1,
+                        None => self.command.history.len() - 1,
                     };
-                    self.command_history_idx = Some(next_idx);
-                    self.command_input = self.command_history[next_idx].clone();
-                    self.command_completions.clear();
-                    self.command_completion_idx = None;
+                    self.command.history_idx = Some(next_idx);
+                    self.command.input = self.command.history[next_idx].clone();
+                    self.command.completions.clear();
+                    self.command.completion_idx = None;
                 }
             }
             (_, KeyCode::Down) | (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
-                if let Some(i) = self.command_history_idx {
-                    if i + 1 < self.command_history.len() {
+                if let Some(i) = self.command.history_idx {
+                    if i + 1 < self.command.history.len() {
                         let next_idx = i + 1;
-                        self.command_history_idx = Some(next_idx);
-                        self.command_input = self.command_history[next_idx].clone();
+                        self.command.history_idx = Some(next_idx);
+                        self.command.input = self.command.history[next_idx].clone();
                     } else {
-                        self.command_history_idx = None;
-                        self.command_input.clear();
+                        self.command.history_idx = None;
+                        self.command.input.clear();
                     }
-                    self.command_completions.clear();
-                    self.command_completion_idx = None;
+                    self.command.completions.clear();
+                    self.command.completion_idx = None;
                 }
             }
             (_, KeyCode::BackTab) | (KeyModifiers::SHIFT, KeyCode::Tab) => {
-                self.autocomplete_prev();
+                self.command.autocomplete_prev();
             }
             (_, KeyCode::Tab) => {
-                self.autocomplete_next();
+                self.command.autocomplete_next();
             }
             (_, KeyCode::Enter) => {
-                let cmd = self.command_input.trim().to_string();
-                self.command_completions.clear();
-                self.command_completion_idx = None;
-                self.command_prefix.clear();
+                let cmd = self.command.input.trim().to_string();
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
                 if !cmd.is_empty() {
-                    if self.command_history.last().map(|s| s.as_str()) != Some(&cmd) {
-                        self.command_history.push(cmd.clone());
+                    if self.command.history.last().map(|s| s.as_str()) != Some(&cmd) {
+                        self.command.history.push(cmd.clone());
                     }
                     self.execute_command(&cmd);
                 } else {
@@ -470,10 +470,10 @@ impl App {
                 }
             }
             (_, KeyCode::Char(c)) => {
-                self.command_completions.clear();
-                self.command_completion_idx = None;
-                self.command_prefix.clear();
-                self.command_input.push(c);
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
+                self.command.input.push(c);
             }
             _ => {}
         }
@@ -1201,10 +1201,10 @@ impl App {
                 }
             }
             (_, KeyCode::Char(':')) => {
-                self.command_input.clear();
-                self.command_completions.clear();
-                self.command_completion_idx = None;
-                self.command_prefix.clear();
+                self.command.input.clear();
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
                 self.active_view = ActiveView::CommandLine;
             }
             _ => {

@@ -55,7 +55,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         ActiveView::Search => render_search_input(frame, size, app),
         ActiveView::CommitModal => render_commit_modal(frame, size, app),
         ActiveView::CommandLine => {
-            if !app.command_completions.is_empty() {
+            if !app.command.completions.is_empty() {
                 render_command_completion_column(frame, size, app);
             }
         }
@@ -126,8 +126,8 @@ mod tests {
 
         // Test rendering CommandLine with completions
         app.active_view = ActiveView::CommandLine;
-        app.command_completions = vec!["w".into(), "write".into(), "wq".into()];
-        app.command_completion_idx = Some(1);
+        app.command.completions = vec!["w".into(), "write".into(), "wq".into()];
+        app.command.completion_idx = Some(1);
         terminal.draw(|f| render(f, &mut app)).unwrap();
 
         // Test rendering FilePicker

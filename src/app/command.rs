@@ -1,97 +1,6 @@
 use super::*;
 
 impl App {
-    pub fn autocomplete_next(&mut self) {
-        let commands = [
-            "audit",
-            "c",
-            "clear",
-            "clear-resolved",
-            "comments",
-            "commit",
-            "d",
-            "del",
-            "delete",
-            "diff",
-            "directives",
-            "drawer",
-            "e",
-            "edit",
-            "exit",
-            "f",
-            "files",
-            "find",
-            "h",
-            "help",
-            "pane",
-            "panes",
-            "pr",
-            "prs",
-            "push",
-            "q",
-            "quit",
-            "r",
-            "ref",
-            "reload",
-            "res",
-            "resolve",
-            "review",
-            "risk",
-            "s",
-            "scan",
-            "send",
-            "sidebar",
-            "sp",
-            "split",
-            "submit",
-            "todo",
-            "tree",
-            "unresolve",
-            "vsp",
-            "vsplit",
-            "w",
-            "write",
-            "wq",
-            "x",
-            "yank",
-            "yr",
-        ];
-
-        if self.command_completions.is_empty() {
-            let current = self.command_input.trim_start_matches(':').trim();
-            self.command_prefix = current.to_string();
-            let matches: Vec<String> = commands
-                .iter()
-                .filter(|&&cmd| current.is_empty() || cmd.starts_with(current))
-                .map(|&s| s.to_string())
-                .collect();
-
-            if !matches.is_empty() {
-                self.command_completions = matches;
-                self.command_completion_idx = Some(0);
-                self.command_input = self.command_completions[0].clone();
-            }
-        } else if let Some(idx) = self.command_completion_idx {
-            let next_idx = (idx + 1) % self.command_completions.len();
-            self.command_completion_idx = Some(next_idx);
-            self.command_input = self.command_completions[next_idx].clone();
-        }
-    }
-
-    pub fn autocomplete_prev(&mut self) {
-        if !self.command_completions.is_empty() {
-            if let Some(idx) = self.command_completion_idx {
-                let prev_idx = if idx == 0 {
-                    self.command_completions.len() - 1
-                } else {
-                    idx - 1
-                };
-                self.command_completion_idx = Some(prev_idx);
-                self.command_input = self.command_completions[prev_idx].clone();
-            }
-        }
-    }
-
     pub fn execute_command(&mut self, raw_cmd: &str) {
         let trimmed = raw_cmd.trim().trim_start_matches(':').trim();
         if trimmed.is_empty() {
@@ -549,39 +458,39 @@ mod tests {
     #[test]
     fn test_ex_command_autocomplete() {
         let mut app = create_test_app();
-        app.command_input = "w".to_string();
-        app.autocomplete_next();
-        assert!(!app.command_completions.is_empty());
-        assert_eq!(app.command_input, "w");
+        app.command.input = "w".to_string();
+        app.command.autocomplete_next();
+        assert!(!app.command.completions.is_empty());
+        assert_eq!(app.command.input, "w");
 
-        app.autocomplete_next();
-        assert_eq!(app.command_input, "write");
+        app.command.autocomplete_next();
+        assert_eq!(app.command.input, "write");
 
-        app.autocomplete_next();
-        assert_eq!(app.command_input, "wq");
+        app.command.autocomplete_next();
+        assert_eq!(app.command.input, "wq");
 
-        app.autocomplete_prev();
-        assert_eq!(app.command_input, "write");
+        app.command.autocomplete_prev();
+        assert_eq!(app.command.input, "write");
 
         // Test :e<tab>
         let mut app_e = create_test_app();
-        app_e.command_input = "e".to_string();
-        app_e.autocomplete_next();
-        assert_eq!(app_e.command_completions, vec!["e", "edit", "exit"]);
-        assert_eq!(app_e.command_input, "e");
-        app_e.autocomplete_next();
-        assert_eq!(app_e.command_input, "edit");
-        app_e.autocomplete_next();
-        assert_eq!(app_e.command_input, "exit");
+        app_e.command.input = "e".to_string();
+        app_e.command.autocomplete_next();
+        assert_eq!(app_e.command.completions, vec!["e", "edit", "exit"]);
+        assert_eq!(app_e.command.input, "e");
+        app_e.command.autocomplete_next();
+        assert_eq!(app_e.command.input, "edit");
+        app_e.command.autocomplete_next();
+        assert_eq!(app_e.command.input, "exit");
 
         // Test :<tab> (empty input shows all commands)
         let mut app_all = create_test_app();
-        app_all.command_input = "".to_string();
-        app_all.autocomplete_next();
-        assert!(app_all.command_completions.len() > 30);
-        assert_eq!(app_all.command_input, "audit");
-        app_all.autocomplete_next();
-        assert_eq!(app_all.command_input, "c");
+        app_all.command.input = "".to_string();
+        app_all.command.autocomplete_next();
+        assert!(app_all.command.completions.len() > 30);
+        assert_eq!(app_all.command.input, "audit");
+        app_all.command.autocomplete_next();
+        assert_eq!(app_all.command.input, "c");
     }
 
     #[test]

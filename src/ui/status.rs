@@ -10,7 +10,7 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                &app.command_input,
+                &app.command.input,
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
@@ -18,10 +18,10 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
             Span::styled("█ ", Style::default().fg(Color::Yellow)),
         ];
 
-        if !app.command_completions.is_empty() {
+        if !app.command.completions.is_empty() {
             spans.push(Span::styled(" ❮ ", Style::default().fg(Color::DarkGray)));
-            for (idx, completion) in app.command_completions.iter().enumerate() {
-                let is_active = app.command_completion_idx == Some(idx);
+            for (idx, completion) in app.command.completions.iter().enumerate() {
+                let is_active = app.command.completion_idx == Some(idx);
                 if is_active {
                     spans.push(Span::styled(
                         format!(" {} ", completion),

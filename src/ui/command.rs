@@ -27,7 +27,7 @@ pub fn command_description(cmd: &str) -> &'static str {
 }
 
 pub(crate) fn render_command_completion_column(frame: &mut Frame, area: Rect, app: &App) {
-    let total = app.command_completions.len();
+    let total = app.command.completions.len();
     if total == 0 {
         return;
     }
@@ -42,7 +42,7 @@ pub(crate) fn render_command_completion_column(frame: &mut Frame, area: Rect, ap
     frame.render_widget(Clear, popup_area);
 
     let visible_rows = popup_height.saturating_sub(2) as usize;
-    let active_idx = app.command_completion_idx.unwrap_or(0);
+    let active_idx = app.command.completion_idx.unwrap_or(0);
     let start_idx = if active_idx >= visible_rows {
         active_idx - visible_rows + 1
     } else {
@@ -50,7 +50,7 @@ pub(crate) fn render_command_completion_column(frame: &mut Frame, area: Rect, ap
     };
     let end_idx = (start_idx + visible_rows).min(total);
 
-    let items: Vec<ListItem> = app.command_completions[start_idx..end_idx]
+    let items: Vec<ListItem> = app.command.completions[start_idx..end_idx]
         .iter()
         .enumerate()
         .map(|(rel_idx, cmd)| {

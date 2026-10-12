@@ -11,6 +11,8 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::path::PathBuf;
 
+pub use state::*;
+
 mod audit;
 mod command;
 mod comments;
@@ -20,6 +22,7 @@ mod input;
 mod motion;
 mod pr;
 mod staging;
+mod state;
 #[cfg(test)]
 mod test_util;
 
@@ -102,12 +105,7 @@ pub struct App {
     pub help_selected_tab: usize,
 
     // Ex-command line state (:cmds)
-    pub command_input: String,
-    pub command_history: Vec<String>,
-    pub command_history_idx: Option<usize>,
-    pub command_completions: Vec<String>,
-    pub command_completion_idx: Option<usize>,
-    pub command_prefix: String,
+    pub command: CommandLine,
 
     // Active Git Revision
     pub active_revision: Option<String>,
@@ -227,12 +225,7 @@ impl App {
             comment_list_selected_idx: 0,
             commit_message_input: String::new(),
             help_selected_tab: 0,
-            command_input: String::new(),
-            command_history: Vec::new(),
-            command_history_idx: None,
-            command_completions: Vec::new(),
-            command_completion_idx: None,
-            command_prefix: String::new(),
+            command: CommandLine::default(),
             selected_alert_idx: 0,
             pending_leader: None,
             search_query: String::new(),
