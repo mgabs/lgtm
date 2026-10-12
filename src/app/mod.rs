@@ -59,6 +59,8 @@ pub struct App {
     // Full Repo Audit state
     pub audit: AuditState,
     pub config: lgtm_core::config::LgtmConfig,
+    /// Findings hidden from the alert list: inline/config suppressed and baselined.
+    pub hidden: std::cell::RefCell<Hidden>,
 
     pub selected_file_idx: usize,
     pub diff_scroll_offset: usize,
@@ -114,13 +116,31 @@ pub struct App {
     pub watcher_rx: Receiver<WatcherMessage>,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct Hidden {
+    pub suppressed: Vec<GuardAlert>,
+    pub existing: Vec<GuardAlert>,
+}
+
+fn scan_findings(
+    repo: &std::path::Path,
+    files: &[crate::model::FileDiff],
+    cfg: &lgtm_core::config::LgtmConfig,
+) -> lgtm_core::findings::Findings {
+    // a broken baseline file must not hide findings
+    lgtm_core::findings::run_in(repo, files, cfg)
+        .unwrap_or_else(|_| lgtm_core::findings::run(files, cfg))
+}
+
 impl App {
-    /// Guards plus config pipeline; suppressed findings are not shown.
+    /// Guards plus config pipeline; hidden findings are kept in `self.hidden`.
     pub fn scan(&self, files: &[crate::model::FileDiff]) -> Vec<GuardAlert> {
-        // a broken baseline file must not hide findings
-        lgtm_core::findings::run_in(&self.git_engine.repo_path, files, &self.config)
-            .unwrap_or_else(|_| lgtm_core::findings::run(files, &self.config))
-            .active
+        let f = scan_findings(&self.git_engine.repo_path, files, &self.config);
+        *self.hidden.borrow_mut() = Hidden {
+            suppressed: f.suppressed,
+            existing: f.existing,
+        };
+        f.active
     }
 
     pub fn new(
@@ -183,9 +203,12 @@ impl App {
             lgtm_core::config::user_config_path(false).as_deref(),
         )
         .unwrap_or_default();
-        let alerts = lgtm_core::findings::run_in(&repo_path, &snapshot.files, &config)
-            .unwrap_or_else(|_| lgtm_core::findings::run(&snapshot.files, &config))
-            .active;
+        let found = scan_findings(&repo_path, &snapshot.files, &config);
+        let hidden = Hidden {
+            suppressed: found.suppressed,
+            existing: found.existing,
+        };
+        let alerts = found.active;
         let comments = comment_store.load_comments();
         let agent_pane = explicit_pane.or_else(IpcBridge::detect_agent_pane);
 
@@ -196,6 +219,7 @@ impl App {
             snapshot,
             alerts,
             config,
+            hidden: std::cell::RefCell::new(hidden),
             comments,
             audit: AuditState::new(repo_path.clone()),
             selected_file_idx: 0,

@@ -25,7 +25,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | B2 ✅ | `.lgtm.toml` loader (repo + user), `config --show` | M | B1 |
 | B3 ✅ | Findings pipeline: severity overrides, path ignores, scoped suppressions | M | B2 |
 | B4 ✅ | Baseline commands and new/existing/stale partition | M | B3 |
-| B5 | TUI display of suppressed/baselined + docs | S | B4 |
+| B5 ✅ | TUI display of suppressed/baselined + docs | S | B4 |
 
 ### C — Durable review state and GitHub
 | ID | Item | Effort | Depends on |

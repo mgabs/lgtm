@@ -67,6 +67,7 @@ impl CommandLine {
             "find",
             "h",
             "help",
+            "hidden",
             "pane",
             "panes",
             "pr",

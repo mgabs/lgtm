@@ -275,6 +275,35 @@ impl App {
             "audit" => {
                 self.trigger_repo_scan();
             }
+            "hidden" => {
+                let h = self.hidden.borrow();
+                let list: Vec<String> = h
+                    .suppressed
+                    .iter()
+                    .map(|a| ("suppressed", a))
+                    .chain(h.existing.iter().map(|a| ("baselined", a)))
+                    .take(5)
+                    .map(|(k, a)| {
+                        format!(
+                            "{} {} {}:{}",
+                            k,
+                            a.rule_id,
+                            a.file_path,
+                            a.line_no.unwrap_or(0)
+                        )
+                    })
+                    .collect();
+                self.status_message = Some(if list.is_empty() {
+                    "No suppressed or baselined findings".into()
+                } else {
+                    format!(
+                        "{} suppressed, {} baselined: {}",
+                        h.suppressed.len(),
+                        h.existing.len(),
+                        list.join("; ")
+                    )
+                });
+            }
             "scan" | "issues" => {
                 if args.first() == Some(&"repo") {
                     self.trigger_repo_scan();
@@ -541,6 +570,34 @@ mod tests {
         // Jump to specific file and line
         app.jump_to_file_and_line("src/main.rs", 3);
         assert_eq!(app.cursor_line_idx, 2);
+    }
+
+    #[test]
+    fn test_hidden_command_lists_suppressed_and_baselined() {
+        let mut app = create_test_app();
+        app.execute_command("hidden");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No suppressed or baselined findings")
+        );
+        let mk = |rule: &str| crate::guard::GuardAlert {
+            rule_id: rule.into(),
+            fingerprint: String::new(),
+            severity: crate::guard::Severity::Warn,
+            title: "t".into(),
+            description: "d".into(),
+            line_no: Some(3),
+            file_path: "a.rs".into(),
+        };
+        *app.hidden.borrow_mut() = Hidden {
+            suppressed: vec![mk("sec/a")],
+            existing: vec![mk("dead/b")],
+        };
+        app.execute_command("hidden");
+        let msg = app.status_message.unwrap();
+        assert!(msg.starts_with("1 suppressed, 1 baselined"));
+        assert!(msg.contains("suppressed sec/a a.rs:3"));
+        assert!(msg.contains("baselined dead/b a.rs:3"));
     }
 
     #[test]

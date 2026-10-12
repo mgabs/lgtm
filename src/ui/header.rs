@@ -139,6 +139,17 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         )),
     ]);
 
+    let (n_supp, n_base) = {
+        let h = app.hidden.borrow();
+        (h.suppressed.len(), h.existing.len())
+    };
+    if n_supp + n_base > 0 {
+        header_spans.push(Span::styled(
+            format!(" (+{} suppressed, {} baselined :hidden) |", n_supp, n_base),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
     if !app.alerts.is_empty() {
         header_spans.push(Span::styled(
             format!(" ⚠️ {} alerts (w) |", app.alerts.len()),
