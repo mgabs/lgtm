@@ -45,19 +45,38 @@ pub struct GuardAlert {
     pub file_path: String,
 }
 
+pub trait Guard {
+    #[allow(dead_code)] // consumed by B1 config (rule enable/disable)
+    fn name(&self) -> &'static str;
+    fn scan_file(&self, _file: &FileDiff) -> Vec<GuardAlert> {
+        Vec::new()
+    }
+    fn scan_snapshot(&self, _files: &[FileDiff]) -> Vec<GuardAlert> {
+        Vec::new()
+    }
+}
+
+pub fn registry() -> &'static [&'static dyn Guard] {
+    &[
+        &deps::DependencyGuard,
+        &duplicate::DuplicateHelperGuard,
+        &security::AdvancedSecurityGuard,
+        &arch::ArchitectureGuard,
+        &complexity::ComplexityGuard,
+        &symbols::SymbolGuard,
+        &api_drift::ApiDriftGuard,
+        &dead_code::DeadCodeGuard,
+    ]
+}
+
 pub struct SecurityAndTestGuard;
 
 impl SecurityAndTestGuard {
     pub fn scan_file(file: &FileDiff) -> Vec<GuardAlert> {
         let mut alerts = Vec::new();
-        // Subsystem guards
-        alerts.extend(deps::DependencyGuard::scan_file(file));
-        alerts.extend(duplicate::DuplicateHelperGuard::scan_file(file));
-        alerts.extend(security::AdvancedSecurityGuard::scan_file(file));
-        alerts.extend(arch::ArchitectureGuard::scan_file(file));
-        alerts.extend(complexity::ComplexityGuard::scan_file(file));
-        alerts.extend(symbols::SymbolGuard::scan_file(file));
-        alerts.extend(api_drift::ApiDriftGuard::scan_file(file));
+        for g in registry() {
+            alerts.extend(g.scan_file(file));
+        }
 
         let path_str = file.display_name();
         let is_test_file = is_test_path(&path_str);
@@ -268,11 +287,10 @@ impl SecurityAndTestGuard {
             });
         }
 
-        // Architectural Blast Radius Gate
-        all_alerts.extend(arch::ArchitectureGuard::scan_snapshot(files));
-
-        // Dead Code Gate
-        all_alerts.extend(dead_code::DeadCodeGuard::scan_snapshot(files));
+        // Snapshot-level guards (blast radius, dead code)
+        for g in registry() {
+            all_alerts.extend(g.scan_snapshot(files));
+        }
 
         all_alerts
     }
@@ -409,6 +427,24 @@ mod tests {
     use super::*;
     use crate::model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType};
     use std::path::PathBuf;
+
+    #[test]
+    fn registry_order_is_stable() {
+        let names: Vec<&str> = registry().iter().map(|g| g.name()).collect();
+        assert_eq!(
+            names,
+            [
+                "deps",
+                "duplicate",
+                "security",
+                "arch",
+                "complexity",
+                "symbols",
+                "api_drift",
+                "dead_code"
+            ]
+        );
+    }
 
     #[test]
     fn test_security_alert_detection() {

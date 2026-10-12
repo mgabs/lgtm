@@ -155,6 +155,15 @@ fn is_keyword(s: &str) -> bool {
     )
 }
 
+impl super::Guard for SymbolGuard {
+    fn name(&self) -> &'static str {
+        "symbols"
+    }
+    fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
+        Self::scan_file(file)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

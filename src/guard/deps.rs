@@ -86,6 +86,15 @@ fn is_suspicious_package(text: &str) -> bool {
         || t.contains("test-lib-mock")
 }
 
+impl super::Guard for DependencyGuard {
+    fn name(&self) -> &'static str {
+        "deps"
+    }
+    fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
+        Self::scan_file(file)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

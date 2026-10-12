@@ -208,6 +208,18 @@ fn is_scope_inflation(line_text: &str, file_path: &str) -> bool {
         && (p.contains("/internal/") || p.contains("/impl/") || p.contains("/private/"))
 }
 
+impl super::Guard for ArchitectureGuard {
+    fn name(&self) -> &'static str {
+        "arch"
+    }
+    fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
+        Self::scan_file(file)
+    }
+    fn scan_snapshot(&self, files: &[FileDiff]) -> Vec<GuardAlert> {
+        Self::scan_snapshot(files)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

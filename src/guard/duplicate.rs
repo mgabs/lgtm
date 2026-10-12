@@ -68,6 +68,15 @@ fn is_duplicate_helper_name(text: &str) -> bool {
         || t.contains("temp_")
 }
 
+impl super::Guard for DuplicateHelperGuard {
+    fn name(&self) -> &'static str {
+        "duplicate"
+    }
+    fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
+        Self::scan_file(file)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

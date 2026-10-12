@@ -93,6 +93,15 @@ fn evaluate_cognitive_increment(text: &str) -> (bool, bool) {
     (is_control, nesting_inc)
 }
 
+impl super::Guard for ComplexityGuard {
+    fn name(&self) -> &'static str {
+        "complexity"
+    }
+    fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
+        Self::scan_file(file)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

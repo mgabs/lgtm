@@ -265,6 +265,15 @@ fn is_weak_cryptography(text: &str) -> bool {
         && !t.contains("//")
 }
 
+impl super::Guard for AdvancedSecurityGuard {
+    fn name(&self) -> &'static str {
+        "security"
+    }
+    fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
+        Self::scan_file(file)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
