@@ -43,6 +43,9 @@ jobs:
       - name: Run Clippy Linter
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      - name: Check Crate Boundaries
+        run: ./scripts/check-boundaries.sh
+
       - name: Run Unit & Integration Tests
         run: cargo test --workspace --verbose -- --nocapture
 

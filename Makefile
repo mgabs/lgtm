@@ -40,6 +40,7 @@ verify-tests:
 ## Run clippy linter and fail on warnings
 lint:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
+	./scripts/check-boundaries.sh
 
 ## Format Rust codebase
 fmt:

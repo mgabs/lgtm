@@ -60,41 +60,30 @@ make check
 ## 4. Codebase Architecture
 
 ```
-src/
-├── main.rs         # CLI dispatcher, headless CI runner & subcommands
-├── app.rs          # State machine, key handlers & Vim motion engine
-├── ui/mod.rs       # Ratatui rendering, drawer, inline alerts & modals
-├── model.rs        # Diff data models (DiffSnapshot, FileDiff, DiffHunk, DiffLine)
-├── scan.rs         # Full repository security & architectural audit scanner
-├── git/mod.rs      # Streaming git diff engine + non-git directory fallback
-├── pr/mod.rs       # GitHub PR engine via `gh` CLI & unified diff parser
-├── guard/          # Deterministic static analysis & guardrail subsystem
-│   ├── mod.rs        # SecurityAndTestGuard aggregator & severity definitions
-│   ├── security.rs   # Entropy secrets, OWASP injection & auth bypass checks
-│   ├── complexity.rs # Cognitive complexity spike analyzer
-│   ├── symbols.rs    # Symbol typo & hallucination detector (Levenshtein)
-│   ├── dead_code.rs  # YAGNI dead function & unreferenced code detector
-│   ├── api_drift.rs  # Breaking public API signature drift detector
-│   ├── arch.rs       # Layer boundary violations & stray file detector
-│   ├── deps.rs       # Supply chain & unpinned/typosquatted dependency checks
-│   └── duplicate.rs  # Duplicate helper function anti-pattern detector
-├── comment/mod.rs  # Directive storage, PR metadata & batch review compiler
-├── turn/mod.rs     # Turn manager & reviewed file tracker (.lgtm/state.json)
-├── ipc/mod.rs      # Tmux pane injector & OSC 52 clipboard fallback
-├── watcher/mod.rs  # Cross-platform filesystem watcher & debouncer
-├── mcp/mod.rs      # Model Context Protocol (MCP) JSON-RPC stdio server
-├── coverage/mod.rs # LCOV parsing & diff-aware delta coverage enforcer
-├── verify/mod.rs   # Inverted test execution & fraud detector
-└── mutate/mod.rs   # Mutation testing engine (12 AST/binary mutant operators)
+src/                    # `lgtm` binary: CLI + TUI (app/, ui/, cli.rs, headless.rs)
+crates/
+├── lgtm-core/src/      # UI-free engine
+│   ├── model.rs        # Diff data models
+│   ├── git/, pr/       # Git diff engine; GitHub PR via `gh`
+│   ├── scan.rs         # Full repository audit scanner
+│   ├── guard/          # Static analysis guards (security, complexity, symbols, api_drift, dead_code, arch, deps, duplicate)
+│   ├── comment/, turn/ # Directives; reviewed-file tracker
+│   ├── ipc/            # Tmux injector, OSC 52 clipboard, AgentSink trait
+│   ├── diff_source.rs  # DiffSource trait
+│   ├── watcher/        # Filesystem watcher & debouncer
+│   └── coverage/, verify/, mutate/  # Quality gates
+└── lgtm-mcp/src/lib.rs # MCP JSON-RPC stdio server
 ```
+
+`lgtm-core` and `lgtm-mcp` must not depend on `ratatui` or `crossterm`; `scripts/check-boundaries.sh` enforces this in CI and `make lint`.
 
 ---
 
 ## 5. Adding New Security Guard Rules
 
 To add a new security detector or test fraud pattern:
-1. Open [`src/guard/`](src/guard/) and select or create the appropriate submodule (`security.rs`, `arch.rs`, `complexity.rs`, etc.).
-2. Add the detector logic to the subsystem scanner and hook it into `SecurityAndTestGuard::scan_file` or `scan_snapshot` in [`src/guard/mod.rs`](src/guard/mod.rs).
+1. Open [`crates/lgtm-core/src/guard/`](crates/lgtm-core/src/guard/) and select or create the appropriate submodule (`security.rs`, `arch.rs`, `complexity.rs`, etc.).
+2. Add the detector logic to the subsystem scanner and hook it into `SecurityAndTestGuard::scan_file` or `scan_snapshot` in [`crates/lgtm-core/src/guard/mod.rs`](crates/lgtm-core/src/guard/mod.rs).
 3. Add a corresponding test case checking that additions trigger alerts and deletions or valid code do not.
 4. Run `make test && make mutate` to verify coverage.
 
