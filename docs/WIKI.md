@@ -516,22 +516,22 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 
 ## 13. Source Module Map
 
-| Path | Role |
+| Path (under `crates/lgtm-core/src/` unless noted) | Role |
 |---|---|
 | `src/main.rs` | Entry point, TUI launcher |
 | `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `coverage`, `init`) |
 | `src/app/` | TUI state machine split by concern: input, motion, command, comments, staging, audit, pr, commit, external; `state` holds CommandLine, pickers, AuditState, PrState |
 | `src/ui/` | Ratatui rendering split by view; `modals/` for dialogs |
-| `src/model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
-| `src/scan.rs` | Full repo scanner and report generator |
-| `src/git/`, `src/pr/` | Git diff engine; GitHub PR via `gh` |
-| `src/guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
-| `src/comment/`, `src/turn/` | Directives; reviewed-file state |
-| `src/ipc/` | tmux injection, OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |
-| `src/diff_source.rs` | `DiffSource` trait: working tree, revision, PR |
-| `src/watcher/` | Debounced filesystem watcher |
-| `src/mcp/` | MCP server |
-| `src/coverage/`, `src/mutate/`, `src/verify/` | Quality gates |
+| `model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
+| `scan.rs` | Full repo scanner and report generator |
+| `git/`, `pr/` | Git diff engine; GitHub PR via `gh` |
+| `guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
+| `comment/`, `turn/` | Directives; reviewed-file state |
+| `ipc/` | tmux injection, OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |
+| `diff_source.rs` | `DiffSource` trait: working tree, revision, PR |
+| `watcher/` | Debounced filesystem watcher |
+| `crates/lgtm-mcp/src/lib.rs` (crate root) | MCP server |
+| `coverage/`, `mutate/`, `verify/` | Quality gates |
 
 ---
 
