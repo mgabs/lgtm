@@ -41,7 +41,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 |---|---|---|---|
 | A1 ✅ | Directive outcome tracking + per-turn summary | M | C1 |
 | A2 ✅ | TUI outcomes, filters, `:directives recheck`, confirm-resolve | S | A1 |
-| A3 | New MCP tools incl. claims | M | A1, R4 |
+| A3 ✅ | New MCP tools incl. claims | M | A1, R4 |
 | A4 | MCP resources, subscriptions, notifications | L | A3 |
 | A5 | Agent sinks: Zellij, WezTerm, kitty | M | R3 |
 | A6 | Docs incl. MCP client setup | S | A4, A5 |

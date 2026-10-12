@@ -314,6 +314,10 @@ Add `lgtm` to your MCP client configuration (`~/.claude/claude_desktop_config.js
 | `lgtm_security_scan` | Run static analysis guardrails for OWASP leaks, complexity spikes, and test neutering | `strict` (boolean, flag only Critical/High) |
 | `lgtm_list_directives` | Read all human review directives from `.lgtm/comments.jsonl` | *(None)* |
 | `lgtm_add_directive` | Anchor a review directive to a specific file and line | `file` (string), `line` (integer), `content` (string) |
+| `lgtm_directive_status` | Directives with 1-based `id`, outcome, claim and verdict | *(None)* |
+| `lgtm_review_state` | Reviewed hunk count and directive counts | *(None)* |
+| `lgtm_scan_changes` | Findings new since the previous call | *(None)* |
+| `lgtm_resolve_directive` | Record a claim only; never resolves | `id` (integer), `note` (string) |
 
 ---
 
