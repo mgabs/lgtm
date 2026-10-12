@@ -285,7 +285,7 @@ lgtm/
 
 ## Documentation & Wiki
 
-For full detailed guides on human-in-the-loop steering, MCP server configuration, AST folding, staging, and static guardrails:
+For full detailed guides on human-in-the-loop steering, MCP server configuration, hunk folding, staging, and static guardrails:
 👉 **[Read the Full LGTM Wiki & User Manual](docs/WIKI.md)**
 
 ---

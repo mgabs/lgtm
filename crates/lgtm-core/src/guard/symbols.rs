@@ -1,5 +1,5 @@
 use crate::guard::{GuardAlert, Severity};
-use crate::model::{FileDiff, LineType};
+use crate::model::{DiffHunk, DiffLine, FileDiff, LineType};
 use std::collections::HashSet;
 
 pub struct SymbolGuard;
@@ -12,7 +12,14 @@ impl SymbolGuard {
         let mut existing_tokens: HashSet<String> = HashSet::new();
         let mut added_tokens: Vec<(String, Option<u32>)> = Vec::new();
 
-        for hunk in &file.hunks {
+        let ast_lang = lgtm_ast::lang_of(&file.new_path);
+        for hunk in file.hunks.iter().filter(|_| ast_lang.is_some()) {
+            if let Some(lang) = ast_lang {
+                ast_tokens(lang, hunk, &mut existing_tokens, &mut added_tokens);
+            }
+        }
+
+        for hunk in file.hunks.iter().filter(|_| ast_lang.is_none()) {
             for line in &hunk.lines {
                 let tokens = extract_identifiers(&line.content);
                 match line.line_type {
@@ -107,6 +114,48 @@ pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     }
 
     prev_row[len2]
+}
+
+/// Identifiers from parsed hunk fragments: old side feeds `existing`, additions feed `added`.
+fn ast_tokens(
+    lang: lgtm_ast::Lang,
+    hunk: &DiffHunk,
+    existing: &mut HashSet<String>,
+    added: &mut Vec<(String, Option<u32>)>,
+) {
+    let keep = |t: &str| t.len() >= 4 && !is_keyword(t);
+    let join = |side: &[&DiffLine]| {
+        side.iter()
+            .map(|l| l.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let new_side: Vec<_> = hunk
+        .lines
+        .iter()
+        .filter(|l| matches!(l.line_type, LineType::Addition | LineType::Context))
+        .collect();
+    let old_side: Vec<_> = hunk
+        .lines
+        .iter()
+        .filter(|l| matches!(l.line_type, LineType::Deletion | LineType::Context))
+        .collect();
+    for (name, _) in lgtm_ast::identifiers(lang, &join(&old_side)).unwrap_or_default() {
+        if keep(&name) {
+            existing.insert(name);
+        }
+    }
+    for (name, row) in lgtm_ast::identifiers(lang, &join(&new_side)).unwrap_or_default() {
+        let Some(l) = new_side.get(row) else { continue };
+        if !keep(&name) {
+            continue;
+        }
+        if l.line_type == LineType::Context {
+            existing.insert(name);
+        } else if !crate::guard::is_line_ignored(&l.content) {
+            added.push((name, l.new_line_num));
+        }
+    }
 }
 
 fn extract_identifiers(text: &str) -> Vec<String> {
@@ -216,5 +265,43 @@ mod tests {
         let alerts = SymbolGuard::scan_file(&file);
         assert_eq!(alerts.len(), 1);
         assert!(alerts[0].title.contains("Identifier Typo / Hallucination"));
+    }
+
+    #[test]
+    fn ast_typo_ignores_strings_and_comments() {
+        let mk = |add: &str| FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("a.ts"),
+            change_type: ChangeType::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@".into(),
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 2,
+                lines: vec![
+                    DiffLine {
+                        line_type: LineType::Context,
+                        content: "const userToken = get();".into(),
+                        old_line_num: Some(1),
+                        new_line_num: Some(1),
+                    },
+                    DiffLine {
+                        line_type: LineType::Addition,
+                        content: add.into(),
+                        old_line_num: None,
+                        new_line_num: Some(2),
+                    },
+                ],
+                is_folded: false,
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        };
+        let hit = SymbolGuard::scan_file(&mk("validate(userTokn);"));
+        assert_eq!((hit.len(), hit[0].line_no), (1, Some(2)));
+        assert!(SymbolGuard::scan_file(&mk("log(\"userTokn\"); // userTokn")).is_empty());
     }
 }

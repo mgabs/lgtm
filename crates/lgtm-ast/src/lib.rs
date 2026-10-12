@@ -115,6 +115,33 @@ fn walk(node: tree_sitter::Node, depth: usize, counted: &impl Fn(usize) -> bool)
     total
 }
 
+const IDENT_KINDS: [&str; 5] = [
+    "identifier",
+    "property_identifier",
+    "type_identifier",
+    "shorthand_property_identifier",
+    "simple_identifier",
+];
+
+/// Identifiers (not strings or comments) with the row each starts on.
+pub fn identifiers(lang: Lang, src: &str) -> Result<Vec<(String, usize)>> {
+    let mut parser = Parser::new();
+    parser.set_language(&grammar(lang))?;
+    let tree = parser
+        .parse(src, None)
+        .ok_or_else(|| anyhow!("parse failed"))?;
+    let mut out = Vec::new();
+    let mut stack = vec![tree.root_node()];
+    while let Some(n) = stack.pop() {
+        if IDENT_KINDS.contains(&n.kind()) {
+            out.push((src[n.byte_range()].to_string(), n.start_position().row));
+        }
+        let mut cur = n.walk();
+        stack.extend(n.children(&mut cur));
+    }
+    Ok(out)
+}
+
 fn within(node: tree_sitter::Node, kinds: &[&str]) -> bool {
     let mut cur = node.parent();
     while let Some(n) = cur {
@@ -174,6 +201,21 @@ mod tests {
         assert_eq!(cognitive(Lang::Tsx, jsx, |_| true).unwrap(), 0);
         let sw = "func f() {\n  guard a else { return }\n  if b { while c {} }\n}\n";
         assert_eq!(cognitive(Lang::Swift, sw, |_| true).unwrap(), 1 + 1 + 2);
+    }
+
+    #[test]
+    fn identifiers_skip_strings_and_comments() {
+        let src = "// commentWord\nconst userName = \"stringWord\";\nuserName.fooBar();\n";
+        let ids = identifiers(Lang::Ts, src).unwrap();
+        let names: Vec<_> = ids.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"userName") && names.contains(&"fooBar"));
+        assert!(!names.iter().any(|n| n.ends_with("Word")));
+        assert_eq!(
+            ids.iter()
+                .filter(|(n, r)| n == "userName" && *r == 2)
+                .count(),
+            1
+        );
     }
 
     #[test]

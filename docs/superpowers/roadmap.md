@@ -60,8 +60,8 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | E1 ✅ | `lgtm-ast` crate (tree-sitter), TS/TSX, diff mapping, one rule end to end | L | B |
 | E2 ✅ | `web/` + `next/` guard pack (6 rules; `"use client"` leak and server-action validation deferred, need whole-file parse) | M | E1 |
 | E3 ✅ | Swift grammar + `swift/` pack | M | E1 |
-| E4 🟡 | Complexity, test-neutering and symbol guards on AST (complexity done for TS/JS/Swift; test-neutering and symbols pending) | M | E1 |
-| E5 | TUI folding on AST | S | E1 |
+| E4 ✅ | Complexity and symbol guards on AST for TS/JS/Swift. Test-neutering stays line-based: its rules are one-line patterns, so the AST adds little | M | E1 |
+| E5 ❌ | TUI folding on AST. Dropped: fold state is per hunk and cursor motion indexes hunk lines, so in-hunk blocks would touch every motion path for a feature unverifiable without interactive use. Revisit on demand | S | E1 |
 
 Order: web first (E1 → E2), then Swift (E3), then E4/E5.
 
