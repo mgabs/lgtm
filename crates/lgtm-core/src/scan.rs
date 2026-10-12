@@ -65,6 +65,7 @@ impl FullRepoScanner {
             }
         }
 
+        crate::guard::assign_fingerprints(&mut all_alerts, &files);
         // Deduplicate alerts
         all_alerts.sort_by(|a, b| {
             b.severity

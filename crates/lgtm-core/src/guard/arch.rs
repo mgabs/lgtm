@@ -14,6 +14,8 @@ impl ArchitectureGuard {
             if let Some(reason) = is_stray_or_sensitive_file(&path_str) {
                 alerts.push(GuardAlert {
                     severity: Severity::Critical,
+                    rule_id: "arch/stray-file".to_string(),
+                    fingerprint: String::new(),
                     title: "Stray / Sensitive File Leak".to_string(),
                     description: format!(
                         "Agent created sensitive or temporary file: {} ({})",
@@ -40,6 +42,8 @@ impl ArchitectureGuard {
                     if let Some(violation) = check_layer_boundary_violation(&path_str, text) {
                         alerts.push(GuardAlert {
                             severity: Severity::High,
+                            rule_id: "arch/layering".to_string(),
+                            fingerprint: String::new(),
                             title: "Architecture Layer Boundary Violation".to_string(),
                             description: violation,
                             line_no: line_num,
@@ -51,6 +55,8 @@ impl ArchitectureGuard {
                     if is_scope_inflation(text, &path_str) {
                         alerts.push(GuardAlert {
                             severity: Severity::Warn,
+                            rule_id: "arch/visibility-inflation".to_string(),
+                            fingerprint: String::new(),
                             title: "Visibility Scope Inflation".to_string(),
                             description:
                                 "Unnecessary `pub` / `export` exposure on internal module items"
@@ -88,6 +94,8 @@ impl ArchitectureGuard {
             domain_list.sort();
             alerts.push(GuardAlert {
                 severity: Severity::High,
+                rule_id: "arch/blast-radius".to_string(),
+                fingerprint: String::new(),
                 title: "High Blast Radius Sprawl".to_string(),
                 description: format!(
                     "Diff spans {} separate architectural subtrees ({}) across {} files",

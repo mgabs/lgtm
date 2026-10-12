@@ -53,6 +53,8 @@ impl DeadCodeGuard {
             if occurrences <= 1 && fn_name.len() >= 4 {
                 alerts.push(GuardAlert {
                     severity: Severity::Warn,
+                    rule_id: "dead/unused-function".to_string(),
+                    fingerprint: String::new(),
                     title: "Unreferenced / Dead Function Added".to_string(),
                     description: format!(
                         "Agent introduced private function `{}` with 0 call sites across this diff",

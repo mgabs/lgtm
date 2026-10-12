@@ -156,7 +156,8 @@ pub(crate) fn generate_sarif_report(alerts: &[guard::GuardAlert]) -> Result<Stri
                 guard::Severity::Warn => "warning",
             };
             serde_json::json!({
-                "ruleId": a.title.replace(' ', "-").to_lowercase(),
+                "ruleId": a.rule_id,
+                "partialFingerprints": { "lgtmFingerprint/v1": a.fingerprint },
                 "level": level,
                 "message": { "text": a.description },
                 "locations": [{
@@ -465,6 +466,8 @@ mod tests {
         };
         let alerts = vec![guard::GuardAlert {
             severity: guard::Severity::Critical,
+            rule_id: "test/fixture".to_string(),
+            fingerprint: String::new(),
             title: "SQL Injection".into(),
             description: "Raw SQL query".into(),
             line_no: Some(42),
@@ -487,6 +490,8 @@ mod tests {
         let alerts = vec![
             guard::GuardAlert {
                 severity: guard::Severity::High,
+                rule_id: "sec/tls-bypass".to_string(),
+                fingerprint: String::new(),
                 title: "TLS Verification Disabled".into(),
                 description: format!("verify={}", "False"), // lgtm:ignore
                 line_no: Some(12),
@@ -494,6 +499,8 @@ mod tests {
             },
             guard::GuardAlert {
                 severity: guard::Severity::Warn,
+                rule_id: "test/swallowed-exception".to_string(),
+                fingerprint: String::new(),
                 title: "Swallowed Exception".into(),
                 description: "empty catch".into(),
                 line_no: None,
@@ -503,8 +510,9 @@ mod tests {
 
         let sarif_json = generate_sarif_report(&alerts).unwrap();
         assert!(sarif_json.contains("2.1.0"));
-        assert!(sarif_json.contains("tls-verification-disabled"));
-        assert!(sarif_json.contains("swallowed-exception"));
+        assert!(sarif_json.contains("\"ruleId\": \"sec/tls-bypass\""));
+        assert!(sarif_json.contains("test/swallowed-exception"));
+        assert!(sarif_json.contains("lgtmFingerprint/v1"));
     }
 
     #[test]

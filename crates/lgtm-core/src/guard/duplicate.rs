@@ -23,7 +23,7 @@ impl DuplicateHelperGuard {
                     if is_duplicate_helper_name(text) {
                         alerts.push(GuardAlert {
                             severity: Severity::Warn,
-                            title: "Suspicious Duplicate Helper Function".to_string(),
+                            rule_id: "dup/duplicate-block".to_string(), fingerprint: String::new(), title: "Suspicious Duplicate Helper Function".to_string(),
                             description: format!(
                                 "Function declaration '{}' matches duplicate helper anti-pattern (check if utility already exists)",
                                 text

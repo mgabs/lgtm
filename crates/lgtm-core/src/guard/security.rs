@@ -25,6 +25,8 @@ impl AdvancedSecurityGuard {
                         if let Some(secret) = detect_high_entropy_string(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::Critical,
+                                rule_id: "sec/high-entropy-secret".to_string(),
+                                fingerprint: String::new(),
                                 title: "High-Entropy Secret / Token".to_string(),
                                 description: format!(
                                     "Detected high-entropy candidate token: '{}'",
@@ -40,6 +42,8 @@ impl AdvancedSecurityGuard {
                     if is_path_traversal(text) {
                         alerts.push(GuardAlert {
                             severity: Severity::Critical,
+                            rule_id: "sec/path-traversal".to_string(),
+                            fingerprint: String::new(),
                             title: "Path Traversal Risk".to_string(),
                             description:
                                 "Unsanitized path concatenation with directory traversal (`../`)"
@@ -53,6 +57,8 @@ impl AdvancedSecurityGuard {
                     if is_ssrf_sink(text) {
                         alerts.push(GuardAlert {
                             severity: Severity::High,
+                            rule_id: "sec/ssrf".to_string(),
+                            fingerprint: String::new(),
                             title: "SSRF Risk (Unvalidated HTTP Request)".to_string(),
                             description:
                                 "Dynamic HTTP request with unsanitized URL / host parameter"
@@ -66,6 +72,8 @@ impl AdvancedSecurityGuard {
                     if is_insecure_deserialization(text) {
                         alerts.push(GuardAlert {
                             severity: Severity::Critical,
+                            rule_id: "sec/insecure-deserialization".to_string(),
+                            fingerprint: String::new(),
                             title: "Insecure Deserialization".to_string(),
                             description:
                                 "Unsafe object deserialization (pickle / unsafe yaml / unserialize)"
@@ -79,7 +87,7 @@ impl AdvancedSecurityGuard {
                     if is_hardcoded_auth_fallback(text) {
                         alerts.push(GuardAlert {
                             severity: Severity::High,
-                            title: "Hardcoded Auth Fallback".to_string(),
+                            rule_id: "sec/auth-fallback".to_string(), fingerprint: String::new(), title: "Hardcoded Auth Fallback".to_string(),
                             description:
                                 "Insecure fallback secret in environment lookup (e.g. `SECRET || 'default'`)"
                                     .to_string(),
@@ -91,6 +99,8 @@ impl AdvancedSecurityGuard {
                     if is_weak_cryptography(text) {
                         alerts.push(GuardAlert {
                             severity: Severity::Warn,
+                            rule_id: "sec/weak-crypto".to_string(),
+                            fingerprint: String::new(),
                             title: "Weak Cryptographic Primitive".to_string(),
                             description:
                                 "Use of broken/weak cryptographic hash (MD5 / SHA1 / DES / RC4)"

@@ -38,6 +38,8 @@ impl Severity {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuardAlert {
+    pub rule_id: String,
+    pub fingerprint: String,
     pub severity: Severity,
     pub title: String,
     pub description: String,
@@ -105,6 +107,8 @@ impl SecurityAndTestGuard {
                         if is_sql_injection(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::Critical,
+                                rule_id: "sec/sql-injection".to_string(),
+                                fingerprint: String::new(),
                                 title: "SQL Injection Risk".to_string(),
                                 description:
                                     "Raw string interpolation or concatenation in SQL query"
@@ -116,7 +120,7 @@ impl SecurityAndTestGuard {
                         if is_command_injection(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::Critical,
-                                title: "Command Injection Risk".to_string(),
+                                rule_id: "sec/command-injection".to_string(), fingerprint: String::new(), title: "Command Injection Risk".to_string(),
                                 description: "Unsafe shell execution (shell=True / os.system / child_process.exec)".to_string(), // lgtm:ignore
                                 line_no: line_num,
                                 file_path: path_str.clone(),
@@ -127,6 +131,8 @@ impl SecurityAndTestGuard {
                         if is_secret_token(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::Critical,
+                                rule_id: "sec/hardcoded-secret".to_string(),
+                                fingerprint: String::new(),
                                 title: "Hardcoded Secret".to_string(),
                                 description: "Possible API key / high-entropy token in source code"
                                     .to_string(),
@@ -139,7 +145,7 @@ impl SecurityAndTestGuard {
                         if is_disabled_tls(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::High,
-                                title: "TLS Verification Disabled".to_string(),
+                                rule_id: "sec/tls-bypass".to_string(), fingerprint: String::new(), title: "TLS Verification Disabled".to_string(),
                                 description: "Disabled TLS/SSL verification (verify=False / rejectUnauthorized: false)".to_string(), // lgtm:ignore
                                 line_no: line_num,
                                 file_path: path_str.clone(),
@@ -148,6 +154,8 @@ impl SecurityAndTestGuard {
                         if is_wildcard_cors(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::High,
+                                rule_id: "sec/wildcard-cors".to_string(),
+                                fingerprint: String::new(),
                                 title: "Wildcard CORS with Credentials".to_string(),
                                 description: "Permissive wildcard CORS origin configuration"
                                     .to_string(),
@@ -158,6 +166,8 @@ impl SecurityAndTestGuard {
                         if is_permissive_chmod(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::High,
+                                rule_id: "sec/permissive-chmod".to_string(),
+                                fingerprint: String::new(),
                                 title: "Permissive File Permissions (777)".to_string(),
                                 description: "Excessive file permissions (chmod 777 / 0o777)" // lgtm:ignore
                                     .to_string(),
@@ -171,7 +181,7 @@ impl SecurityAndTestGuard {
                             if is_test_skip(text) {
                                 alerts.push(GuardAlert {
                                     severity: Severity::High,
-                                    title: "Test Skipped / Ignored".to_string(),
+                                    rule_id: "test/skipped".to_string(), fingerprint: String::new(), title: "Test Skipped / Ignored".to_string(),
                                     description: "Agent added @skip / #[ignore] decorator to bypass test suite".to_string(),
                                     line_no: line_num,
                                     file_path: path_str.clone(),
@@ -180,6 +190,8 @@ impl SecurityAndTestGuard {
                             if is_tautological_assertion(text) {
                                 alerts.push(GuardAlert {
                                     severity: Severity::High,
+                                    rule_id: "test/tautological-assert".to_string(),
+                                    fingerprint: String::new(),
                                     title: "Tautological / Vacuous Assertion".to_string(),
                                     description:
                                         "Assertion always evaluates to true (assert True / x == x)"
@@ -194,7 +206,7 @@ impl SecurityAndTestGuard {
                         if is_swallowed_exception(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::Warn,
-                                title: "Swallowed Exception".to_string(),
+                                rule_id: "test/swallowed-exception".to_string(), fingerprint: String::new(), title: "Swallowed Exception".to_string(),
                                 description: "Empty catch/except block suppressing errors without logging/rethrow".to_string(),
                                 line_no: line_num,
                                 file_path: path_str.clone(),
@@ -203,7 +215,7 @@ impl SecurityAndTestGuard {
                         if is_debug_residue(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::Warn,
-                                title: "Debug Residue".to_string(),
+                                rule_id: "quality/debug-residue".to_string(), fingerprint: String::new(), title: "Debug Residue".to_string(),
                                 description: "Lingering debug statement (console.log / dbg! / print / debugger)".to_string(),
                                 line_no: line_num,
                                 file_path: path_str.clone(),
@@ -225,6 +237,8 @@ impl SecurityAndTestGuard {
         {
             alerts.push(GuardAlert {
                 severity: Severity::High,
+                rule_id: "test/neutered-assert".to_string(),
+                fingerprint: String::new(),
                 title: "Assert Drop (Test Neutering)".to_string(),
                 description: format!(
                     "Net reduction of assertions (-{} deleted, +{} added)",
@@ -277,6 +291,8 @@ impl SecurityAndTestGuard {
         if total_logic_lines >= 30 && total_assert_additions == 0 {
             all_alerts.push(GuardAlert {
                 severity: Severity::High,
+                rule_id: "test/zero-assertions".to_string(),
+                fingerprint: String::new(),
                 title: "Zero Assertions for New Logic".to_string(),
                 description: format!(
                     "Added {} lines of production code with 0 new test assertions",
@@ -292,7 +308,32 @@ impl SecurityAndTestGuard {
             all_alerts.extend(g.scan_snapshot(files));
         }
 
+        assign_fingerprints(&mut all_alerts, files);
         all_alerts
+    }
+}
+
+fn fnv1a(s: &str) -> u64 {
+    s.bytes().fold(0xcbf29ce484222325, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x100000001b3)
+    })
+}
+
+/// Stable id from rule, file, whitespace-normalized flagged line and occurrence index (no line number).
+pub fn assign_fingerprints(alerts: &mut [GuardAlert], files: &[FileDiff]) {
+    let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for a in alerts.iter_mut() {
+        let text = files
+            .iter()
+            .filter(|f| f.display_name() == a.file_path)
+            .flat_map(|f| f.hunks.iter().flat_map(|h| h.lines.iter()))
+            .find(|l| a.line_no.is_some() && l.new_line_num == a.line_no)
+            .map(|l| l.content.as_str())
+            .unwrap_or(&a.title);
+        let norm = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let key = format!("{}\0{}\0{}", a.rule_id, a.file_path, norm);
+        let n = seen.entry(key.clone()).and_modify(|c| *c += 1).or_insert(0);
+        a.fingerprint = format!("{:016x}", fnv1a(&format!("{key}\0{n}")));
     }
 }
 
@@ -651,6 +692,49 @@ mod tests {
         assert!(alerts
             .iter()
             .any(|a| a.title.contains("Zero Assertions for New Logic")));
+    }
+
+    fn tls_file(lines: &[(&str, u32)]) -> FileDiff {
+        FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/net.py"),
+            change_type: ChangeType::Added,
+            hunks: vec![DiffHunk {
+                lines: lines
+                    .iter()
+                    .map(|(c, n)| DiffLine {
+                        line_type: LineType::Addition,
+                        content: format!("{}{}", c, ["verify=", "False"].concat()), // lgtm:ignore
+                        old_line_num: None,
+                        new_line_num: Some(*n),
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+            additions: 0,
+            deletions: 0,
+            is_folded: false,
+            is_reviewed: false,
+        }
+    }
+
+    #[test]
+    fn test_fingerprints_stable_across_moves_and_distinct_for_duplicates() {
+        let a = SecurityAndTestGuard::scan_snapshot(&[tls_file(&[("requests.get(u, ", 3)])]);
+        let b = SecurityAndTestGuard::scan_snapshot(&[tls_file(&[("requests.get(u,   ", 40)])]);
+        assert_eq!(a[0].rule_id, "sec/tls-bypass");
+        assert_eq!(a[0].fingerprint.len(), 16);
+        assert_eq!(a[0].fingerprint, b[0].fingerprint);
+
+        let d = SecurityAndTestGuard::scan_snapshot(&[tls_file(&[
+            ("requests.get(u, ", 3),
+            ("requests.get(u, ", 4),
+        ])]);
+        assert_eq!(d.len(), 2);
+        assert_ne!(d[0].fingerprint, d[1].fingerprint);
+
+        let e = SecurityAndTestGuard::scan_snapshot(&[tls_file(&[("requests.post(u, ", 3)])]);
+        assert_ne!(a[0].fingerprint, e[0].fingerprint);
     }
 
     #[test]

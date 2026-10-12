@@ -59,6 +59,8 @@ impl SymbolGuard {
                 if dist == 1 || normalized_match {
                     alerts.push(GuardAlert {
                         severity: Severity::Warn,
+                        rule_id: "typo/identifier".to_string(),
+                        fingerprint: String::new(),
                         title: "Probable Identifier Typo / Hallucination".to_string(),
                         description: format!(
                             "Identifier '{}' differs by only 1 edit from existing identifier '{}'",

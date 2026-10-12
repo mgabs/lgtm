@@ -346,6 +346,8 @@ lgtm scan --output lgtm-report.md
 lgtm scan --format sarif --output lgtm-results.sarif
 ```
 
+Every finding carries a kebab-case `rule_id` (e.g. `sec/tls-bypass`) and a `fingerprint` (rule + file + whitespace-normalized line + occurrence index, independent of line number). JSON exposes both; SARIF uses `ruleId` and `partialFingerprints["lgtmFingerprint/v1"]`.
+
 #### Interactive Audit Mode Keybindings
 When in Codebase Audit Mode (`ActiveView::AuditReport`):
 - `j` / `k` (or `Up` / `Down`): Navigate issues list.

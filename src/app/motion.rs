@@ -804,6 +804,8 @@ mod tests {
         app.alerts = vec![
             GuardAlert {
                 severity: Severity::Critical,
+                rule_id: "test/fixture".to_string(),
+                fingerprint: String::new(),
                 title: "Alert 1".into(),
                 description: "d1".into(),
                 line_no: Some(1),
@@ -811,6 +813,8 @@ mod tests {
             },
             GuardAlert {
                 severity: Severity::Warn,
+                rule_id: "test/fixture".to_string(),
+                fingerprint: String::new(),
                 title: "Alert 2".into(),
                 description: "d2".into(),
                 line_no: Some(10),

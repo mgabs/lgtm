@@ -32,6 +32,8 @@ impl DependencyGuard {
                     if is_unpinned_wildcard(text, &path_str) {
                         alerts.push(GuardAlert {
                             severity: Severity::High,
+                            rule_id: "deps/unpinned".to_string(),
+                            fingerprint: String::new(),
                             title: "Unpinned / Wildcard Dependency".to_string(),
                             description: format!(
                                 "Agent added unpinned wildcard dependency '{}' (supply chain risk)",
@@ -46,6 +48,8 @@ impl DependencyGuard {
                     if is_suspicious_package(text) {
                         alerts.push(GuardAlert {
                             severity: Severity::Critical,
+                            rule_id: "deps/typosquat".to_string(),
+                            fingerprint: String::new(),
                             title: "Suspicious / Typosquatted Dependency".to_string(),
                             description: format!(
                                 "Detected potentially hallucinated / risky package name: '{}'",

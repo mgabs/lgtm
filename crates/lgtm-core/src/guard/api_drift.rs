@@ -45,7 +45,7 @@ impl ApiDriftGuard {
                         if del_fn_name == Some(name) && added != del {
                             alerts.push(GuardAlert {
                                 severity: Severity::High,
-                                title: "Breaking Public API Signature Change".to_string(),
+                                rule_id: "api/breaking-drift".to_string(), fingerprint: String::new(), title: "Breaking Public API Signature Change".to_string(),
                                 description: format!(
                                     "Modified public function signature for `{}`: was `{}` -> now `{}`",
                                     name, del, added

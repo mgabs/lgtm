@@ -87,7 +87,7 @@ impl InvertedTestVerifier {
                 // Tests PASSED even without the production implementation! FRAUDULENT!
                 let alert = GuardAlert {
                     severity: Severity::Critical,
-                    title: "Fraudulent / Tautological Test Detected".to_string(),
+                    rule_id: "test/fraudulent-test".to_string(), fingerprint: String::new(), title: "Fraudulent / Tautological Test Detected".to_string(),
                     description:
                         "New tests PASSED even when production code was temporarily reverted! The test does not exercise the new implementation."
                             .to_string(),

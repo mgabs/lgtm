@@ -56,7 +56,7 @@ impl ComplexityGuard {
                 let line_num = hunk.lines.iter().find_map(|l| l.new_line_num);
                 alerts.push(GuardAlert {
                     severity: Severity::High,
-                    title: "Cognitive Complexity Spike".to_string(),
+                    rule_id: "cx/complexity-spike".to_string(), fingerprint: String::new(), title: "Cognitive Complexity Spike".to_string(),
                     description: format!(
                         "Hunk introduces high cognitive complexity (+{} points with deeply nested logic)",
                         complexity

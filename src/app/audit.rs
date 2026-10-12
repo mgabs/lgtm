@@ -216,6 +216,8 @@ mod tests {
         app.audit.alerts = vec![
             GuardAlert {
                 severity: Severity::Critical,
+                rule_id: "test/fixture".to_string(),
+                fingerprint: String::new(),
                 title: "Secret Key".into(),
                 description: "Leak detected".into(),
                 line_no: Some(10),
@@ -223,6 +225,8 @@ mod tests {
             },
             GuardAlert {
                 severity: Severity::High,
+                rule_id: "test/fixture".to_string(),
+                fingerprint: String::new(),
                 title: "Inverted Assert".into(),
                 description: "Fraudulent test".into(),
                 line_no: Some(25),
@@ -230,6 +234,8 @@ mod tests {
             },
             GuardAlert {
                 severity: Severity::Warn,
+                rule_id: "test/fixture".to_string(),
+                fingerprint: String::new(),
                 title: "High Complexity".into(),
                 description: "Cyclomatic 25".into(),
                 line_no: Some(50),
