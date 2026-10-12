@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "lgtm"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -612,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "lgtm-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -627,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "lgtm-mcp"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "lgtm-core",
