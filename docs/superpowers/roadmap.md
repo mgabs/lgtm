@@ -30,7 +30,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 ### C — Durable review state and GitHub
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
-| C1 | State model, migration, content-hash re-anchoring | M | R2 |
+| C1 ✅ | State model, migration, content-hash re-anchoring (core only, not yet wired to the UI) | M | R2 |
 | C2 | Hunk marks UI, orphan handling, export/import | M | C1 |
 | C3 | `GithubClient` trait + fake; read-only CI status and remote threads | M | C1 (soft: R4) |
 | C4 | Inline comment posting (resumable, dry-run) | M | C3 |

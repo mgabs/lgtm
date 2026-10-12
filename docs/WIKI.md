@@ -358,6 +358,8 @@ Suppressed counts go to stderr; `check`/`ci --show-suppressed` lists them. `ci` 
 
 Baselines: `lgtm baseline update [--prune]` runs a full scan and records `{rule_id, file, fingerprint}` entries, sorted, in `[baseline] file` (default `.lgtm-baseline.json`). `check`, `ci`, `scan`, `risk` and the TUI then treat matching findings as existing: they are counted on stderr and never affect the exit code. `scan` also reports stale entries (no matching finding); `--prune` removes them. Critical findings are never baselined unless `[baseline] allow_critical = true`. Fingerprints ignore line numbers, so moving code keeps its baseline entry; Editing the flagged line makes it new again.
 
+Review state (`lgtm_core::review`, not yet wired to the UI): `.lgtm/reviews/<target>.json` holds hunk marks and comments keyed by a whitespace-normalized hunk content hash. After a diff reload `reanchor` moves comments by exact hash, then fuzzy code+context, else marks them `orphaned` (never deleted). The first open migrates `comments.jsonl` to the new layout and keeps `comments.jsonl.bak`; files with a newer `version` are refused.
+
 In the TUI, suppressed and baselined findings never appear in the alert list or block anything. The header shows a dim `(+N suppressed, M baselined :hidden)` counter, and `:hidden` lists the first five in the status line.
 
 Every finding carries a kebab-case `rule_id` (e.g. `sec/tls-bypass`) and a `fingerprint` (rule + file + whitespace-normalized line + occurrence index, independent of line number). JSON exposes both; SARIF uses `ruleId` and `partialFingerprints["lgtmFingerprint/v1"]`.

@@ -10,6 +10,7 @@ pub mod ipc;
 pub mod model;
 pub mod mutate;
 pub mod pr;
+pub mod review;
 pub mod scan;
 pub mod turn;
 pub mod verify;

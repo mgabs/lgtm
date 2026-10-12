@@ -313,7 +313,7 @@ impl SecurityAndTestGuard {
     }
 }
 
-fn fnv1a(s: &str) -> u64 {
+pub fn fnv1a(s: &str) -> u64 {
     s.bytes().fold(0xcbf29ce484222325, |h, b| {
         (h ^ b as u64).wrapping_mul(0x100000001b3)
     })
