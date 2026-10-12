@@ -126,7 +126,9 @@ impl App {
 
         let is_git = git_engine.is_git_repo();
         let (snapshot, initial_status) = if let Some(pr_num) = explicit_pr {
-            match crate::pr::PrEngine::fetch_pr_diff(pr_num) {
+            match crate::diff_source::DiffSource::snapshot(&crate::diff_source::PullRequestSource(
+                pr_num,
+            )) {
                 Ok(snap) => {
                     let msg = format!("Loaded PR #{} ({} files changed)", pr_num, snap.files.len());
                     (snap, Some(msg))
@@ -230,61 +232,34 @@ impl App {
         }
     }
 
+    pub fn diff_source(&self) -> Box<dyn crate::diff_source::DiffSource + '_> {
+        use crate::diff_source::*;
+        if let Some(n) = self.pr.current_number {
+            Box::new(PullRequestSource(n))
+        } else if let Some(rev) = self.active_revision.as_deref() {
+            Box::new(RevisionSource {
+                engine: &self.git_engine,
+                rev,
+            })
+        } else {
+            Box::new(WorkingTreeSource(&self.git_engine))
+        }
+    }
+
     pub fn reload_diff(&mut self) {
-        if let Some(pr_num) = self.pr.current_number {
-            if let Ok(new_snapshot) = crate::pr::PrEngine::fetch_pr_diff(pr_num) {
-                self.alerts = SecurityAndTestGuard::scan_snapshot(&new_snapshot.files);
-                self.snapshot = new_snapshot;
-                self.comments = self.comment_store.load_comments();
-
-                if self.selected_file_idx >= self.snapshot.files.len()
-                    && !self.snapshot.files.is_empty()
-                {
-                    self.selected_file_idx = self.snapshot.files.len() - 1;
-                }
-                self.update_file_picker_filter();
-                self.status_message = Some(format!(
-                    "PR #{} diff updated ({} alerts)",
-                    pr_num,
-                    self.alerts.len()
-                ));
-            }
+        let source = self.diff_source();
+        let label = source.describe();
+        let Ok(new_snapshot) = source.snapshot() else {
             return;
+        };
+        drop(source);
+        self.alerts = SecurityAndTestGuard::scan_snapshot(&new_snapshot.files);
+        self.snapshot = new_snapshot;
+        self.comments = self.comment_store.load_comments();
+        if self.selected_file_idx >= self.snapshot.files.len() && !self.snapshot.files.is_empty() {
+            self.selected_file_idx = self.snapshot.files.len() - 1;
         }
-
-        if let Some(rev) = self.active_revision.clone() {
-            if let Ok(new_snapshot) = self.git_engine.compute_revision_diff(&rev) {
-                self.alerts = SecurityAndTestGuard::scan_snapshot(&new_snapshot.files);
-                self.snapshot = new_snapshot;
-                self.comments = self.comment_store.load_comments();
-
-                if self.selected_file_idx >= self.snapshot.files.len()
-                    && !self.snapshot.files.is_empty()
-                {
-                    self.selected_file_idx = self.snapshot.files.len() - 1;
-                }
-                self.update_file_picker_filter();
-                self.status_message = Some(format!(
-                    "Revision '{}' updated ({} alerts)",
-                    rev,
-                    self.alerts.len()
-                ));
-            }
-            return;
-        }
-
-        if let Ok(new_snapshot) = self.git_engine.compute_diff_snapshot() {
-            self.alerts = SecurityAndTestGuard::scan_snapshot(&new_snapshot.files);
-            self.snapshot = new_snapshot;
-            self.comments = self.comment_store.load_comments();
-
-            if self.selected_file_idx >= self.snapshot.files.len()
-                && !self.snapshot.files.is_empty()
-            {
-                self.selected_file_idx = self.snapshot.files.len() - 1;
-            }
-            self.update_file_picker_filter();
-            self.status_message = Some(format!("Diff updated ({} alerts)", self.alerts.len()));
-        }
+        self.update_file_picker_filter();
+        self.status_message = Some(format!("{} updated ({} alerts)", label, self.alerts.len()));
     }
 }

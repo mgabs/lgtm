@@ -596,7 +596,9 @@ impl App {
             (_, KeyCode::Enter) => {
                 if let Some(pr) = self.pr.list.get(self.pr.selected_idx) {
                     let pr_num = pr.number;
-                    match crate::pr::PrEngine::fetch_pr_diff(pr_num) {
+                    match crate::diff_source::DiffSource::snapshot(
+                        &crate::diff_source::PullRequestSource(pr_num),
+                    ) {
                         Ok(snap) => {
                             self.pr.current_number = Some(pr_num);
                             self.alerts = SecurityAndTestGuard::scan_snapshot(&snap.files);

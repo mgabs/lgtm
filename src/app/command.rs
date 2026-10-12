@@ -95,7 +95,9 @@ impl App {
             "pr" => {
                 if let Some(arg) = args.first() {
                     if let Ok(pr_num) = arg.parse::<u64>() {
-                        match crate::pr::PrEngine::fetch_pr_diff(pr_num) {
+                        match crate::diff_source::DiffSource::snapshot(
+                            &crate::diff_source::PullRequestSource(pr_num),
+                        ) {
                             Ok(snap) => {
                                 self.pr.current_number = Some(pr_num);
                                 self.snapshot = snap;
@@ -302,7 +304,9 @@ impl App {
             }
             "reload" | "e" | "edit" => {
                 if let Some(pr_num) = self.pr.current_number {
-                    if let Ok(snap) = crate::pr::PrEngine::fetch_pr_diff(pr_num) {
+                    if let Ok(snap) = crate::diff_source::DiffSource::snapshot(
+                        &crate::diff_source::PullRequestSource(pr_num),
+                    ) {
                         self.snapshot = snap;
                         self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
                         self.status_message = Some(format!("Reloaded PR #{}", pr_num));

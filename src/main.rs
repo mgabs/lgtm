@@ -1,6 +1,7 @@
 mod app;
 mod comment;
 mod coverage;
+mod diff_source;
 mod git;
 mod guard;
 mod ipc;
