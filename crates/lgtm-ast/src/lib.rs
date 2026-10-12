@@ -69,6 +69,52 @@ pub fn hits_within(lang: Lang, src: &str, query: &str, inside: &[&str]) -> Resul
     Ok(rows)
 }
 
+const BRANCH_KINDS: [&str; 14] = [
+    "if_statement",
+    "guard_statement",
+    "for_statement",
+    "for_in_statement",
+    "while_statement",
+    "do_statement",
+    "repeat_while_statement",
+    "switch_statement",
+    "catch_clause",
+    "catch_block",
+    "ternary_expression",
+    "conditional_expression",
+    "switch_case",
+    "else_clause",
+];
+
+/// Cognitive complexity of branches that start on a row `counted` accepts:
+/// each branch costs 1 plus its nesting depth; `else if` adds no depth.
+pub fn cognitive(lang: Lang, src: &str, counted: impl Fn(usize) -> bool) -> Result<usize> {
+    let mut parser = Parser::new();
+    parser.set_language(&grammar(lang))?;
+    let tree = parser
+        .parse(src, None)
+        .ok_or_else(|| anyhow!("parse failed"))?;
+    Ok(walk(tree.root_node(), 0, &counted))
+}
+
+fn walk(node: tree_sitter::Node, depth: usize, counted: &impl Fn(usize) -> bool) -> usize {
+    let kind = node.kind();
+    // case/else arms only deepen nothing; the switch / if above already paid
+    let scores = BRANCH_KINDS.contains(&kind) && kind != "switch_case" && kind != "else_clause";
+    let else_if =
+        kind == "if_statement" && node.parent().is_some_and(|p| p.kind() == "else_clause");
+    let mut total = 0;
+    if scores && counted(node.start_position().row) {
+        total += if else_if { 1 } else { 1 + depth };
+    }
+    let child_depth = if scores && !else_if { depth + 1 } else { depth };
+    let mut cur = node.walk();
+    for c in node.children(&mut cur) {
+        total += walk(c, child_depth, counted);
+    }
+    total
+}
+
 fn within(node: tree_sitter::Node, kinds: &[&str]) -> bool {
     let mut cur = node.parent();
     while let Some(n) = cur {
@@ -116,6 +162,18 @@ mod tests {
             vec![2]
         );
         assert_eq!(hits(Lang::Tsx, src, q).unwrap(), vec![2, 4, 6]);
+    }
+
+    #[test]
+    fn cognitive_counts_nesting_and_skips_else_if_depth() {
+        let src = "function f() {\n  if (a) {\n    for (;;) {\n      if (b) {}\n    }\n  } else if (c) {}\n}\n";
+        // if=1, for=1+1, inner if=1+2, else-if=1
+        assert_eq!(cognitive(Lang::Ts, src, |_| true).unwrap(), 1 + 2 + 3 + 1);
+        assert_eq!(cognitive(Lang::Ts, src, |r| r == 3).unwrap(), 3);
+        let jsx = "const x = <div style={{ a: 1 }}>{items.map((i) => <b key={i}>{i}</b>)}</div>;";
+        assert_eq!(cognitive(Lang::Tsx, jsx, |_| true).unwrap(), 0);
+        let sw = "func f() {\n  guard a else { return }\n  if b { while c {} }\n}\n";
+        assert_eq!(cognitive(Lang::Swift, sw, |_| true).unwrap(), 1 + 1 + 2);
     }
 
     #[test]

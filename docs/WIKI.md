@@ -224,6 +224,8 @@ Once you have staged your verified hunks (`s` / `S`), press **`C`** (or type **`
 - **Remediation**: Extract sub-functions or refactor into early return guard clauses.
 
 ### AST-based web rules
+Cognitive complexity (`cx/complexity-spike`) also uses the AST for TS/JS/Swift hunks (branch cost = 1 + nesting, `else if` adds no depth); other languages keep the text heuristic.
+
 `lgtm-ast` parses JS/TS/JSX/TSX with tree-sitter and guards query syntax nodes instead of text. Only matches on added lines are reported. Each hunk's new-side lines are parsed as a fragment, so rules needing whole-file context are not possible yet. Rules (added lines only):
 
 | Rule | Severity | Flags |

@@ -1,5 +1,5 @@
 use crate::guard::{GuardAlert, Severity};
-use crate::model::{FileDiff, LineType};
+use crate::model::{DiffHunk, FileDiff, LineType};
 
 pub struct ComplexityGuard;
 
@@ -9,10 +9,11 @@ impl ComplexityGuard {
         let path_str = file.display_name();
 
         for hunk in &file.hunks {
-            let mut complexity = 0;
+            let ast = ast_complexity(file, hunk);
+            let mut complexity = ast.unwrap_or(0);
             let mut nesting_level = 0;
 
-            for line in &hunk.lines {
+            for line in hunk.lines.iter().filter(|_| ast.is_none()) {
                 if line.line_type == LineType::Addition {
                     let text = line.content.trim();
 
@@ -69,6 +70,27 @@ impl ComplexityGuard {
 
         alerts
     }
+}
+
+/// AST score for languages lgtm-ast parses; None means "use the text heuristic".
+fn ast_complexity(file: &FileDiff, hunk: &DiffHunk) -> Option<usize> {
+    let lang = lgtm_ast::lang_of(&file.new_path)?;
+    // ponytail: hunk-local fragment parse, same ceiling as the web/swift packs
+    let side: Vec<_> = hunk
+        .lines
+        .iter()
+        .filter(|l| matches!(l.line_type, LineType::Addition | LineType::Context))
+        .collect();
+    let src = side
+        .iter()
+        .map(|l| l.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    lgtm_ast::cognitive(lang, &src, |row| {
+        side.get(row)
+            .is_some_and(|l| l.line_type == LineType::Addition)
+    })
+    .ok()
 }
 
 fn evaluate_cognitive_increment(text: &str) -> (bool, bool) {
@@ -187,5 +209,49 @@ mod tests {
         let alerts = ComplexityGuard::scan_file(&file);
         assert_eq!(alerts.len(), 1);
         assert!(alerts[0].title.contains("Cognitive Complexity Spike"));
+    }
+
+    fn added(path: &str, code: &str) -> FileDiff {
+        FileDiff {
+            old_path: None,
+            new_path: PathBuf::from(path),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@".into(),
+                old_start: 1,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 0,
+                lines: code
+                    .lines()
+                    .enumerate()
+                    .map(|(i, c)| DiffLine {
+                        line_type: LineType::Addition,
+                        content: c.to_string(),
+                        old_line_num: None,
+                        new_line_num: Some(i as u32 + 1),
+                    })
+                    .collect(),
+                is_folded: false,
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }
+    }
+
+    #[test]
+    fn ast_ignores_keywords_in_strings_and_flags_real_nesting() {
+        let template = format!("const t = `\n{}`;", "if (a) {\n".repeat(10));
+        assert!(ComplexityGuard::scan_file(&added("a.ts", &template)).is_empty());
+        let mut real = String::from("function f() {\n");
+        for i in 0..6 {
+            real.push_str(&format!("{}if (c{i}) {{\n", "  ".repeat(i)));
+        }
+        real.push_str(&"}\n".repeat(7));
+        assert_eq!(ComplexityGuard::scan_file(&added("a.ts", &real)).len(), 1);
+        let swift = "func f() {\n  guard a else { return }\n}\n";
+        assert!(ComplexityGuard::scan_file(&added("a.swift", swift)).is_empty());
     }
 }
