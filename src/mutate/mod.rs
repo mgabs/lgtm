@@ -294,13 +294,13 @@ impl MutationTester {
             let killed = matches == vec!["e", "edit", "exit"];
             results.push(MutantResult {
                 id,
-                module: "src/app.rs",
+                module: "src/app",
                 description: "Invert autocompletion prefix check to suffix check",
                 original,
                 mutated,
                 status: if killed {
                     MutationStatus::Killed {
-                        killing_test: "app::tests::test_ex_command_autocomplete",
+                        killing_test: "app::command::tests::test_ex_command_autocomplete",
                     }
                 } else {
                     MutationStatus::Survived
@@ -329,13 +329,13 @@ impl MutationTester {
                 line_blank.content.trim().is_empty() && !line_code.content.trim().is_empty();
             results.push(MutantResult {
                 id,
-                module: "src/app.rs",
+                module: "src/app",
                 description: "Invert paragraph jump blank line predicate",
                 original,
                 mutated,
                 status: if killed {
                     MutationStatus::Killed {
-                        killing_test: "app::tests::test_paragraph_jumps_and_page_scroll",
+                        killing_test: "app::motion::tests::test_paragraph_jumps_and_page_scroll",
                     }
                 } else {
                     MutationStatus::Survived
@@ -356,13 +356,13 @@ impl MutationTester {
             let killed = s1 > s2 && s2 == 0;
             results.push(MutantResult {
                 id,
-                module: "src/app.rs",
+                module: "src/app",
                 description: "Invert fuzzy search match scoring order",
                 original,
                 mutated,
                 status: if killed {
                     MutationStatus::Killed {
-                        killing_test: "app::tests::test_fuzzy_file_picker_filtering",
+                        killing_test: "app::motion::tests::test_fuzzy_file_picker_filtering",
                     }
                 } else {
                     MutationStatus::Survived

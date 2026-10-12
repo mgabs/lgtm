@@ -518,9 +518,10 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 
 | Path | Role |
 |---|---|
-| `src/main.rs` | CLI dispatcher, headless runners |
-| `src/app.rs` | TUI state machine, keys, Vim motions |
-| `src/ui/` | Ratatui rendering, modals |
+| `src/main.rs` | Entry point, TUI launcher |
+| `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `coverage`, `init`) |
+| `src/app/` | TUI state machine split by concern: input, motion, command, comments, staging, audit, pr, commit, external |
+| `src/ui/` | Ratatui rendering split by view; `modals/` for dialogs |
 | `src/model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
 | `src/scan.rs` | Full repo scanner and report generator |
 | `src/git/`, `src/pr/` | Git diff engine; GitHub PR via `gh` |

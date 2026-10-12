@@ -18,13 +18,13 @@ Break up the god files (`src/app.rs` 4,668 lines, `src/ui/mod.rs` 3,120, `src/ma
 
 - `model` depends on nothing; `guard`, `git`, `pr`, `scan`, `coverage`, `verify`, `mutate`, `mcp` depend only on `model` and each other. `turn`, `comment`, `ipc`, `watcher` have no internal deps.
 - No domain module imports ratatui/crossterm; only `app` and `ui` do.
-- `src/mutate/mod.rs` hard-codes source paths (e.g. `"src/app.rs"`, `"src/ui/mod.rs"`). Moving files breaks these; update in the same PR as each move.
+- `src/mutate/mod.rs` holds source paths and test names as string labels only (no file reads). Moves cause cosmetic label drift; update them in the same PR.
 - Gate: fmt, clippy `-D warnings`, tests, coverage >= 90% (`scripts/coverage.sh`), mutation >= 90% (`scripts/mutate.sh`, runs `lgtm mutate`), SARIF self-scan.
 
 ## Stages (one PR each, cut from trunk, merged before the next; never stacked)
 
 ### 1 — Mechanical split (no signature changes)
-- `app.rs` -> `app/`: `mod.rs` (struct, `new`), `input.rs`, `command.rs`, `motion.rs`, `staging.rs`, `comments.rs`, `audit.rs`, `pr.rs`, `commit.rs`, `clipboard_ipc.rs`, `test_util.rs`. Tests move beside the code they cover.
+- `app.rs` -> `app/`: `mod.rs` (struct, `new`), `input.rs`, `command.rs`, `motion.rs`, `staging.rs`, `comments.rs`, `audit.rs`, `pr.rs`, `commit.rs`, `external.rs`, `test_util.rs`. Tests move beside the code they cover.
 - `ui/mod.rs` -> `ui/`: `diff.rs`, `header.rs`, `status.rs`, `help.rs`, `audit.rs`, `modals/` (commit, pickers, comments).
 - `main.rs` -> `main.rs` + `cli.rs` + `headless.rs` (check, scan, ci).
 - Update hard-coded paths in `mutate` and any path assumptions in `scripts/`.

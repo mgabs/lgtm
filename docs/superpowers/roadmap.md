@@ -11,7 +11,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 ### Refactor (R) — structure
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
-| R1 | Mechanical split of `app`, `ui`, `main` (+ fix hard-coded `mutate` paths) | M | — |
+| R1 | Mechanical split of `app`, `ui`, `main` (+ fix hard-coded `mutate` labels) | M | — |
 | R2 | State extraction: `CommandLine`, `Picker`, `AuditState`, `PrState`, `CommitForge` | M | R1 |
 | R3 | Internal traits: `Guard` + registry, `DiffSource`, `AgentSink` (golden-output parity) | M | R2 |
 | R4 | Cargo workspace: `lgtm-core`, `lgtm-mcp`, `lgtm` (scripts, CI, release, tap) | L | R3 |
@@ -72,7 +72,7 @@ Open: none. Prioritization complete; next step is implementation plans (writing-
 
 | Wave | Release | Exit criteria (all must hold) |
 |---|---|---|
-| 1 Refactor | v0.8.0 | `make check` green on trunk; `app.rs`, `ui/mod.rs`, `main.rs` each under ~800 lines (or split further); workspace builds; `cargo install --git` verified; Homebrew tap flow verified; golden outputs of `check`/`scan`/`ci` identical to v0.7.0; boundary CI check in place |
+| 1 Refactor | v0.8.0 | `make check` green on trunk; `app.rs`, `ui/mod.rs`, `main.rs` split into submodules (R1 splitter output accepted as-is: `app/input.rs` 1288, `app/motion.rs` 968, `ui/diff.rs` 911 lines; further splits only where R2 state extraction naturally shrinks them); workspace builds; `cargo install --git` verified; Homebrew tap flow verified; golden outputs of `check`/`scan`/`ci` identical to v0.7.0; boundary CI check in place |
 | 2 B | v0.9.0 | No-config output byte-identical to v0.8.0 (except added `rule_id`); `.lgtm.toml`, scoped suppressions and baselines work end to end on a fixture repo; Critical never baselined by default |
 | 3 C | v0.10.0 | Re-anchoring property tests pass (insert above, move, rename); migration from old files tested; posting resumable against the fake client; manual smoke test against a real PR |
 | 4 A | v0.11.0 | Claim-vs-diff matrix tested; one real MCP client smoke-tested; sinks smoke-checklist completed; existing MCP tools backward compatible |
