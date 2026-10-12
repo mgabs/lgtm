@@ -223,6 +223,9 @@ Once you have staged your verified hunks (`s` / `S`), press **`C`** (or type **`
 - **Trigger**: Warns if a function's cognitive complexity increases by $\ge +5$ points.
 - **Remediation**: Extract sub-functions or refactor into early return guard clauses.
 
+### AST-based web rules
+`lgtm-ast` parses JS/TS/JSX/TSX with tree-sitter and guards query syntax nodes instead of text. Only matches on added lines are reported. Each hunk's new-side lines are parsed as a fragment, so rules needing whole-file context are not possible yet. Current rule: `web/dangerous-html` (High) flags a newly added `dangerouslySetInnerHTML`.
+
 ### Identifier Hallucination & Typo Guard
 - **What it checks**: Extracts project-wide symbol identifiers (variable names, functions, structs, methods).
 - **Trigger**: Flags new identifiers that have a Levenshtein edit distance of $1 \le d \le 2$ from existing symbols (e.g. agent typed `user_token` when the project defines `usertoken`).

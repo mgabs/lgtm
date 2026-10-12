@@ -6,6 +6,7 @@ pub mod deps;
 pub mod duplicate;
 pub mod security;
 pub mod symbols;
+pub mod web;
 
 use crate::model::{FileDiff, LineType};
 use serde::{Deserialize, Serialize};
@@ -68,6 +69,7 @@ pub fn registry() -> &'static [&'static dyn Guard] {
         &symbols::SymbolGuard,
         &api_drift::ApiDriftGuard,
         &dead_code::DeadCodeGuard,
+        &web::WebGuard,
     ]
 }
 
@@ -488,7 +490,8 @@ mod tests {
                 "complexity",
                 "symbols",
                 "api_drift",
-                "dead_code"
+                "dead_code",
+                "web"
             ]
         );
     }

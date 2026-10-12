@@ -260,6 +260,7 @@ lgtm/
 │   ├── app/                  # State machine, key handlers & Vim motion engine
 │   └── ui/                   # Ratatui rendering, drawer, tabs, commit forge & modals
 ├── crates/
+│   ├── lgtm-ast/src/         # tree-sitter parsing and queries
 │   ├── lgtm-core/src/        # UI-free engine
 │   │   ├── model.rs          # Diff data models
 │   │   ├── git/, pr/         # Git diff engine; GitHub PR via `gh`
