@@ -48,7 +48,7 @@ impl InvertedTestVerifier {
 
         // Run tests with current code to ensure baseline passes
         let initial_status = Command::new("cargo")
-            .args(["test", "--", "--nocapture"])
+            .args(["test", "--workspace", "--", "--nocapture"])
             .status()?;
 
         if !initial_status.success() {
@@ -74,7 +74,7 @@ impl InvertedTestVerifier {
 
         // Re-run test suite without production code
         let inverted_status = Command::new("cargo")
-            .args(["test", "--", "--nocapture"])
+            .args(["test", "--workspace", "--", "--nocapture"])
             .status();
 
         // Restore reverted files immediately

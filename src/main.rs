@@ -1,19 +1,9 @@
 mod app;
-mod comment;
-mod coverage;
-mod diff_source;
-mod git;
-mod guard;
-mod ipc;
-mod mcp;
-mod model;
-mod mutate;
-mod pr;
-mod scan;
-mod turn;
+use lgtm_core::{
+    comment, coverage, diff_source, git, guard, ipc, model, mutate, pr, scan, turn, verify, watcher,
+};
+use lgtm_mcp as mcp;
 mod ui;
-mod verify;
-mod watcher;
 
 use anyhow::Result;
 use app::App;

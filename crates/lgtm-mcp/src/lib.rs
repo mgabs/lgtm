@@ -1,7 +1,7 @@
-use crate::git::GitEngine;
-use crate::guard::SecurityAndTestGuard;
-use crate::model::DiffSnapshot;
 use anyhow::Result;
+use lgtm_core::git::GitEngine;
+use lgtm_core::guard::SecurityAndTestGuard;
+use lgtm_core::model::DiffSnapshot;
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
@@ -207,7 +207,8 @@ impl McpServer {
                         .filter(|a| {
                             matches!(
                                 a.severity,
-                                crate::guard::Severity::Critical | crate::guard::Severity::High
+                                lgtm_core::guard::Severity::Critical
+                                    | lgtm_core::guard::Severity::High
                             )
                         })
                         .collect()
@@ -241,7 +242,7 @@ impl McpServer {
                     .and_then(|c| c.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
-                let comment = crate::comment::CommentAnchor {
+                let comment = lgtm_core::comment::CommentAnchor {
                     file_path: file.to_string(),
                     target_line_no: line,
                     target_code: String::new(),
@@ -254,7 +255,8 @@ impl McpServer {
                     pr_number: None,
                 };
 
-                let comment_store = crate::comment::CommentStore::new(&self.git_engine.repo_path);
+                let comment_store =
+                    lgtm_core::comment::CommentStore::new(&self.git_engine.repo_path);
                 let mut comments = comment_store.load_comments();
                 comments.push(comment);
                 comment_store.save_comments(&comments)?;
@@ -289,10 +291,10 @@ impl McpServer {
                 out.push_str(&format!("  {}\n", h.header));
                 for l in &h.lines {
                     let prefix = match l.line_type {
-                        crate::model::LineType::Addition => "+",
-                        crate::model::LineType::Deletion => "-",
-                        crate::model::LineType::Context => " ",
-                        crate::model::LineType::HunkHeader => "@",
+                        lgtm_core::model::LineType::Addition => "+",
+                        lgtm_core::model::LineType::Deletion => "-",
+                        lgtm_core::model::LineType::Context => " ",
+                        lgtm_core::model::LineType::HunkHeader => "@",
                     };
                     out.push_str(&format!("  {} {}\n", prefix, l.content));
                 }

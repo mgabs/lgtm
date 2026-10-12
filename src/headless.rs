@@ -262,7 +262,7 @@ pub(crate) fn run_coverage_audit(
             coverage::CoverageReport::parse_lcov(&content)?
         } else {
             let _ = std::process::Command::new("cargo")
-                .args(["test", "--", "--nocapture"])
+                .args(["test", "--workspace", "--", "--nocapture"])
                 .status();
             coverage::CoverageReport::default()
         };
@@ -328,7 +328,7 @@ pub(crate) fn run_coverage_audit(
         println!("🧪 Running LGTM Test Suite & Coverage Analysis...\n");
 
         let status = std::process::Command::new("cargo")
-            .args(["test", "--", "--nocapture"])
+            .args(["test", "--workspace", "--", "--nocapture"])
             .status()?;
 
         if !status.success() {

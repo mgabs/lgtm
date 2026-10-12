@@ -587,13 +587,35 @@ dependencies = [
  "crossbeam-channel",
  "crossterm",
  "fuzzy-matcher",
+ "lgtm-core",
+ "lgtm-mcp",
+ "ratatui",
+ "serde_json",
+ "similar",
+]
+
+[[package]]
+name = "lgtm-core"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "crossbeam-channel",
+ "fuzzy-matcher",
  "git2",
  "notify",
  "notify-debouncer-mini",
- "ratatui",
  "serde",
  "serde_json",
- "similar",
+]
+
+[[package]]
+name = "lgtm-mcp"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "lgtm-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
