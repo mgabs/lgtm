@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 pub struct FullRepoScanner;
 
 impl FullRepoScanner {
-    pub fn scan_repository(root_dir: &Path) -> Result<(Vec<FileDiff>, Vec<GuardAlert>)> {
+    pub fn scan_repository(
+        root_dir: &Path,
+        cfg: &crate::config::LgtmConfig,
+    ) -> Result<(Vec<FileDiff>, Vec<GuardAlert>)> {
         let mut files = Vec::new();
         let mut all_alerts = Vec::new();
 
@@ -66,6 +69,7 @@ impl FullRepoScanner {
         }
 
         crate::guard::assign_fingerprints(&mut all_alerts, &files);
+        let mut all_alerts = crate::findings::apply(all_alerts, &files, cfg).active;
         // Deduplicate alerts
         all_alerts.sort_by(|a, b| {
             b.severity

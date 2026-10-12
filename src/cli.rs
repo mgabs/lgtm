@@ -88,6 +88,12 @@ pub enum Commands {
         /// Fail on warning severity as well as critical/high
         #[arg(long)]
         strict: bool,
+        /// List suppressed findings on stderr
+        #[arg(long)]
+        show_suppressed: bool,
+        /// Ignore ~/.config/lgtm/config.toml
+        #[arg(long)]
+        no_user_config: bool,
     },
     /// Run full repository security and architecture scan with markdown report
     Scan {
@@ -127,6 +133,12 @@ pub enum Commands {
         /// Fail on warning severity as well as critical/high
         #[arg(long)]
         strict: bool,
+        /// List suppressed findings on stderr
+        #[arg(long)]
+        show_suppressed: bool,
+        /// Ignore ~/.config/lgtm/config.toml
+        #[arg(long)]
+        no_user_config: bool,
     },
     /// Audit test coverage across all modules or strictly on changed lines in diff
     Coverage {

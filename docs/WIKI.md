@@ -346,6 +346,16 @@ lgtm scan --output lgtm-report.md
 lgtm scan --format sarif --output lgtm-results.sarif
 ```
 
+Config (`.lgtm.toml`) is applied by `check`, `ci`, `scan`, `risk` and the TUI through one pipeline in `lgtm-core::findings`: suppress (inline + `[ignore]`), then `[severity]` overrides. Suppression forms:
+
+- `lgtm:ignore` (and variants) hides every rule on that line.
+- `lgtm:ignore(sec/tls-bypass, dead/*)` hides only the listed rules.
+- `[ignore] paths` and `[ignore.rules]` globs (`*` within a segment, `**` across) hide by file.
+- `[severity] "rule-or-prefix/*" = critical|high|warning|info|off`: exact IDs beat prefixes, `info` maps to `warning`, `off` drops the finding.
+- `thresholds.complexity_increase` hides complexity spikes below that many points (guards report from 8).
+
+Suppressed counts go to stderr; `check`/`ci --show-suppressed` lists them. `ci` ignores the user config file; `--no-user-config` or `LGTM_NO_USER_CONFIG=1` ignores it elsewhere.
+
 Every finding carries a kebab-case `rule_id` (e.g. `sec/tls-bypass`) and a `fingerprint` (rule + file + whitespace-normalized line + occurrence index, independent of line number). JSON exposes both; SARIF uses `ruleId` and `partialFingerprints["lgtmFingerprint/v1"]`.
 
 #### Interactive Audit Mode Keybindings

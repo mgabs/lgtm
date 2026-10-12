@@ -2,6 +2,7 @@ pub mod comment;
 pub mod config;
 pub mod coverage;
 pub mod diff_source;
+pub mod findings;
 pub mod git;
 pub mod guard;
 pub mod ipc;

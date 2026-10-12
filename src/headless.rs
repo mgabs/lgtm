@@ -1,11 +1,45 @@
 use super::*;
 
+/// Load `.lgtm.toml` (+ user file unless disabled), echoing warnings to stderr.
+pub(crate) fn load_config(
+    repo_path: &Path,
+    no_user_config: bool,
+) -> Result<lgtm_core::config::LgtmConfig> {
+    let user = lgtm_core::config::user_config_path(no_user_config);
+    let cfg = lgtm_core::config::LgtmConfig::load(repo_path, user.as_deref())?;
+    for w in &cfg.warnings {
+        eprintln!("warning: {}", w);
+    }
+    Ok(cfg)
+}
+
+fn report_suppressed(f: &lgtm_core::findings::Findings, show: bool) {
+    if f.suppressed.is_empty() {
+        return;
+    }
+    eprintln!("{} finding(s) suppressed", f.suppressed.len());
+    if show {
+        for a in &f.suppressed {
+            eprintln!(
+                "  [{}] {}:{} {}",
+                a.rule_id,
+                a.file_path,
+                a.line_no.unwrap_or(0),
+                a.title
+            );
+        }
+    }
+}
+
 pub(crate) fn run_ci_audit(
     repo_path: &Path,
     format: &str,
     output_file: Option<&Path>,
     strict: bool,
+    show_suppressed: bool,
+    no_user_config: bool,
 ) -> Result<i32> {
+    let cfg = load_config(repo_path, no_user_config)?;
     let git_engine = git::GitEngine::new(repo_path);
     let snapshot = if git_engine.is_git_repo() {
         git_engine.compute_diff_snapshot()?
@@ -13,7 +47,9 @@ pub(crate) fn run_ci_audit(
         model::DiffSnapshot::default()
     };
 
-    let alerts = guard::SecurityAndTestGuard::scan_snapshot(&snapshot.files);
+    let found = lgtm_core::findings::run(&snapshot.files, &cfg);
+    report_suppressed(&found, show_suppressed);
+    let alerts = found.active;
     let critical_count = alerts
         .iter()
         .filter(|a| a.severity == guard::Severity::Critical)
@@ -192,7 +228,9 @@ pub(crate) fn run_risk_audit(repo_path: &Path) -> Result<i32> {
     }
 
     let snapshot = git_engine.compute_diff_snapshot()?;
-    let alerts = guard::SecurityAndTestGuard::scan_snapshot(&snapshot.files);
+    let found = lgtm_core::findings::run(&snapshot.files, &load_config(repo_path, false)?);
+    report_suppressed(&found, false);
+    let alerts = found.active;
 
     if alerts.is_empty() {
         println!("✨ LGTM Risk Audit: No security risks or test fraud detected (0 warnings across {} files).", snapshot.files.len());

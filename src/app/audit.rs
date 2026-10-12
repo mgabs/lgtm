@@ -23,7 +23,7 @@ impl App {
     pub fn trigger_repo_scan(&mut self) {
         self.status_message =
             Some("Auditing full repository for security & architectural issues...".to_string());
-        match crate::scan::FullRepoScanner::scan_repository(&self.audit.root_dir) {
+        match crate::scan::FullRepoScanner::scan_repository(&self.audit.root_dir, &self.config) {
             Ok((files, alerts)) => {
                 let count = alerts.len();
                 self.audit.files = files;
@@ -49,7 +49,7 @@ impl App {
     pub fn trigger_diff_scan(&mut self) {
         self.status_message =
             Some("Scanning changed files for security & architectural issues...".to_string());
-        self.alerts = crate::guard::SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+        self.alerts = self.scan(&self.snapshot.files);
         self.audit.files = self.snapshot.files.clone();
         self.audit.alerts = self.alerts.clone();
         self.audit.selected_idx = 0;
@@ -148,7 +148,7 @@ impl App {
 
         if self.audit.alerts.is_empty() && self.audit.files.is_empty() {
             let (files, alerts) =
-                crate::scan::FullRepoScanner::scan_repository(&self.audit.root_dir)?;
+                crate::scan::FullRepoScanner::scan_repository(&self.audit.root_dir, &self.config)?;
             self.audit.files = files;
             self.audit.alerts = alerts;
         }

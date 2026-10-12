@@ -28,6 +28,31 @@ use headless::{
     run_ci_audit, run_coverage_audit, run_git_passthrough, run_init_config, run_risk_audit,
 };
 
+fn run_check(
+    target: PathBuf,
+    format: &str,
+    output: Option<&Path>,
+    strict: bool,
+    show_suppressed: bool,
+    no_user_config: bool,
+) -> ExitCode {
+    let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+    match run_ci_audit(
+        &repo_path,
+        format,
+        output,
+        strict,
+        show_suppressed,
+        no_user_config,
+    ) {
+        Ok(code) => ExitCode::from(code as u8),
+        Err(e) => {
+            eprintln!("Error running check audit: {}", e);
+            ExitCode::from(1)
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
 
@@ -202,23 +227,32 @@ fn main() -> ExitCode {
             format,
             output,
             strict,
-        })
-        | Some(Commands::Ci {
+            show_suppressed,
+            no_user_config,
+        }) => run_check(
+            repo.unwrap_or(cli.repo),
+            &format,
+            output.as_deref(),
+            strict,
+            show_suppressed,
+            no_user_config,
+        ),
+        // CI ignores the user-level config so results match across machines
+        Some(Commands::Ci {
             repo,
             format,
             output,
             strict,
-        }) => {
-            let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
-            match run_ci_audit(&repo_path, &format, output.as_deref(), strict) {
-                Ok(code) => ExitCode::from(code as u8),
-                Err(e) => {
-                    eprintln!("Error running check audit: {}", e);
-                    ExitCode::from(1)
-                }
-            }
-        }
+            show_suppressed,
+            ..
+        }) => run_check(
+            repo.unwrap_or(cli.repo),
+            &format,
+            output.as_deref(),
+            strict,
+            show_suppressed,
+            true,
+        ),
         Some(Commands::Audit { repo }) => {
             let target = repo.unwrap_or(cli.repo);
             let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
@@ -279,7 +313,14 @@ fn main() -> ExitCode {
             }
 
             println!("🔍 Running full codebase security and architecture audit...\n");
-            match scan::FullRepoScanner::scan_repository(&repo_path) {
+            let cfg = match headless::load_config(&repo_path, false) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error loading config: {}", e);
+                    return ExitCode::from(1);
+                }
+            };
+            match scan::FullRepoScanner::scan_repository(&repo_path, &cfg) {
                 Ok((files, alerts)) => {
                     let output_text = if format.eq_ignore_ascii_case("json") {
                         serde_json::to_string_pretty(&alerts).unwrap_or_default()

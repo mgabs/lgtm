@@ -601,7 +601,7 @@ impl App {
                     ) {
                         Ok(snap) => {
                             self.pr.current_number = Some(pr_num);
-                            self.alerts = SecurityAndTestGuard::scan_snapshot(&snap.files);
+                            self.alerts = self.scan(&snap.files);
                             self.snapshot = snap;
                             self.selected_file_idx = 0;
                             self.cursor_line_idx = 0;

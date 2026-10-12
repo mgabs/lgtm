@@ -69,7 +69,7 @@ impl App {
                             self.active_revision = Some(rev_spec.to_string());
                             self.pr.current_number = None;
                             self.snapshot = snap;
-                            self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+                            self.alerts = self.scan(&self.snapshot.files);
                             self.selected_file_idx = 0;
                             self.cursor_line_idx = 0;
                             self.diff_scroll_offset = 0;
@@ -101,8 +101,7 @@ impl App {
                             Ok(snap) => {
                                 self.pr.current_number = Some(pr_num);
                                 self.snapshot = snap;
-                                self.alerts =
-                                    SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+                                self.alerts = self.scan(&self.snapshot.files);
                                 self.selected_file_idx = 0;
                                 self.cursor_line_idx = 0;
                                 self.diff_scroll_offset = 0;
@@ -284,7 +283,7 @@ impl App {
                 }
             }
             "risk" => {
-                self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+                self.alerts = self.scan(&self.snapshot.files);
                 self.status_message = Some(format!(
                     "Scanned {} files — {} security & test alerts found",
                     self.snapshot.files.len(),
@@ -298,13 +297,13 @@ impl App {
                         &crate::diff_source::PullRequestSource(pr_num),
                     ) {
                         self.snapshot = snap;
-                        self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+                        self.alerts = self.scan(&self.snapshot.files);
                         self.status_message = Some(format!("Reloaded PR #{}", pr_num));
                     }
                 } else if self.git_engine.is_git_repo() {
                     if let Ok(snap) = self.git_engine.compute_diff_snapshot() {
                         self.snapshot = snap;
-                        self.alerts = SecurityAndTestGuard::scan_snapshot(&self.snapshot.files);
+                        self.alerts = self.scan(&self.snapshot.files);
                         self.status_message = Some(format!(
                             "Reloaded diff ({} files)",
                             self.snapshot.files.len()

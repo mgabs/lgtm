@@ -320,16 +320,21 @@ fn fnv1a(s: &str) -> u64 {
 }
 
 /// Stable id from rule, file, whitespace-normalized flagged line and occurrence index (no line number).
+/// Text of the flagged new-side line, when the alert points at one.
+pub fn line_text<'a>(files: &'a [FileDiff], a: &GuardAlert) -> Option<&'a str> {
+    let n = a.line_no?;
+    files
+        .iter()
+        .filter(|f| f.display_name() == a.file_path)
+        .flat_map(|f| f.hunks.iter().flat_map(|h| h.lines.iter()))
+        .find(|l| l.new_line_num == Some(n))
+        .map(|l| l.content.as_str())
+}
+
 pub fn assign_fingerprints(alerts: &mut [GuardAlert], files: &[FileDiff]) {
     let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     for a in alerts.iter_mut() {
-        let text = files
-            .iter()
-            .filter(|f| f.display_name() == a.file_path)
-            .flat_map(|f| f.hunks.iter().flat_map(|h| h.lines.iter()))
-            .find(|l| a.line_no.is_some() && l.new_line_num == a.line_no)
-            .map(|l| l.content.as_str())
-            .unwrap_or(&a.title);
+        let text = line_text(files, a).unwrap_or(&a.title);
         let norm = text.split_whitespace().collect::<Vec<_>>().join(" ");
         let key = format!("{}\0{}\0{}", a.rule_id, a.file_path, norm);
         let n = seen.entry(key.clone()).and_modify(|c| *c += 1).or_insert(0);
@@ -339,7 +344,8 @@ pub fn assign_fingerprints(alerts: &mut [GuardAlert], files: &[FileDiff]) {
 
 pub fn is_line_ignored(text: &str) -> bool {
     let t = text.trim();
-    t.contains("lgtm:ignore")
+    // `lgtm:ignore(rule, ...)` is rule-scoped and handled by the findings pipeline
+    (t.contains("lgtm:ignore") && !t.contains("lgtm:ignore("))
         || t.contains("lgtm-ignore")
         || t.contains("nolint:lgtm")
         || t.contains("lgtm[ignore]")

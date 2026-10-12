@@ -1,6 +1,6 @@
 use crate::comment::{CommentAnchor, CommentStore};
 use crate::git::GitEngine;
-use crate::guard::{GuardAlert, SecurityAndTestGuard};
+use crate::guard::GuardAlert;
 use crate::ipc::sink::AgentSink;
 use crate::ipc::IpcBridge;
 use crate::model::{DiffHunk, DiffSnapshot, FileDiff};
@@ -58,6 +58,7 @@ pub struct App {
 
     // Full Repo Audit state
     pub audit: AuditState,
+    pub config: lgtm_core::config::LgtmConfig,
 
     pub selected_file_idx: usize,
     pub diff_scroll_offset: usize,
@@ -114,6 +115,11 @@ pub struct App {
 }
 
 impl App {
+    /// Guards plus config pipeline; suppressed findings are not shown.
+    pub fn scan(&self, files: &[crate::model::FileDiff]) -> Vec<GuardAlert> {
+        lgtm_core::findings::run(files, &self.config).active
+    }
+
     pub fn new(
         repo_path: PathBuf,
         watcher_rx: Receiver<WatcherMessage>,
@@ -169,7 +175,12 @@ impl App {
             )
         };
 
-        let alerts = SecurityAndTestGuard::scan_snapshot(&snapshot.files);
+        let config = lgtm_core::config::LgtmConfig::load(
+            &repo_path,
+            lgtm_core::config::user_config_path(false).as_deref(),
+        )
+        .unwrap_or_default();
+        let alerts = lgtm_core::findings::run(&snapshot.files, &config).active;
         let comments = comment_store.load_comments();
         let agent_pane = explicit_pane.or_else(IpcBridge::detect_agent_pane);
 
@@ -179,6 +190,7 @@ impl App {
             turn_manager,
             snapshot,
             alerts,
+            config,
             comments,
             audit: AuditState::new(repo_path.clone()),
             selected_file_idx: 0,
@@ -254,7 +266,7 @@ impl App {
             return;
         };
         drop(source);
-        self.alerts = SecurityAndTestGuard::scan_snapshot(&new_snapshot.files);
+        self.alerts = self.scan(&new_snapshot.files);
         self.snapshot = new_snapshot;
         self.comments = self.comment_store.load_comments();
         if self.selected_file_idx >= self.snapshot.files.len() && !self.snapshot.files.is_empty() {
