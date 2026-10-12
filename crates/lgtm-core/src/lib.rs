@@ -1,3 +1,4 @@
+pub mod baseline;
 pub mod comment;
 pub mod config;
 pub mod coverage;

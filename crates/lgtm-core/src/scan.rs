@@ -6,7 +6,30 @@ use std::path::{Path, PathBuf};
 pub struct FullRepoScanner;
 
 impl FullRepoScanner {
+    /// Full scan with config and baseline applied: only new findings are returned.
     pub fn scan_repository(
+        root_dir: &Path,
+        cfg: &crate::config::LgtmConfig,
+    ) -> Result<(Vec<FileDiff>, Vec<GuardAlert>)> {
+        let (files, found) = Self::scan_with_baseline(root_dir, cfg)?;
+        Ok((files, found.active))
+    }
+
+    /// Like `scan_repository` but keeps existing/stale baseline partitions.
+    pub fn scan_with_baseline(
+        root_dir: &Path,
+        cfg: &crate::config::LgtmConfig,
+    ) -> Result<(Vec<FileDiff>, crate::findings::Findings)> {
+        let (files, alerts) = Self::scan_unbaselined(root_dir, cfg)?;
+        let found = crate::findings::Findings {
+            active: alerts,
+            ..Default::default()
+        };
+        Ok((files, crate::baseline::apply(root_dir, cfg, found, true)?))
+    }
+
+    /// Config pipeline only; this is what `baseline update` records.
+    pub fn scan_unbaselined(
         root_dir: &Path,
         cfg: &crate::config::LgtmConfig,
     ) -> Result<(Vec<FileDiff>, Vec<GuardAlert>)> {

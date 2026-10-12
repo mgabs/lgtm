@@ -117,7 +117,10 @@ pub struct App {
 impl App {
     /// Guards plus config pipeline; suppressed findings are not shown.
     pub fn scan(&self, files: &[crate::model::FileDiff]) -> Vec<GuardAlert> {
-        lgtm_core::findings::run(files, &self.config).active
+        // a broken baseline file must not hide findings
+        lgtm_core::findings::run_in(&self.git_engine.repo_path, files, &self.config)
+            .unwrap_or_else(|_| lgtm_core::findings::run(files, &self.config))
+            .active
     }
 
     pub fn new(
@@ -180,7 +183,9 @@ impl App {
             lgtm_core::config::user_config_path(false).as_deref(),
         )
         .unwrap_or_default();
-        let alerts = lgtm_core::findings::run(&snapshot.files, &config).active;
+        let alerts = lgtm_core::findings::run_in(&repo_path, &snapshot.files, &config)
+            .unwrap_or_else(|_| lgtm_core::findings::run(&snapshot.files, &config))
+            .active;
         let comments = comment_store.load_comments();
         let agent_pane = explicit_pane.or_else(IpcBridge::detect_agent_pane);
 

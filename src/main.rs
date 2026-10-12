@@ -253,6 +253,17 @@ fn main() -> ExitCode {
             show_suppressed,
             true,
         ),
+        Some(Commands::Baseline { prune, repo, .. }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            match headless::run_baseline_update(&repo_path, prune) {
+                Ok(code) => ExitCode::from(code as u8),
+                Err(e) => {
+                    eprintln!("Error updating baseline: {}", e);
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some(Commands::Audit { repo }) => {
             let target = repo.unwrap_or(cli.repo);
             let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
@@ -320,8 +331,10 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
-            match scan::FullRepoScanner::scan_repository(&repo_path, &cfg) {
-                Ok((files, alerts)) => {
+            match scan::FullRepoScanner::scan_with_baseline(&repo_path, &cfg) {
+                Ok((files, found)) => {
+                    headless::report_suppressed(&found, false);
+                    let alerts = found.active;
                     let output_text = if format.eq_ignore_ascii_case("json") {
                         serde_json::to_string_pretty(&alerts).unwrap_or_default()
                     } else {

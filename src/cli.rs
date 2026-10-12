@@ -140,6 +140,18 @@ pub enum Commands {
         #[arg(long)]
         no_user_config: bool,
     },
+    /// Manage the findings baseline (`.lgtm-baseline.json`)
+    Baseline {
+        /// Action to run
+        #[arg(value_parser = ["update"])]
+        action: String,
+        /// Drop baseline entries that no longer match a finding
+        #[arg(long)]
+        prune: bool,
+        /// Target repository path
+        #[arg(short, long)]
+        repo: Option<PathBuf>,
+    },
     /// Audit test coverage across all modules or strictly on changed lines in diff
     Coverage {
         /// Minimum coverage percentage required to pass

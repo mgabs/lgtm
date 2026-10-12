@@ -7,11 +7,24 @@ use crate::model::FileDiff;
 pub struct Findings {
     pub active: Vec<GuardAlert>,
     pub suppressed: Vec<GuardAlert>,
+    /// Matched a baseline entry; never blocks.
+    pub existing: Vec<GuardAlert>,
+    /// Baseline entries with no matching finding (full scans only).
+    pub stale: Vec<crate::baseline::Entry>,
 }
 
 /// Run all guards, then apply config.
 pub fn run(files: &[FileDiff], cfg: &LgtmConfig) -> Findings {
     apply(SecurityAndTestGuard::scan_snapshot(files), files, cfg)
+}
+
+/// `run` plus the repo baseline (diff scope, so no stale entries).
+pub fn run_in(
+    repo: &std::path::Path,
+    files: &[FileDiff],
+    cfg: &LgtmConfig,
+) -> anyhow::Result<Findings> {
+    crate::baseline::apply(repo, cfg, run(files, cfg), false)
 }
 
 pub fn apply(alerts: Vec<GuardAlert>, files: &[FileDiff], cfg: &LgtmConfig) -> Findings {

@@ -356,6 +356,8 @@ Config (`.lgtm.toml`) is applied by `check`, `ci`, `scan`, `risk` and the TUI th
 
 Suppressed counts go to stderr; `check`/`ci --show-suppressed` lists them. `ci` ignores the user config file; `--no-user-config` or `LGTM_NO_USER_CONFIG=1` ignores it elsewhere.
 
+Baselines: `lgtm baseline update [--prune]` runs a full scan and records `{rule_id, file, fingerprint}` entries, sorted, in `[baseline] file` (default `.lgtm-baseline.json`). `check`, `ci`, `scan`, `risk` and the TUI then treat matching findings as existing: they are counted on stderr and never affect the exit code. `scan` also reports stale entries (no matching finding); `--prune` removes them. Critical findings are never baselined unless `[baseline] allow_critical = true`. Fingerprints ignore line numbers, so moving code keeps its baseline entry; editing the flagged line makes it new again.
+
 Every finding carries a kebab-case `rule_id` (e.g. `sec/tls-bypass`) and a `fingerprint` (rule + file + whitespace-normalized line + occurrence index, independent of line number). JSON exposes both; SARIF uses `ruleId` and `partialFingerprints["lgtmFingerprint/v1"]`.
 
 #### Interactive Audit Mode Keybindings

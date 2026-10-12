@@ -13,7 +13,17 @@ pub(crate) fn load_config(
     Ok(cfg)
 }
 
-fn report_suppressed(f: &lgtm_core::findings::Findings, show: bool) {
+pub(crate) fn report_suppressed(f: &lgtm_core::findings::Findings, show: bool) {
+    if !f.existing.is_empty() {
+        eprintln!("{} existing finding(s) in baseline", f.existing.len());
+    }
+    if !f.stale.is_empty() {
+        eprintln!(
+            "{} stale baseline entr{} (run `lgtm baseline update --prune`)",
+            f.stale.len(),
+            if f.stale.len() == 1 { "y" } else { "ies" }
+        );
+    }
     if f.suppressed.is_empty() {
         return;
     }
@@ -47,7 +57,7 @@ pub(crate) fn run_ci_audit(
         model::DiffSnapshot::default()
     };
 
-    let found = lgtm_core::findings::run(&snapshot.files, &cfg);
+    let found = lgtm_core::findings::run_in(repo_path, &snapshot.files, &cfg)?;
     report_suppressed(&found, show_suppressed);
     let alerts = found.active;
     let critical_count = alerts
@@ -228,7 +238,8 @@ pub(crate) fn run_risk_audit(repo_path: &Path) -> Result<i32> {
     }
 
     let snapshot = git_engine.compute_diff_snapshot()?;
-    let found = lgtm_core::findings::run(&snapshot.files, &load_config(repo_path, false)?);
+    let found =
+        lgtm_core::findings::run_in(repo_path, &snapshot.files, &load_config(repo_path, false)?)?;
     report_suppressed(&found, false);
     let alerts = found.active;
 
@@ -480,6 +491,21 @@ pub(crate) fn run_git_passthrough(args: &[String]) -> Result<i32> {
     Ok(status.code().unwrap_or(1))
 }
 
+pub(crate) fn run_baseline_update(repo_path: &Path, prune: bool) -> Result<i32> {
+    let cfg = load_config(repo_path, false)?;
+    let (_, alerts) = scan::FullRepoScanner::scan_unbaselined(repo_path, &cfg)?;
+    let path = lgtm_core::baseline::path_for(repo_path, &cfg);
+    let mut bl = lgtm_core::baseline::Baseline::load(&path)?;
+    bl.update(&alerts, cfg.baseline.allow_critical, prune);
+    bl.save(&path)?;
+    println!(
+        "Baseline written to {} ({} entries)",
+        path.display(),
+        bl.entries.len()
+    );
+    Ok(0)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(unused_imports)]
@@ -562,5 +588,23 @@ mod tests {
         let content = std::fs::read_to_string(&config_file).unwrap();
         assert!(content.contains("[review]"));
         assert!(content.contains("[presets]"));
+    }
+
+    #[test]
+    fn test_baseline_update_roundtrip() {
+        let tmp = test_dir("baseline");
+        std::fs::write(
+            tmp.join("a.py"),
+            format!("requests.get(u, {})\n", ["verify=", "False"].concat()), // lgtm:ignore
+        )
+        .unwrap();
+        assert_eq!(run_baseline_update(&tmp, false).unwrap(), 0);
+        let bl = lgtm_core::baseline::Baseline::load(&tmp.join(".lgtm-baseline.json")).unwrap();
+        assert_eq!(bl.entries.len(), 1);
+        assert_eq!(bl.entries[0].rule_id, "sec/tls-bypass");
+        std::fs::remove_file(tmp.join("a.py")).unwrap();
+        assert_eq!(run_baseline_update(&tmp, true).unwrap(), 0);
+        let bl = lgtm_core::baseline::Baseline::load(&tmp.join(".lgtm-baseline.json")).unwrap();
+        assert!(bl.entries.is_empty());
     }
 }
