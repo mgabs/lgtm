@@ -22,7 +22,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
 | B1 ✅ | Rule IDs + fingerprints in model and reports | S | R3 |
-| B2 | `.lgtm.toml` loader (repo + user), `config --show` | M | B1 |
+| B2 ✅ | `.lgtm.toml` loader (repo + user), `config --show` | M | B1 |
 | B3 | Findings pipeline: severity overrides, path ignores, scoped suppressions | M | B2 |
 | B4 | Baseline commands and new/existing/stale partition | M | B3 |
 | B5 | TUI display of suppressed/baselined + docs | S | B4 |

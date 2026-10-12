@@ -473,6 +473,7 @@ debounce_ms = 300
 | `lgtm pr <n>` / `--pr <n>` | Review GitHub PR (requires `gh`) |
 | `lgtm prs` | List and pick open PRs |
 | `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
+| `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
 | `lgtm ci [--strict] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
 | `lgtm audit` | Interactive repository audit TUI |

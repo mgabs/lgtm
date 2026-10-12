@@ -89,6 +89,25 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some(Commands::Config {
+            repo,
+            no_user_config,
+            ..
+        }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let user = lgtm_core::config::user_config_path(no_user_config);
+            match lgtm_core::config::LgtmConfig::load(&repo_path, user.as_deref()) {
+                Ok(c) => {
+                    print!("{}", c.show());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("Error loading config: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some(Commands::Init { repo }) => {
             let target = repo.unwrap_or(cli.repo);
             let repo_path = std::fs::canonicalize(&target).unwrap_or(target);

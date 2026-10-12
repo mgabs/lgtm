@@ -1,4 +1,5 @@
 pub mod comment;
+pub mod config;
 pub mod coverage;
 pub mod diff_source;
 pub mod git;

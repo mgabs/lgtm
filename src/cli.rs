@@ -49,6 +49,18 @@ pub enum Commands {
         #[arg(short, long, default_value = ".")]
         repo: Option<PathBuf>,
     },
+    /// Show effective `.lgtm.toml` configuration with value sources
+    Config {
+        /// Print effective values (default action)
+        #[arg(long)]
+        show: bool,
+        /// Target repository path
+        #[arg(short, long)]
+        repo: Option<PathBuf>,
+        /// Ignore ~/.config/lgtm/config.toml
+        #[arg(long)]
+        no_user_config: bool,
+    },
     /// Initialize .lgtm/config.toml starter configuration
     Init {
         /// Target repository path
