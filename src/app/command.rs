@@ -131,8 +131,8 @@ impl App {
                     self.status_message = Some(format!("Target agent pane set to {}", pane_id));
                     self.active_view = ActiveView::Diff;
                 } else if let Ok(panes) = IpcBridge::list_tmux_panes() {
-                    self.pane_list = panes;
-                    self.pane_selected_idx = 0;
+                    self.pane_picker.list = panes;
+                    self.pane_picker.selected_idx = 0;
                     self.active_view = ActiveView::PanePicker;
                 } else {
                     self.status_message = Some("No tmux session running".to_string());
@@ -141,8 +141,8 @@ impl App {
             }
             "f" | "files" | "find" => {
                 self.active_view = ActiveView::FilePicker;
-                self.picker_query.clear();
-                self.picker_selected_idx = 0;
+                self.file_picker.query.clear();
+                self.file_picker.selected_idx = 0;
                 self.update_file_picker_filter();
             }
             "tree" | "drawer" | "sidebar" => {

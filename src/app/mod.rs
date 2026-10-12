@@ -7,8 +7,6 @@ use crate::turn::TurnManager;
 use crate::watcher::WatcherMessage;
 use crossbeam_channel::Receiver;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use fuzzy_matcher::skim::SkimMatcherV2;
-use fuzzy_matcher::FuzzyMatcher;
 use std::path::PathBuf;
 
 pub use state::*;
@@ -84,13 +82,10 @@ pub struct App {
     pub pr_selected_idx: usize,
 
     // File picker state
-    pub picker_query: String,
-    pub picker_selected_idx: usize,
-    pub picker_filtered_indices: Vec<usize>,
+    pub file_picker: FilePicker,
 
     // Pane picker state
-    pub pane_list: Vec<crate::ipc::TmuxPane>,
-    pub pane_selected_idx: usize,
+    pub pane_picker: PanePicker,
 
     // Comment input and reply state
     pub comment_input: String,
@@ -214,11 +209,8 @@ impl App {
             active_revision: explicit_rev,
             pr_list: Vec::new(),
             pr_selected_idx: 0,
-            picker_query: String::new(),
-            picker_selected_idx: 0,
-            picker_filtered_indices: Vec::new(),
-            pane_list: Vec::new(),
-            pane_selected_idx: 0,
+            file_picker: FilePicker::default(),
+            pane_picker: PanePicker::default(),
             comment_input: String::new(),
             comment_reply_input: String::new(),
             comment_reply_target_idx: None,

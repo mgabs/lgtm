@@ -1,3 +1,39 @@
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
+
+#[derive(Debug, Default, Clone)]
+pub struct FilePicker {
+    pub query: String,
+    pub selected_idx: usize,
+    pub filtered_indices: Vec<usize>,
+}
+
+impl FilePicker {
+    pub fn refilter(&mut self, names: &[String]) {
+        if self.query.is_empty() {
+            self.filtered_indices = (0..names.len()).collect();
+        } else {
+            let matcher = SkimMatcherV2::default();
+            let mut scored: Vec<(i64, usize)> = names
+                .iter()
+                .enumerate()
+                .filter_map(|(i, n)| matcher.fuzzy_match(n, &self.query).map(|s| (s, i)))
+                .collect();
+            scored.sort_by_key(|a| std::cmp::Reverse(a.0));
+            self.filtered_indices = scored.into_iter().map(|(_, i)| i).collect();
+        }
+        if self.selected_idx >= self.filtered_indices.len() {
+            self.selected_idx = 0;
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct PanePicker {
+    pub list: Vec<crate::ipc::TmuxPane>,
+    pub selected_idx: usize,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct CommandLine {
     pub input: String,
@@ -110,5 +146,21 @@ mod tests {
         let c = CommandLine::default();
         assert!(c.input.is_empty() && c.history.is_empty() && c.completions.is_empty());
         assert_eq!((c.history_idx, c.completion_idx), (None, None));
+    }
+
+    #[test]
+    fn file_picker_refilter_fuzzy_and_resets_selection() {
+        let names: Vec<String> = ["src/main.rs", "src/app/mod.rs", "README.md"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut p = FilePicker::default();
+        p.refilter(&names);
+        assert_eq!(p.filtered_indices, vec![0, 1, 2]);
+        p.query = "readme".into();
+        p.selected_idx = 2;
+        p.refilter(&names);
+        assert_eq!(p.filtered_indices, vec![2]);
+        assert_eq!(p.selected_idx, 0);
     }
 }

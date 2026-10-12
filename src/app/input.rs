@@ -183,8 +183,8 @@ impl App {
                 }
                 (' ', KeyCode::Char('p')) => {
                     if let Ok(panes) = IpcBridge::list_tmux_panes() {
-                        self.pane_list = panes;
-                        self.pane_selected_idx = 0;
+                        self.pane_picker.list = panes;
+                        self.pane_picker.selected_idx = 0;
                         self.active_view = ActiveView::PanePicker;
                     }
                     return;
@@ -206,8 +206,8 @@ impl App {
             (KeyModifiers::CONTROL, KeyCode::Char('p'))
             | (KeyModifiers::NONE, KeyCode::Char('f')) => {
                 self.active_view = ActiveView::FilePicker;
-                self.picker_query.clear();
-                self.picker_selected_idx = 0;
+                self.file_picker.query.clear();
+                self.file_picker.selected_idx = 0;
                 self.update_file_picker_filter();
             }
             (_, KeyCode::Esc) => {
@@ -351,8 +351,8 @@ impl App {
             }
             (_, KeyCode::Char('p')) => {
                 if let Ok(panes) = IpcBridge::list_tmux_panes() {
-                    self.pane_list = panes;
-                    self.pane_selected_idx = 0;
+                    self.pane_picker.list = panes;
+                    self.pane_picker.selected_idx = 0;
                     self.active_view = ActiveView::PanePicker;
                 }
             }
@@ -705,7 +705,10 @@ impl App {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Enter) => {
-                if let Some(&file_idx) = self.picker_filtered_indices.get(self.picker_selected_idx)
+                if let Some(&file_idx) = self
+                    .file_picker
+                    .filtered_indices
+                    .get(self.file_picker.selected_idx)
                 {
                     self.selected_file_idx = file_idx;
                     self.diff_scroll_offset = 0;
@@ -714,36 +717,36 @@ impl App {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Up) | (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
-                if self.picker_selected_idx > 0 {
-                    self.picker_selected_idx -= 1;
+                if self.file_picker.selected_idx > 0 {
+                    self.file_picker.selected_idx -= 1;
                 }
             }
             (_, KeyCode::Down) | (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
-                if !self.picker_filtered_indices.is_empty()
-                    && self.picker_selected_idx < self.picker_filtered_indices.len() - 1
+                if !self.file_picker.filtered_indices.is_empty()
+                    && self.file_picker.selected_idx < self.file_picker.filtered_indices.len() - 1
                 {
-                    self.picker_selected_idx += 1;
+                    self.file_picker.selected_idx += 1;
                 }
             }
             (_, KeyCode::PageDown)
             | (KeyModifiers::CONTROL, KeyCode::Char('d'))
             | (KeyModifiers::CONTROL, KeyCode::Char('f')) => {
-                if !self.picker_filtered_indices.is_empty() {
-                    self.picker_selected_idx =
-                        (self.picker_selected_idx + 5).min(self.picker_filtered_indices.len() - 1);
+                if !self.file_picker.filtered_indices.is_empty() {
+                    self.file_picker.selected_idx = (self.file_picker.selected_idx + 5)
+                        .min(self.file_picker.filtered_indices.len() - 1);
                 }
             }
             (_, KeyCode::PageUp)
             | (KeyModifiers::CONTROL, KeyCode::Char('u'))
             | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
-                self.picker_selected_idx = self.picker_selected_idx.saturating_sub(5);
+                self.file_picker.selected_idx = self.file_picker.selected_idx.saturating_sub(5);
             }
             (_, KeyCode::Backspace) => {
-                self.picker_query.pop();
+                self.file_picker.query.pop();
                 self.update_file_picker_filter();
             }
             (_, KeyCode::Char(c)) => {
-                self.picker_query.push(c);
+                self.file_picker.query.push(c);
                 self.update_file_picker_filter();
             }
             _ => {}
@@ -756,34 +759,36 @@ impl App {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Enter) => {
-                if let Some(pane) = self.pane_list.get(self.pane_selected_idx) {
+                if let Some(pane) = self.pane_picker.list.get(self.pane_picker.selected_idx) {
                     self.agent_pane = Some(pane.id.clone());
                     self.status_message = Some(format!("Target pane set to {}", pane.id));
                 }
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
-                if self.pane_selected_idx > 0 {
-                    self.pane_selected_idx -= 1;
+                if self.pane_picker.selected_idx > 0 {
+                    self.pane_picker.selected_idx -= 1;
                 }
             }
             (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
-                if !self.pane_list.is_empty() && self.pane_selected_idx < self.pane_list.len() - 1 {
-                    self.pane_selected_idx += 1;
+                if !self.pane_picker.list.is_empty()
+                    && self.pane_picker.selected_idx < self.pane_picker.list.len() - 1
+                {
+                    self.pane_picker.selected_idx += 1;
                 }
             }
             (_, KeyCode::PageDown)
             | (KeyModifiers::CONTROL, KeyCode::Char('d'))
             | (KeyModifiers::CONTROL, KeyCode::Char('f')) => {
-                if !self.pane_list.is_empty() {
-                    self.pane_selected_idx =
-                        (self.pane_selected_idx + 5).min(self.pane_list.len() - 1);
+                if !self.pane_picker.list.is_empty() {
+                    self.pane_picker.selected_idx =
+                        (self.pane_picker.selected_idx + 5).min(self.pane_picker.list.len() - 1);
                 }
             }
             (_, KeyCode::PageUp)
             | (KeyModifiers::CONTROL, KeyCode::Char('u'))
             | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
-                self.pane_selected_idx = self.pane_selected_idx.saturating_sub(5);
+                self.pane_picker.selected_idx = self.pane_picker.selected_idx.saturating_sub(5);
             }
             _ => {}
         }
@@ -1178,8 +1183,8 @@ impl App {
             // File picker: 'f' or Ctrl-p
             (_, KeyCode::Char('f')) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
                 self.active_view = ActiveView::FilePicker;
-                self.picker_query.clear();
-                self.picker_selected_idx = 0;
+                self.file_picker.query.clear();
+                self.file_picker.selected_idx = 0;
                 self.update_file_picker_filter();
             }
             // Help modal: '?'

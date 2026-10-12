@@ -9,7 +9,7 @@ pub(crate) fn render_file_picker(frame: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Length(3), Constraint::Min(5)])
         .split(popup_area);
 
-    let input = Paragraph::new(app.picker_query.as_str()).block(
+    let input = Paragraph::new(app.file_picker.query.as_str()).block(
         Block::default()
             .borders(Borders::ALL)
             .title(" Jump to File (Type to filter, Esc to cancel) ")
@@ -18,12 +18,13 @@ pub(crate) fn render_file_picker(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(input, chunks[0]);
 
     let items: Vec<ListItem> = app
-        .picker_filtered_indices
+        .file_picker
+        .filtered_indices
         .iter()
         .enumerate()
         .map(|(list_idx, &file_idx)| {
             let file = &app.snapshot.files[file_idx];
-            let is_selected = list_idx == app.picker_selected_idx;
+            let is_selected = list_idx == app.file_picker.selected_idx;
 
             let file_alerts_count = app
                 .alerts
@@ -80,11 +81,12 @@ pub(crate) fn render_pane_picker(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Clear, popup_area);
 
     let items: Vec<ListItem> = app
-        .pane_list
+        .pane_picker
+        .list
         .iter()
         .enumerate()
         .map(|(idx, pane)| {
-            let is_selected = idx == app.pane_selected_idx;
+            let is_selected = idx == app.pane_picker.selected_idx;
             let active_str = if pane.active { " (current)" } else { "" };
             let line = Line::from(vec![
                 Span::styled(

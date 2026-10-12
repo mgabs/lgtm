@@ -31,28 +31,13 @@ impl App {
     }
 
     pub(crate) fn update_file_picker_filter(&mut self) {
-        let matcher = SkimMatcherV2::default();
-        if self.picker_query.is_empty() {
-            self.picker_filtered_indices = (0..self.snapshot.files.len()).collect();
-        } else {
-            let mut scored: Vec<(i64, usize)> = self
-                .snapshot
-                .files
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, file)| {
-                    matcher
-                        .fuzzy_match(&file.display_name(), &self.picker_query)
-                        .map(|score| (score, idx))
-                })
-                .collect();
-            scored.sort_by_key(|a| std::cmp::Reverse(a.0));
-            self.picker_filtered_indices = scored.into_iter().map(|(_, idx)| idx).collect();
-        }
-
-        if self.picker_selected_idx >= self.picker_filtered_indices.len() {
-            self.picker_selected_idx = 0;
-        }
+        let names: Vec<String> = self
+            .snapshot
+            .files
+            .iter()
+            .map(|f| f.display_name())
+            .collect();
+        self.file_picker.refilter(&names);
     }
 
     pub fn next_file(&mut self) {
@@ -894,18 +879,18 @@ mod tests {
         };
         app.snapshot = DiffSnapshot::new(vec![f1, f2, f3]);
 
-        app.picker_query = "ui".to_string();
+        app.file_picker.query = "ui".to_string();
         app.update_file_picker_filter();
-        assert_eq!(app.picker_filtered_indices.len(), 1);
-        assert_eq!(app.picker_filtered_indices[0], 1); // src/ui/mod.rs
+        assert_eq!(app.file_picker.filtered_indices.len(), 1);
+        assert_eq!(app.file_picker.filtered_indices[0], 1); // src/ui/mod.rs
 
-        app.picker_query = "xyz123nonexistent".to_string();
+        app.file_picker.query = "xyz123nonexistent".to_string();
         app.update_file_picker_filter();
-        assert_eq!(app.picker_filtered_indices.len(), 0);
+        assert_eq!(app.file_picker.filtered_indices.len(), 0);
 
-        app.picker_query = "".to_string();
+        app.file_picker.query = "".to_string();
         app.update_file_picker_filter();
-        assert_eq!(app.picker_filtered_indices.len(), 3);
+        assert_eq!(app.file_picker.filtered_indices.len(), 3);
     }
 
     #[test]
