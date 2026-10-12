@@ -5,6 +5,7 @@ pub mod coverage;
 pub mod diff_source;
 pub mod findings;
 pub mod git;
+pub mod github;
 pub mod guard;
 pub mod ipc;
 pub mod model;

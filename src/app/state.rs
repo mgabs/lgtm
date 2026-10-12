@@ -49,6 +49,7 @@ impl CommandLine {
         let commands = [
             "audit",
             "c",
+            "checks",
             "clear",
             "clear-resolved",
             "comments",
@@ -89,6 +90,7 @@ impl CommandLine {
             "sp",
             "split",
             "submit",
+            "threads",
             "todo",
             "tree",
             "unresolve",

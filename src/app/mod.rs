@@ -57,6 +57,9 @@ pub struct App {
     pub comments: Vec<CommentAnchor>,
     /// Reviewed hunks for the current review target, keyed by content hash.
     pub marks: Vec<lgtm_core::review::HunkMark>,
+    /// Read-only GitHub state for the open PR, refreshed on demand via `:checks` / `:threads`.
+    pub ci: Option<lgtm_core::github::CiSummary>,
+    pub threads: Vec<lgtm_core::github::Thread>,
 
     // Full Repo Audit state
     pub audit: AuditState,
@@ -221,6 +224,8 @@ impl App {
             snapshot,
             alerts,
             marks: Vec::new(),
+            ci: None,
+            threads: Vec::new(),
             config,
             hidden: std::cell::RefCell::new(hidden),
             comments,

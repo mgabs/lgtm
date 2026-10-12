@@ -125,6 +125,48 @@ impl App {
         }
     }
 
+    /// Fetch CI checks or review threads for the open PR; failures only set the status message.
+    pub fn refresh_github(&mut self, client: &dyn lgtm_core::github::GithubClient, threads: bool) {
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return;
+        };
+        self.status_message = Some(if threads {
+            match client.threads(pr) {
+                Ok(t) => {
+                    let open: Vec<String> = t
+                        .iter()
+                        .filter(|t| !t.resolved)
+                        .take(5)
+                        .map(|t| format!("{}:{}", t.path, t.line.unwrap_or(0)))
+                        .collect();
+                    let msg = format!(
+                        "{} threads, {} open: {}",
+                        t.len(),
+                        open.len(),
+                        open.join(", ")
+                    );
+                    self.threads = t;
+                    msg
+                }
+                Err(e) => e.to_string(),
+            }
+        } else {
+            match client.checks(pr) {
+                Ok(c) => {
+                    let s = lgtm_core::github::CiSummary::of(&c);
+                    let msg = format!(
+                        "CI: {} passed, {} failed, {} pending",
+                        s.passed, s.failed, s.pending
+                    );
+                    self.ci = Some(s);
+                    msg
+                }
+                Err(e) => e.to_string(),
+            }
+        });
+    }
+
     pub fn review_target(&self) -> String {
         match (self.pr.current_number, self.active_revision.as_deref()) {
             (Some(n), _) => format!("pr-{n}"),

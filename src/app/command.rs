@@ -275,6 +275,10 @@ impl App {
             "audit" => {
                 self.trigger_repo_scan();
             }
+            "checks" | "threads" => {
+                let threads = cmd_name == "threads";
+                self.refresh_github(&lgtm_core::github::GhClient, threads);
+            }
             "hidden" => {
                 let h = self.hidden.borrow();
                 let list: Vec<String> = h
@@ -570,6 +574,66 @@ mod tests {
         // Jump to specific file and line
         app.jump_to_file_and_line("src/main.rs", 3);
         assert_eq!(app.cursor_line_idx, 2);
+    }
+
+    #[test]
+    fn test_github_refresh_uses_client_and_needs_a_pr() {
+        use lgtm_core::github::{Bucket, Check, FakeClient, Thread};
+        let mut app = create_test_app();
+        app.refresh_github(&FakeClient::default(), false);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+        app.pr.current_number = Some(3);
+        let fake = FakeClient {
+            checks: vec![
+                Check {
+                    name: "a".into(),
+                    bucket: Bucket::Pass,
+                },
+                Check {
+                    name: "b".into(),
+                    bucket: Bucket::Fail,
+                },
+            ],
+            threads: vec![
+                Thread {
+                    id: "1".into(),
+                    path: "a.rs".into(),
+                    line: Some(4),
+                    resolved: false,
+                    comments: vec![],
+                },
+                Thread {
+                    id: "2".into(),
+                    path: "b.rs".into(),
+                    line: None,
+                    resolved: true,
+                    comments: vec![],
+                },
+            ],
+            error: None,
+        };
+        app.refresh_github(&fake, false);
+        assert_eq!(app.ci.as_ref().map(|c| (c.passed, c.failed)), Some((1, 1)));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("CI: 1 passed, 1 failed, 0 pending")
+        );
+        app.refresh_github(&fake, true);
+        assert_eq!(app.threads.len(), 2);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("2 threads, 1 open: a.rs:4")
+        );
+        let bad = FakeClient {
+            error: Some("gh missing".into()),
+            ..Default::default()
+        };
+        app.refresh_github(&bad, true);
+        assert_eq!(app.status_message.as_deref(), Some("gh missing"));
+        assert_eq!(app.threads.len(), 2);
     }
 
     #[test]
