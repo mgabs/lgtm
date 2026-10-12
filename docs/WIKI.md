@@ -319,6 +319,8 @@ Add `lgtm` to your MCP client configuration (`~/.claude/claude_desktop_config.js
 | `lgtm_scan_changes` | Findings new since the previous call | *(None)* |
 | `lgtm_resolve_directive` | Record a claim only; never resolves | `id` (integer), `note` (string) |
 
+**Claims:** an agent calls `lgtm_resolve_directive` to say it handled a directive. lgtm only stores the claim and checks it against the diff (shown as a verdict such as `claimed but not changed` in the directive list). Only the human resolves. MCP writes are limited to directives and claims; it never stages, commits, posts or edits code. `lgtm_scan_changes` keeps its seen fingerprints in `.lgtm/last_scan.json`.
+
 ---
 
 ## 7. Headless CI & Security Gates
