@@ -63,6 +63,8 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | E4 | Complexity, test-neutering and symbol guards on AST | M | E1 |
 | E5 | TUI folding on AST | S | E1 |
 
+Order: web first (E1 → E2), then Swift (E3), then E4/E5.
+
 Soft dependency: A3's `lgtm_scan_changes` prefers B1 fingerprints but has a fallback.
 
 ## Dependency spine

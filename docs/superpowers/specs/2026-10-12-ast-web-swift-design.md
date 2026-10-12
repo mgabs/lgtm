@@ -35,6 +35,6 @@ Guards are regex and brace-counting over diff text. That is wrong for JSX nestin
 E1 `lgtm-ast` + TS/TSX + diff mapping + one rule end to end. E2 web/Next pack. E3 Swift grammar + pack. E4 upgrade complexity/test-neutering/symbols to AST. E5 TUI folding on AST.
 
 ## Open questions
-- Which matters first: web or Swift?
+- ~~Which matters first?~~ Decided: web first (E1, E2), Swift after (E3).
 - Is a binary size increase acceptable (est. low single-digit MB per grammar)?
 - Add Go/Java next, or stop at these three?
