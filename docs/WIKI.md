@@ -525,9 +525,10 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 | `src/model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
 | `src/scan.rs` | Full repo scanner and report generator |
 | `src/git/`, `src/pr/` | Git diff engine; GitHub PR via `gh` |
-| `src/guard/` | Static analysis guards (see sections 4, 11) |
+| `src/guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
 | `src/comment/`, `src/turn/` | Directives; reviewed-file state |
-| `src/ipc/` | tmux injection, OSC 52 clipboard |
+| `src/ipc/` | tmux injection, OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |
+| `src/diff_source.rs` | `DiffSource` trait: working tree, revision, PR |
 | `src/watcher/` | Debounced filesystem watcher |
 | `src/mcp/` | MCP server |
 | `src/coverage/`, `src/mutate/`, `src/verify/` | Quality gates |
