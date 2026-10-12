@@ -9,7 +9,7 @@ echo " Enforcing Minimum Mutation Score Threshold: ${MIN_SCORE}%"
 echo "========================================================"
 
 # 1. Run full unit & mutation test suite
-cargo test -- --nocapture
+cargo test --workspace -- --nocapture
 
 # 2. Run mutation audit gate
 cargo run -- mutate --min "${MIN_SCORE}"

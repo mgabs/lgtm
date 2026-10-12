@@ -19,7 +19,7 @@ release:
 
 ## Run all unit and integration tests
 test:
-	cargo test -- --nocapture
+	cargo test --workspace -- --nocapture
 
 ## Run test coverage audit and enforce >= 90% threshold
 coverage:
@@ -39,7 +39,7 @@ verify-tests:
 
 ## Run clippy linter and fail on warnings
 lint:
-	cargo clippy --all-targets --all-features -- -D warnings
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 ## Format Rust codebase
 fmt:
