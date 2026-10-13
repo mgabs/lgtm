@@ -50,6 +50,14 @@ impl App {
                     self.next_alert();
                     return;
                 }
+                (']', KeyCode::Char('t')) => {
+                    self.jump_thread(true);
+                    return;
+                }
+                ('[', KeyCode::Char('t')) => {
+                    self.jump_thread(false);
+                    return;
+                }
                 ('[', KeyCode::Char('f')) | ('[', KeyCode::Char('[')) => {
                     self.prev_file();
                     return;
@@ -600,7 +608,10 @@ impl App {
                 if let Some(pr) = self.pr.list.get(self.pr.selected_idx) {
                     let pr_num = pr.number;
                     match crate::diff_source::DiffSource::snapshot(
-                        &crate::diff_source::PullRequestSource(pr_num),
+                        &crate::diff_source::PullRequestSource {
+                            pr: pr_num,
+                            repo: self.git_engine.repo_path.clone(),
+                        },
                     ) {
                         Ok(snap) => {
                             self.pr.current_number = Some(pr_num);

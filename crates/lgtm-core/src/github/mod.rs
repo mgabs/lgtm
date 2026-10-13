@@ -59,9 +59,18 @@ pub trait GithubClient {
     fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64>;
     /// General PR conversation comment; returns the comment id.
     fn post_general(&self, pr: u64, body: &str) -> Result<u64>;
-    /// Reply to an existing review comment (its numeric id); returns the new comment id.
-    fn reply(&self, pr: u64, comment_id: u64, body: &str) -> Result<u64>;
-    fn set_resolved(&self, thread_id: &str, resolved: bool) -> Result<()>;
+    /// Reply to a comment (its numeric id) in a thread; returns the new comment id.
+    fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64>;
+    fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()>;
+}
+
+/// Remote threads on `path:line`: `Some(true)` if any is open, `Some(false)` if all are resolved.
+pub fn thread_marker(threads: &[Thread], path: &str, line: u32) -> Option<bool> {
+    let here: Vec<&Thread> = threads
+        .iter()
+        .filter(|t| t.path == path && t.line == Some(line))
+        .collect();
+    (!here.is_empty()).then(|| here.iter().any(|t| !t.resolved))
 }
 
 pub struct GhClient;
@@ -235,12 +244,12 @@ impl GithubClient for GhClient {
         post_id(gh(&["api", &ep, "-f", &format!("body={body}")])?)
     }
 
-    fn reply(&self, pr: u64, comment_id: u64, body: &str) -> Result<u64> {
+    fn reply(&self, pr: u64, _thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
         let ep = format!("repos/{{owner}}/{{repo}}/pulls/{pr}/comments/{comment_id}/replies");
         post_id(gh(&["api", &ep, "-f", &format!("body={body}")])?)
     }
 
-    fn set_resolved(&self, thread_id: &str, resolved: bool) -> Result<()> {
+    fn set_resolved(&self, _pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
         let op = if resolved {
             "resolveReviewThread"
         } else {
@@ -313,10 +322,10 @@ impl GithubClient for FakeClient {
     fn post_general(&self, _pr: u64, body: &str) -> Result<u64> {
         self.record(format!("general:{body}"))
     }
-    fn reply(&self, _pr: u64, comment_id: u64, body: &str) -> Result<u64> {
+    fn reply(&self, _pr: u64, _thread: &str, comment_id: u64, body: &str) -> Result<u64> {
         self.record(format!("reply:{comment_id}:{body}"))
     }
-    fn set_resolved(&self, thread_id: &str, resolved: bool) -> Result<()> {
+    fn set_resolved(&self, _pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
         self.record(format!("resolve:{thread_id}:{resolved}"))
             .map(|_| ())
     }

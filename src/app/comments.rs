@@ -9,10 +9,9 @@ impl App {
                 for line in &hunk.lines {
                     if line_counter == self.cursor_line_idx {
                         if let Some(lno) = line.new_line_num.or(line.old_line_num) {
-                            return self
-                                .comments
-                                .iter()
-                                .any(|c| c.file_path == path_str && c.target_line_no == lno);
+                            return self.comments.iter().any(|c| {
+                                !c.orphaned && c.file_path == path_str && c.target_line_no == lno
+                            });
                         }
                     }
                     line_counter += 1;
@@ -255,9 +254,9 @@ impl App {
             return;
         }
         let res = match verb {
-            "reply" => client.reply(pr, target, &text).map(|_| "Reply posted"),
+            "reply" => client.reply(pr, &id, target, &text).map(|_| "Reply posted"),
             _ => client
-                .set_resolved(&id, verb == "resolve")
+                .set_resolved(pr, &id, verb == "resolve")
                 .map(|_| "Thread updated"),
         };
         self.status_message = Some(match res {
@@ -269,6 +268,73 @@ impl App {
             }
             Err(e) => e.to_string(),
         });
+    }
+
+    /// `:directives orphans` lists them, `orphans repin <n>` moves orphan `n` to the cursor line,
+    /// `orphans drop [--yes]` deletes them all (preview without `--yes`).
+    pub fn orphans_command(&mut self, args: &[&str]) {
+        let idx: Vec<usize> = (0..self.comments.len())
+            .filter(|&i| self.comments[i].orphaned)
+            .collect();
+        let msg = match (args.first().copied(), args.get(1)) {
+            _ if idx.is_empty() => "No orphaned comments".to_string(),
+            (None, _) => {
+                let list: Vec<String> = idx
+                    .iter()
+                    .take(5)
+                    .enumerate()
+                    .map(|(n, &i)| {
+                        let c = &self.comments[i];
+                        format!("{}) {}:{}", n + 1, c.file_path, c.target_line_no)
+                    })
+                    .collect();
+                format!("{} orphaned: {}", idx.len(), list.join(", "))
+            }
+            (Some("drop"), Some(&"--yes")) => {
+                self.comments.retain(|c| !c.orphaned);
+                let _ = self.comment_store.save_comments(&self.comments);
+                format!("Deleted {} orphaned comment(s)", idx.len())
+            }
+            (Some("drop"), _) => format!(
+                "Would delete {} orphaned comment(s); add --yes to confirm",
+                idx.len()
+            ),
+            (Some("repin"), n) => {
+                let Some(&i) = n
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .and_then(|n| n.checked_sub(1))
+                    .and_then(|n| idx.get(n))
+                else {
+                    self.status_message = Some("Usage: :directives orphans repin <n>".into());
+                    return;
+                };
+                let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
+                    return;
+                };
+                let path = file.display_name();
+                let Some(line) = file
+                    .hunks
+                    .iter()
+                    .flat_map(|h| &h.lines)
+                    .nth(self.cursor_line_idx)
+                else {
+                    return;
+                };
+                let (no, code) = (
+                    line.new_line_num.or(line.old_line_num).unwrap_or(1),
+                    line.content.clone(),
+                );
+                let hash = lgtm_core::review::hunk_hash_at(&self.snapshot.files, &path, no);
+                let c = &mut self.comments[i];
+                (c.file_path, c.target_line_no, c.target_code, c.orphaned) =
+                    (path.clone(), no, code, false);
+                c.track.hunk_hash = hash;
+                let _ = self.comment_store.save_comments(&self.comments);
+                format!("Re-pinned to {path}:{no}")
+            }
+            _ => "Usage: :directives orphans [repin <n> | drop [--yes]]".to_string(),
+        };
+        self.status_message = Some(msg);
     }
 
     /// `:directives recheck`: reclassify open directives against the current diff and report counts.
@@ -386,6 +452,7 @@ impl App {
                 is_resolved: false,
                 pr_number: self.pr.current_number,
                 remote_id: None,
+                orphaned: false,
                 track: lgtm_core::outcome::Tracking {
                     hunk_hash: lgtm_core::review::hunk_hash_at(
                         &self.snapshot.files,
@@ -511,6 +578,7 @@ mod tests {
             is_resolved: false,
             pr_number: None,
             remote_id: None,
+            orphaned: false,
             track: Default::default(),
         };
         app.comments.push(anchor);

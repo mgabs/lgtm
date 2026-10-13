@@ -58,6 +58,9 @@ impl App {
             "c" | "comments" | "directives" | "todo" if args.first() == Some(&"recheck") => {
                 self.recheck_directives();
             }
+            "c" | "comments" | "directives" | "todo" if args.first() == Some(&"orphans") => {
+                self.orphans_command(&args[1..]);
+            }
             "c" | "comments" | "directives" | "todo" => {
                 self.comment_list_selected_idx = 0;
                 self.active_view = ActiveView::CommentList;
@@ -98,13 +101,17 @@ impl App {
             "pr" => {
                 if args.first() == Some(&"post") {
                     let confirmed = args.contains(&"--yes");
-                    self.post_pr_comments(&lgtm_core::github::GhClient, confirmed);
+                    let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+                    self.post_pr_comments(&*forge, confirmed);
                     return;
                 }
                 if let Some(arg) = args.first() {
                     if let Ok(pr_num) = arg.parse::<u64>() {
                         match crate::diff_source::DiffSource::snapshot(
-                            &crate::diff_source::PullRequestSource(pr_num),
+                            &crate::diff_source::PullRequestSource {
+                                pr: pr_num,
+                                repo: self.git_engine.repo_path.clone(),
+                            },
                         ) {
                             Ok(snap) => {
                                 self.pr.current_number = Some(pr_num);
@@ -284,11 +291,13 @@ impl App {
                 self.trigger_repo_scan();
             }
             "thread" => {
-                self.thread_action(&lgtm_core::github::GhClient, &args);
+                let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+                self.thread_action(&*forge, &args);
             }
             "checks" | "threads" => {
                 let threads = cmd_name == "threads";
-                self.refresh_github(&lgtm_core::github::GhClient, threads);
+                let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+                self.refresh_github(&*forge, threads);
             }
             "hidden" => {
                 let h = self.hidden.borrow();
@@ -338,7 +347,10 @@ impl App {
             "reload" | "e" | "edit" => {
                 if let Some(pr_num) = self.pr.current_number {
                     if let Ok(snap) = crate::diff_source::DiffSource::snapshot(
-                        &crate::diff_source::PullRequestSource(pr_num),
+                        &crate::diff_source::PullRequestSource {
+                            pr: pr_num,
+                            repo: self.git_engine.repo_path.clone(),
+                        },
                     ) {
                         self.snapshot = snap;
                         self.alerts = self.scan(&self.snapshot.files);
@@ -679,6 +691,7 @@ mod tests {
                     is_resolved: false,
                     pr_number: None,
                     remote_id: None,
+                    orphaned: false,
                     track: Default::default(),
                 });
         c.pr_number = Some(4);
@@ -761,6 +774,75 @@ mod tests {
     }
 
     #[test]
+    fn orphans_list_repin_and_drop() {
+        use crate::model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType};
+        let mut app = create_test_app();
+        app.execute_command("directives orphans");
+        assert_eq!(app.status_message.as_deref(), Some("No orphaned comments"));
+        let mk = |orphaned| lgtm_core::comment::CommentAnchor {
+            file_path: "old.rs".into(),
+            target_line_no: 9,
+            target_code: "x".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "x".into(),
+            replies: vec![],
+            created_at_turn: 0,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            orphaned,
+            track: Default::default(),
+        };
+        app.comments = vec![mk(true), mk(false), mk(true)];
+        app.execute_command("directives orphans");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("2 orphaned: 1) old.rs:9, 2) old.rs:9")
+        );
+        app.snapshot = DiffSnapshot::new(vec![FileDiff {
+            old_path: None,
+            new_path: "new.rs".into(),
+            change_type: ChangeType::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@".into(),
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![DiffLine {
+                    line_type: LineType::Addition,
+                    content: "y".into(),
+                    old_line_num: None,
+                    new_line_num: Some(3),
+                }],
+                is_folded: false,
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }]);
+        app.selected_file_idx = 0;
+        app.cursor_line_idx = 0;
+        app.execute_command("directives orphans repin 1");
+        assert_eq!(app.status_message.as_deref(), Some("Re-pinned to new.rs:3"));
+        assert_eq!(
+            (app.comments[0].orphaned, app.comments[0].target_line_no),
+            (false, 3)
+        );
+        app.execute_command("directives orphans drop");
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Would delete 1"));
+        assert_eq!(app.comments.len(), 3);
+        app.execute_command("directives orphans drop --yes");
+        assert_eq!(app.comments.len(), 2);
+    }
+
+    #[test]
     fn test_directives_recheck_reports_outcomes() {
         let mut app = create_test_app();
         app.execute_command("directives recheck");
@@ -780,6 +862,7 @@ mod tests {
             is_resolved: false,
             pr_number: None,
             remote_id: None,
+            orphaned: false,
             track: lgtm_core::outcome::Tracking {
                 hunk_hash: Some("abc".into()),
                 ..Default::default()

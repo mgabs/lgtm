@@ -2,11 +2,12 @@
 
 Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. Pending: A4–A6, D1–D4.
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. D1–D3, F1–F3, G1–G5 done on `rel.0.8.2`. Pending: A4–A6, D4, E6–E8, E5′.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
-| `rel.0.8` | R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 | v0.8.0 | all work merged here; version 0.8.0; pushed; PR to `main` not opened yet (`gh` unauthenticated) |
+| `rel.0.8.2` | D1–D3, F1–F3, G1–G5 | v0.8.2 | `--rev`, Action, CI recipes, orphaned comments, Azure DevOps read path; cut from `main` after v0.8.0, plus the roadmap commit |
+| `rel.0.8` | R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 | v0.8.0 | merged to `main` via PR #10, released as v0.8.0 |
 
 All waves land in v0.8.0 (decision: one release). `rel.0.10`, `rel.0.11` and `rel.0.12` are superseded by `rel.0.8`. A4–A6 and D1–D4 are open and will follow in later releases.
 
@@ -57,9 +58,9 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 ### D — CI/CD step (spec: `specs/2026-10-12-cicd-integration-design.md`, draft)
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
-| D1 | Shared `DiffMode` + `--rev` on `check`/`ci`; exit codes 0/1/2 | S | B |
-| D2 | Composite GitHub Action: verified install, gate, SARIF upload, job summary | M | D1 |
-| D3 | CI recipes (GitLab, Azure DevOps), pre-commit hook, WIKI section | S | D1 |
+| D1 ✅ | `--rev` on `check`/`ci` (reuses `compute_revision_diff`); exit codes 0 pass / 1 blocking findings / 2 tool error | S | B |
+| D2 ✅ | Composite GitHub Action: verified install, gate, SARIF upload, job summary | M | D1 |
+| D3 ✅ | CI recipes (GitLab, Azure DevOps), pre-commit hook, WIKI section | S | D1 |
 | D4 | Self-test workflow against fixture PR branches | S | D2 |
 
 ### E — AST layer, web (React/Next.js) and Swift packs (spec: `specs/2026-10-12-ast-web-swift-design.md`, draft)
@@ -70,6 +71,28 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | E3 ✅ | Swift grammar + `swift/` pack | M | E1 |
 | E4 ✅ | Complexity and symbol guards on AST for TS/JS/Swift. Test-neutering stays line-based: its rules are one-line patterns, so the AST adds little | M | E1 |
 | E5 ❌ | TUI folding on AST. Dropped: fold state is per hunk and cursor motion indexes hunk lines, so in-hunk blocks would touch every motion path for a feature unverifiable without interactive use. Revisit on demand | S | E1 |
+| E6 | Whole-file parse mode in `lgtm-ast`; `"use client"` leak and server-action validation rules. Diff hunks only select which findings to keep | M | E2 |
+| E7 | Python grammar: AST complexity and identifiers, a few rules (`eval`/`exec`, `subprocess shell=True`, `pickle.loads`, bare `except`) | M | E1 |
+| E8 | Go, then Java grammars: complexity and identifiers first, rules on demand | M | E7 |
+| E5′ | Block-level folding (revisit E5): fold state keyed by AST block range inside a hunk; needs a visible-rows indirection for cursor motion. Do it after F1 so folds can persist in the review store | M | E1, F1 |
+
+### G — Azure DevOps pull requests (spec: `specs/2026-10-13-azure-devops-design.md`, draft)
+| ID | Item | Effort | Depends on |
+|---|---|---|---|
+| G1 ✅ | `forge` module: `Forge` trait, `origin` URL detection, GitHub moved onto it unchanged; Azure remotes get a clear "not supported yet" instead of a `gh` failure | M | C4 |
+| G2 ✅ | Azure read path: `:prs`, `:pr <n>` (diff from git ref), policies as checks | M | G1 |
+| G3 ✅ | Azure threads read (`az devops invoke`) + inline markers (shared with F3) | M | G1, F3 |
+| G4 ✅ | Azure post, reply, resolve, vote | M | G2 |
+| G5 ✅ | `##vso` annotations, WIKI, Azure Pipelines recipe | S | G2, D3 |
+
+### F — Review UX debt (comments and threads)
+| ID | Item | Effort | Depends on |
+|---|---|---|---|
+| F1 ✅ | Re-anchor `comments.jsonl` comments on every reload (fuzzy code+context match, nearest line) and flag orphans via `orphaned`; storage stays `comments.jsonl` so directive ids and MCP stay stable. Comments on files outside the diff or on deleted lines are left alone | M | C1 |
+| F2 ✅ | Orphan UI: `⚠` marker and `:directives orphans`, jump to the nearest hunk, re-pin or delete. Directive recheck re-anchors instead of only re-hashing | S | F1 |
+| F3 ✅ (partial) | Markers `◆`/`◇` done with G3, `]t`/`[t` jump done; still open: reply/resolve from the marker (`:thread` covers it). Original scope: inline thread markers: map remote thread path/line to diff rows (reuse the `post` mapper), margin glyph (`◆` open, `✓` resolved), `]t`/`[t` to jump, reply and resolve from the marker | M | C4 |
+
+Order: F1 → F2 → F3, then E6 → E7 → E8, then E5′. D1–D3 (CI step with `--rev` and the Action) stay first, since they unlock adoption.
 
 Order: web first (E1 → E2), then Swift (E3), then E4/E5.
 
@@ -104,8 +127,8 @@ Open: none. Prioritization complete; next step is implementation plans (writing-
 | 3 C | v0.8.0 | Re-anchoring property tests pass (insert above, move, rename); migration from old files tested; posting resumable against the fake client; manual smoke test against a real PR |
 | 4 A | v0.8.0 for A1–A3; A4–A6 later | Claim-vs-diff matrix tested; one real MCP client smoke-tested; sinks smoke-checklist completed; existing MCP tools backward compatible |
 | 5 E | v0.8.0 | E1–E4 done: web and Swift rules have positive/negative fixtures; complexity/typo guards on AST; non-AST languages unchanged. Open: whole-file parse for `"use client"` and server-action rules |
-| 6 D | later | Pending: `--rev` on `check`/`ci`, exit codes 0/1/2, composite Action |
+| 6 D | v0.8.2 | D1–D3 done (`--rev`, exit codes, `action.yml`, WIKI recipes; the Action is untested against a real release until v0.8.2 ships). Pending: D4 (self-test workflow, needs a published release) |
 
-Unverified in the field (manual checks before release): `gh` calls (`checks`, GraphQL threads, REST post/reply/resolve), TUI parts (`M`, `✓n/m`, CI header, verdict tags), Homebrew tap and `cargo install --git`.
+Unverified in the field (manual checks before release): all `az` calls (list, show, policy, invoke, set-vote), the Azure Pipelines annotations, the composite Action, `gh` calls (`checks`, GraphQL threads, REST post/reply/resolve), TUI parts (`M`, `✓n/m`, CI header, verdict tags), Homebrew tap and `cargo install --git`.
 
 Branch protection / required status checks on trunk is a manual human step (not verifiable from the checkout); confirm before wave 1 starts.

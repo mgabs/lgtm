@@ -104,6 +104,7 @@ cp target/release/lgtm /usr/local/bin/lgtm
 ### Requirements
 - **OS**: macOS, Linux, Windows (via WSL2 or Windows Terminal)
 - **Git**: Git 2.20+ installed
+- **PR features**: `gh` (GitHub) or `az` with the `azure-devops` extension (Azure DevOps); only needed for `:pr`, `:prs`, checks and posting
 - **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
 
 ---
@@ -124,6 +125,7 @@ lgtm
 | `]h` / `[h` | Hunk Navigation | Jump to next / previous diff hunk |
 | `]w` / `[w` or `w` / `W` | Alert Jump | Jump to next / previous security / quality guardrail alert |
 | `]c` / `[c` | Directive Jump | Jump to next / previous inline review comment |
+| `]t` / `[t` | Thread Jump | Jump to next / previous remote PR thread line in the file (after `:threads`) |
 | `gg` / `G` | Top / Bottom | Jump to top / bottom of current file diff |
 | `Ctrl-d` / `Ctrl-u` | Half-Page | Scroll half-page down / up (15 lines) |
 | `Ctrl-f` / `Ctrl-b` | Full-Page | Scroll full page down / up (25 lines) |
@@ -362,6 +364,8 @@ lgtm check --strict
 ```
 
 ### 2. `lgtm scan` & Interactive Codebase Audit Mode
+`:audit` and `:scan repo` audit the **whole codebase**, not just the diff; plain `:scan` and `:risk` cover changed files only.
+
 Recursively audits all source files in the repository for security vulnerabilities, architectural violations, and code quality issues:
 
 ```bash
@@ -392,7 +396,7 @@ Suppressed counts go to stderr; `check`/`ci --show-suppressed` lists them. `ci` 
 
 Baselines: `lgtm baseline update [--prune]` runs a full scan and records `{rule_id, file, fingerprint}` entries, sorted, in `[baseline] file` (default `.lgtm-baseline.json`). `check`, `ci`, `scan`, `risk` and the TUI then treat matching findings as existing: they are counted on stderr and never affect the exit code. `scan` also reports stale entries (no matching finding); `--prune` removes them. Critical findings are never baselined unless `[baseline] allow_critical = true`. Fingerprints ignore line numbers, so moving code keeps its baseline entry; Editing the flagged line makes it new again.
 
-GitHub (read-only): `lgtm_core::github::GithubClient` hides `gh`; `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line. Both run only on demand; a missing or unauthenticated `gh` gives a clear message and local features keep working. lgtm never handles tokens.
+Remote PR calls: `lgtm_core::github::GithubClient` hides `gh` (Azure DevOps uses `az`, see below); `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line and marks their lines in the diff gutter (`◆` open, `◇` resolved). Both run only on demand; a missing or unauthenticated `gh` gives a clear message and local features keep working. lgtm never handles tokens.
 
 Posting: `:pr post` previews how many comments would go inline (line is in the diff) or into one combined general comment; `:pr post --yes` sends them, saving each comment's `remote_id` right away so a failed run resumes without duplicates ("N of M posted"). Only unresolved comments made while that PR was open are posted. Not yet: re-anchoring on a changed PR head, orphan skipping, and a `↑ #id` marker in the UI.
 
@@ -400,7 +404,9 @@ Threads: after `:threads`, `:thread reply <n> <text>`, `:thread resolve <n>` and
 
 Directive outcomes (`lgtm_core::outcome`): each comment stores the hash of its hunk when written. On every diff reload, open directives from earlier turns are classified as `untouched` (same hunk), `changed` (file still in the diff, hunk differs), `gone` (file left the diff) or `orphaned` (no baseline, e.g. older comments). The result is saved on the comment. Agent claims are stored apart (`claim`) and never change the outcome or resolve anything; "claimed but not changed" is flagged. In the directive list (`:c`) each open directive shows its verdict (`[changed]`, `[claimed but not changed]` in red, ...) and the title shows the per-turn counts; `:directives recheck` recomputes on demand and prints the counts. Resolving stays a human action: `v`/Space in the list. No outcome filter yet.
 
-Review state (`lgtm_core::review`): in the TUI, `M` marks or unmarks the current hunk and `v` the whole file; marks persist per target (`pr-N`, revision or `working`) and survive edits above the hunk. The file list shows `✓n/m` for partly reviewed files. `lgtm review export [target]` prints the JSON and `lgtm review import <file>` merges it (hunks by hash, comments by file+code+text; local wins on conflicts, which are listed on stderr). Comments still live in `comments.jsonl` until a later stage moves them. Storage: `.lgtm/reviews/<target>.json` holds hunk marks and comments keyed by a whitespace-normalized hunk content hash. After a diff reload `reanchor` moves comments by exact hash, then fuzzy code+context, else marks them `orphaned` (never deleted). The first open migrates `comments.jsonl` to the new layout and keeps `comments.jsonl.bak`; files with a newer `version` are refused.
+Review state (`lgtm_core::review`): in the TUI, `M` marks or unmarks the current hunk and `v` the whole file; marks persist per target (`pr-N`, revision or `working`) and survive edits above the hunk. The file list shows `✓n/m` for partly reviewed files. `lgtm review export [target]` prints the JSON and `lgtm review import <file>` merges it (hunks by hash, comments by file+code+text; local wins on conflicts, which are listed on stderr). Storage: `.lgtm/reviews/<target>.json` holds hunk marks (keyed by a whitespace-normalized hunk content hash) and the review-store comment model with `reanchor`; files with a newer `version` are refused.
+
+Comments and directives still live in `.lgtm/comments.jsonl` (ids stay stable for MCP). On every diff reload they are re-pinned: the commented code plus its neighbours is searched in the same file and the nearest match wins. If it is gone from a file still in the diff, the comment is flagged `orphaned` (`⚠ Orphaned` in `:c`, a count in the header, no inline marker) and never deleted automatically; it recovers if the code returns. `:directives orphans` lists them, `:directives orphans repin <n>` moves orphan n to the cursor line, and `:directives orphans drop` previews deleting them all (`--yes` to confirm). Comments on files outside the current diff, or on deleted lines, are left as they are.
 
 In the TUI, suppressed and baselined findings never appear in the alert list or block anything. The header shows a dim `(+N suppressed, M baselined :hidden)` counter, and `:hidden` lists the first five in the status line.
 
@@ -457,13 +463,73 @@ jobs:
 
 ---
 
+### CI recipes
+
+Gate a pull request on the committed range (needs full history: `fetch-depth: 0`). Exit codes: 0 pass, 1 blocking findings, 2 tool error.
+
+**GitHub Action** (verified install, SARIF upload, job summary):
+
+```yaml
+permissions: { contents: read, security-events: write }
+steps:
+  - uses: actions/checkout@v4
+    with: { fetch-depth: 0 }
+  - uses: mgabs/lgtm@v0.8.2
+    with: { version: "0.8.2" }
+```
+
+Inputs: `version` (required), `base`, `strict`, `upload-sarif`. Outputs: `exit-code`, `new-findings`.
+
+**GitLab CI** (any runner: install the release tarball, then run):
+
+```bash
+lgtm ci --rev "origin/${TARGET_BRANCH}...HEAD" -f markdown
+```
+
+**Azure Pipelines** (needs `fetchDepth: 0`; findings appear as `##vso[task.logissue]` annotations, auto-selected when `TF_BUILD` is set or with `-f azure`):
+
+```yaml
+steps:
+  - checkout: self
+    fetchDepth: 0
+  - script: |
+      # install the lgtm release tarball, then:
+      lgtm ci --rev "origin/$(System.PullRequest.TargetBranch)...HEAD" -f azure
+    displayName: lgtm
+```
+
+**pre-commit hook** (`.git/hooks/pre-commit`, checks the working tree):
+
+```bash
+#!/bin/sh
+exec lgtm check
+```
+
+### Azure DevOps pull requests
+
+lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.com`, `*.visualstudio.com` are Azure DevOps; everything else keeps using `gh`). Azure uses the `az` CLI with the `azure-devops` extension: `az extension add --name azure-devops`, then `az login` (or `az devops login`). lgtm never handles tokens.
+
+| Works | Not yet (planned) |
+|---|---|
+| `:prs`, `lgtm prs`: active PRs | |
+| `:pr <n>`, `lgtm pr <n>`: fetches the PR's source and target branches into `refs/lgtm/pr/<n>/head` and `base`, then diffs them locally | |
+| `:checks`: branch policies as pass / fail / pending | |
+| `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
+| `:pr post --yes`: inline comments become threads on the new-side line, the rest one general thread; `:thread reply`, `resolve` (status `fixed`), `unresolve` (`active`) | |
+| Review submit: `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` only comments (body posted as a thread) | |
+
+After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line.
+
+Errors name the fix: missing `az`, missing extension, or not logged in. The organization and project come from the git remote (`--detect true`). Unverified against a live Azure DevOps project.
+
 ## 8. Ex-Commands Dictionary (`:cmds`)
 
 Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmenu auto-completion:
 
 | Command | Aliases | Description |
 |---|---|---|
-| `:scan [repo]` | `:audit`, `:issues` | Launch interactive full repository Codebase Audit mode (issues only, no diff) |
+| `:audit` | `:issues` | Audit the whole codebase (issues only, no diff) |
+| `:scan [repo]` | — | Scan changed files; `:scan repo` audits the whole codebase |
 | `:export [path]` | — | Export audit scorecard report to Markdown (default: `lgtm-report.md`) |
 | `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/comments.jsonl` |
 | `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load revision range diff e.g. `:diff main..feat`) |
@@ -476,6 +542,9 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:pane [id]` | `:panes` | Select or set target `tmux` agent pane ID (e.g. `:pane %2`) |
 | `:sp` | `:split`, `:vsp` | Toggle Unified Diff vs Side-by-Side Dual Pane Diff |
 | `:c` | `:comments`, `:todo` | Open review directives management drawer |
+| `:c recheck` / `:c orphans [repin <n> \| drop [--yes]]` | `:directives` | Reclassify outcomes; list, re-pin or drop orphaned comments |
+| `:checks` / `:threads` | — | CI status in the header / list PR threads and mark their lines (`]t`/`[t` jump) |
+| `:thread reply <n> <text>` / `resolve <n>` / `unresolve <n>` | — | Preview; add `--yes` to send |
 | `:r` | `:review`, `:send` | Compile directives batch prompt and blast to target agent pane |
 | `:risk` | — | Re-scan current diff for security, test fraud, and complexity risks |
 | `:reload` | `:e`, `:edit` | Reload diff snapshot from working tree or GitHub PR |
@@ -528,11 +597,11 @@ debounce_ms = 300
 | `lgtm` / `diff` / `status` / `review` | Launch interactive diff reviewer TUI (default) |
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
 | `lgtm init` / `--init` | Create `.lgtm/config.toml` |
-| `lgtm pr <n>` / `--pr <n>` | Review GitHub PR (requires `gh`) |
+| `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via `gh`, Azure DevOps via `az`) |
 | `lgtm prs` | List and pick open PRs |
 | `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
 | `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
-| `lgtm ci [--strict] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF |
+| `lgtm ci [--strict] [--rev <spec>] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF. `--rev origin/main...HEAD` checks a committed range. Exit 0 pass, 1 blocking findings, 2 tool error (also on `check`) |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
 | `lgtm audit` | Interactive repository audit TUI |
 | `lgtm coverage [--min 90] [--delta] [--lcov file]` | Coverage gate; `--delta` checks only added lines |
@@ -585,7 +654,7 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 | `src/ui/` | Ratatui rendering split by view; `modals/` for dialogs |
 | `model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
 | `scan.rs` | Full repo scanner and report generator |
-| `git/`, `pr/` | Git diff engine; GitHub PR via `gh` |
+| `git/`, `pr/`, `forge/` | Git diff engine; PR providers (`forge`: GitHub via `gh`, Azure DevOps via `az`) |
 | `guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
 | `comment/`, `turn/` | Directives; reviewed-file state |
 | `ipc/` | tmux injection, OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |

@@ -48,11 +48,15 @@ pub(crate) fn run_ci_audit(
     strict: bool,
     show_suppressed: bool,
     no_user_config: bool,
+    rev: Option<&str>,
 ) -> Result<i32> {
     let cfg = load_config(repo_path, no_user_config)?;
     let git_engine = git::GitEngine::new(repo_path);
     let snapshot = if git_engine.is_git_repo() {
-        git_engine.compute_diff_snapshot()?
+        match rev {
+            Some(spec) => git_engine.compute_revision_diff(spec)?,
+            None => git_engine.compute_diff_snapshot()?,
+        }
     } else {
         model::DiffSnapshot::default()
     };
@@ -74,21 +78,16 @@ pub(crate) fn run_ci_audit(
         .count();
     let has_blocking = critical_count > 0 || high_count > 0 || (strict && warn_count > 0);
 
-    // Emit GitHub Actions annotations if in CI or requested
-    let is_github_ci = std::env::var("GITHUB_ACTIONS").is_ok()
-        || format.eq_ignore_ascii_case("github")
-        || format.eq_ignore_ascii_case("annotations");
-    if is_github_ci {
+    let azure = std::env::var("TF_BUILD").is_ok()
+        || format.eq_ignore_ascii_case("azure")
+        || format.eq_ignore_ascii_case("vso");
+    let github = !azure
+        && (std::env::var("GITHUB_ACTIONS").is_ok()
+            || format.eq_ignore_ascii_case("github")
+            || format.eq_ignore_ascii_case("annotations"));
+    if azure || github {
         for alert in &alerts {
-            let level = match alert.severity {
-                guard::Severity::Critical | guard::Severity::High => "error",
-                guard::Severity::Warn => "warning",
-            };
-            let line = alert.line_no.unwrap_or(1);
-            println!(
-                "::{level} file={},line={line},title={}::{}",
-                alert.file_path, alert.title, alert.description
-            );
+            println!("{}", annotation(alert, azure));
         }
     }
 
@@ -111,6 +110,37 @@ pub(crate) fn run_ci_audit(
     } else {
         Ok(0)
     }
+}
+
+/// One CI log annotation: GitHub `::error` or Azure Pipelines `##vso[task.logissue]`.
+fn annotation(alert: &guard::GuardAlert, azure: bool) -> String {
+    let error = matches!(
+        alert.severity,
+        guard::Severity::Critical | guard::Severity::High
+    );
+    let line = alert.line_no.unwrap_or(1);
+    if azure {
+        let esc = |t: &str| {
+            t.replace('%', "%AZP25")
+                .replace('\r', "%0D")
+                .replace('\n', "%0A")
+                .replace(';', "%3B")
+                .replace(']', "%5D")
+        };
+        return format!(
+            "##vso[task.logissue type={};sourcepath={};linenumber={line};columnnumber=1;code={}]{}: {}",
+            if error { "error" } else { "warning" },
+            esc(&alert.file_path),
+            esc(&alert.rule_id),
+            esc(&alert.title),
+            esc(&alert.description)
+        );
+    }
+    let level = if error { "error" } else { "warning" };
+    format!(
+        "::{level} file={},line={line},title={}::{}",
+        alert.file_path, alert.title, alert.description
+    )
 }
 
 pub(crate) fn generate_ci_markdown_report(
@@ -557,6 +587,45 @@ mod tests {
     }
 
     #[test]
+    fn ci_rev_checks_committed_diff_and_errors_on_bad_rev() {
+        let dir = test_dir("ci-rev");
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(["-c", "user.email=a@b", "-c", "user.name=a"])
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join("a.py"), "a = 1\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "i"]);
+        std::fs::write(dir.join("b.py"), "key = \"AKIAABCDEFGHIJKLMNOP\"\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "x"]);
+        let out = dir.join("r.json");
+        let code = run_ci_audit(
+            &dir,
+            "json",
+            Some(&out),
+            false,
+            false,
+            true,
+            Some("HEAD~1..HEAD"),
+        )
+        .unwrap();
+        assert_eq!(code, 1);
+        assert!(std::fs::read_to_string(&out).unwrap().contains("rule_id"));
+        let clean = run_ci_audit(&dir, "json", Some(&out), false, false, true, None).unwrap();
+        assert_eq!(clean, 0);
+        assert!(run_ci_audit(&dir, "json", None, false, false, true, Some("nope..bad")).is_err());
+    }
+
+    #[test]
     fn test_ci_markdown_report_generation() {
         let snapshot = model::DiffSnapshot {
             files: vec![],
@@ -582,6 +651,27 @@ mod tests {
         let report_passed = generate_ci_markdown_report(&snapshot, &[], false);
         assert!(report_passed.contains("LGTM Risk Audit: PASSED"));
         assert!(report_passed.contains("No security vulnerabilities"));
+    }
+
+    #[test]
+    fn annotations_for_github_and_azure() {
+        let alert = guard::GuardAlert {
+            severity: guard::Severity::Warn,
+            rule_id: "r/x".into(),
+            fingerprint: String::new(),
+            title: "T".into(),
+            description: "a;b]\nc 100%".into(),
+            line_no: None,
+            file_path: "src/a.rs".into(),
+        };
+        assert_eq!(
+            annotation(&alert, false),
+            "::warning file=src/a.rs,line=1,title=T::a;b]\nc 100%"
+        );
+        assert_eq!(
+            annotation(&alert, true),
+            "##vso[task.logissue type=warning;sourcepath=src/a.rs;linenumber=1;columnnumber=1;code=r/x]T: a%3Bb%5D%0Ac 100%AZP25"
+        );
     }
 
     #[test]

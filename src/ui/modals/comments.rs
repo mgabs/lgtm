@@ -128,7 +128,12 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
         .enumerate()
         .map(|(idx, comment)| {
             let is_selected = idx == app.comment_list_selected_idx;
-            let status_badge = if comment.is_resolved {
+            let status_badge = if comment.orphaned {
+                Span::styled(
+                    "[⚠ Orphaned] ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )
+            } else if comment.is_resolved {
                 Span::styled(
                     "[✓ Resolved] ",
                     Style::default()

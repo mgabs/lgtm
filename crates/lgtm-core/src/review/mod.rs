@@ -243,6 +243,38 @@ pub fn reanchor(comments: &mut [ReviewComment], files: &[FileDiff]) {
     }
 }
 
+/// Re-pins plain comments after a diff reload and flags the ones whose code is gone.
+/// Comments on files absent from the diff are left alone (another diff mode may own them).
+/// Returns true when any anchor changed.
+pub fn reanchor_anchors(anchors: &mut [CommentAnchor], files: &[FileDiff]) -> bool {
+    let mut changed = false;
+    for a in anchors.iter_mut() {
+        let in_file = || files.iter().filter(|f| f.display_name() == a.file_path);
+        // Comments on deleted lines have no new-side anchor; they stay put.
+        let on_deletion = in_file()
+            .flat_map(|f| &f.hunks)
+            .flat_map(|h| &h.lines)
+            .any(|l| {
+                l.new_line_num.is_none()
+                    && l.old_line_num == Some(a.target_line_no)
+                    && l.content.trim() == a.target_code.trim()
+            });
+        if on_deletion || in_file().next().is_none() {
+            continue;
+        }
+        let mut rc = [ReviewComment::new(a.clone(), &[])];
+        reanchor(&mut rc, files);
+        let [rc] = rc;
+        let orphaned = rc.status == Status::Orphaned;
+        if rc.anchor.target_line_no != a.target_line_no || orphaned != a.orphaned {
+            a.target_line_no = rc.anchor.target_line_no;
+            a.orphaned = orphaned;
+            changed = true;
+        }
+    }
+    changed
+}
+
 fn reanchor_exact(c: &mut ReviewComment, files: &[FileDiff]) -> bool {
     let mut best: Option<((bool, u32), &FileDiff, &DiffHunk)> = None;
     for f in files {

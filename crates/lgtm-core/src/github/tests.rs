@@ -58,3 +58,19 @@ fn fake_client_reports_errors() {
     };
     assert!(bad.checks(1).is_err() && bad.threads(1).is_err());
 }
+
+#[test]
+fn thread_marker_reports_open_resolved_and_none() {
+    let t = |path: &str, line: u32, resolved: bool| Thread {
+        id: "1".into(),
+        path: path.into(),
+        line: Some(line),
+        resolved,
+        comments: vec![],
+    };
+    let ts = [t("a.rs", 3, true), t("a.rs", 3, false), t("a.rs", 9, true)];
+    assert_eq!(thread_marker(&ts, "a.rs", 3), Some(true));
+    assert_eq!(thread_marker(&ts, "a.rs", 9), Some(false));
+    assert_eq!(thread_marker(&ts, "a.rs", 4), None);
+    assert_eq!(thread_marker(&ts, "b.rs", 3), None);
+}

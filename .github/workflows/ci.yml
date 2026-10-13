@@ -120,6 +120,10 @@ jobs:
             **Fast, real-time terminal diff reviewer & AI agent steering TUI built in Rust.**
             
             ### ✨ Highlights in v${{ steps.get_version.outputs.VERSION }}
+            - **CI step**: `lgtm ci --rev origin/main...HEAD`, exit codes 0/1/2, and a composite GitHub Action with SARIF upload.
+            - **Azure DevOps PRs**: list, diff, policy checks, threads, post, reply, resolve and votes via `az`; `##vso` annotations and an Azure Pipelines recipe for `lgtm ci`.
+            - **Inline thread markers**: `◆`/`◇` in the gutter and `]t`/`[t` to jump between remote threads.
+            - **Orphaned comments**: comments re-pin when code moves, are flagged `⚠ Orphaned`, and `:directives orphans` lists, re-pins or drops them.
             - **Native Model Context Protocol (MCP) Server**: Autonomous AI agent stdio server (`lgtm serve --mcp` / `lgtm mcp`).
             - **Arbitrary Git Revision Range Diffing**: `lgtm main..feat`, `lgtm HEAD~3..HEAD`, and in-TUI `:diff <rev>`.
             - **Interactive Hunk & Visual Line Staging**: `s`, `u`, `x`, and `V` sub-hunk staging into the Git index.

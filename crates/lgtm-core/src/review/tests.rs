@@ -48,6 +48,7 @@ fn anchor(path: &str, ln: u32, code: &str) -> CommentAnchor {
         is_resolved: false,
         pr_number: None,
         remote_id: None,
+        orphaned: false,
         track: Default::default(),
     }
 }
@@ -278,4 +279,49 @@ fn marks_only_leaves_legacy_comments() {
         .unwrap();
     ReviewStore::open_marks_only(d.path(), "main").unwrap();
     assert!(d.path().join(".lgtm/comments.jsonl").is_file());
+}
+
+#[test]
+fn plain_comments_repin_orphan_and_recover() {
+    let mut a = [anchor("a.rs", 10, "x")];
+    // unchanged: nothing to do
+    assert!(!reanchor_anchors(
+        &mut a,
+        &[file("a.rs", vec![hunk(10, &["x"])])]
+    ));
+    // code shifted down
+    assert!(reanchor_anchors(
+        &mut a,
+        &[file("a.rs", vec![hunk(14, &["x"])])]
+    ));
+    assert_eq!((a[0].target_line_no, a[0].orphaned), (14, false));
+    // code gone from a file still in the diff
+    assert!(reanchor_anchors(
+        &mut a,
+        &[file("a.rs", vec![hunk(14, &["y"])])]
+    ));
+    assert_eq!((a[0].target_line_no, a[0].orphaned), (14, true));
+    // and back
+    assert!(reanchor_anchors(
+        &mut a,
+        &[file("a.rs", vec![hunk(20, &["x"])])]
+    ));
+    assert_eq!((a[0].target_line_no, a[0].orphaned), (20, false));
+}
+
+#[test]
+fn files_outside_the_diff_and_deleted_lines_are_left_alone() {
+    let mut a = [anchor("b.rs", 3, "x")];
+    assert!(!reanchor_anchors(
+        &mut a,
+        &[file("a.rs", vec![hunk(1, &["z"])])]
+    ));
+    assert!(!a[0].orphaned);
+
+    let mut del = hunk(1, &[]);
+    del.lines.push(line(LineType::Deletion, "gone", None));
+    del.lines[0].old_line_num = Some(5);
+    let mut a = [anchor("a.rs", 5, "gone")];
+    assert!(!reanchor_anchors(&mut a, &[file("a.rs", vec![del])]));
+    assert!(!a[0].orphaned);
 }

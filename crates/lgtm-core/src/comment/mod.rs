@@ -21,6 +21,9 @@ pub struct CommentAnchor {
     /// GitHub comment id once posted; posted comments are never posted again.
     #[serde(default)]
     pub remote_id: Option<u64>,
+    /// Set by re-anchoring when the commented code can no longer be found in the diff.
+    #[serde(default)]
+    pub orphaned: bool,
     /// Baseline and observed outcome used to tell whether the agent acted on a directive.
     #[serde(default)]
     pub track: crate::outcome::Tracking,
@@ -188,6 +191,7 @@ mod tests {
             is_resolved: false,
             pr_number: None,
             remote_id: None,
+            orphaned: false,
             track: Default::default(),
         };
 
@@ -227,6 +231,7 @@ mod tests {
             is_resolved: false,
             pr_number: Some(99),
             remote_id: None,
+            orphaned: false,
             track: Default::default(),
         };
 

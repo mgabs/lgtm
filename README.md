@@ -28,7 +28,7 @@
 ## Features
 
 - **Live Streaming Diffs**: Instant AST & streaming git patch parsing; automatically refreshes when files change on disk.
-- **Vim Motion Engine**: Full `j`/`k`, `gg`/`G`, `{`/`}`, `]f`/`[f`, `]h`/`[h`, `]c`/`[c`, `]w`/`[w`, `]u`/`[u`, `zz`/`zt`/`zb`, `/` search, `*`/`#` symbol search, `y` yank, `PgUp`/`PgDn`.
+- **Vim Motion Engine**: Full `j`/`k`, `gg`/`G`, `{`/`}`, `]f`/`[f`, `]h`/`[h`, `]c`/`[c`, `]t`/`[t` (PR threads), `]w`/`[w`, `]u`/`[u`, `zz`/`zt`/`zb`, `/` search, `*`/`#` symbol search, `y` yank, `PgUp`/`PgDn`.
 - **Git Revision & Range Diffing**: Direct comparison of branch ranges (`lgtm main..feat`, `lgtm HEAD~3..HEAD`), commit hashes, or in-app via `:diff <range>`.
 - **Native MCP Server Mode (`lgtm serve --mcp` / `lgtm mcp`)**: Standard JSON-RPC Model Context Protocol (MCP) server over stdio for autonomous AI agents (Claude Code, Cursor, Windsurf, Aider) to query diffs, run security scans, and manage review directives programmatically, including recording claims that a directive was handled (verified against the diff, never auto-resolved).
 - **Quick Steering Directive Chords**: 1-key canned directive templates:
@@ -50,7 +50,9 @@
 - **Interactive Commit Forge (`C` / `:commit`)**: Craft conventional commits (`feat:`, `fix:`, `refactor:`, etc.) directly from staged hunks with automated diff-aware commit message synthesis.
 - **Tabbed Interactive Help Modal (`?` / `h`)**: 7 discrete documentation tabs covering Overview & Modes, Motions, Directives, Staging & Forge, Folding, Guardrails, and Ex-Commands & CI.
 - **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:diff <rev>`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
-- **GitHub PR Review Mode**: Review GitHub PRs directly (`lgtm pr <num>` or `:pr <num>`), write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review`.
+- **PR Review Mode**: Review GitHub PRs (`gh`) or Azure DevOps PRs (`az`: list, diff, policies, threads, post, reply, resolve, vote) with `lgtm pr <num>` or `:pr <num>`, write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review` on GitHub.
+- **CI step**: `lgtm ci --rev origin/main...HEAD` gates a committed range (exit 0 pass, 1 blocking findings, 2 tool error); a composite GitHub Action (`mgabs/lgtm`) adds verified install, SARIF upload and a job summary.
+- **Orphaned comments**: comments re-pin when code moves and are flagged `⚠ Orphaned` when their code is gone, never deleted.
 - **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and instant report export (`w` / `:export`).
 - **Headless CI & Security Gates**:
   - `lgtm check`: Pre-commit / CI gate that blocks builds on critical security vulnerabilities or complexity spikes.
@@ -177,13 +179,16 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:q` / `:q!` — Quit
 - `:wq` / `:x` — Save directives and quit
 - `:commit` / `:cforge` — Open Commit Forge modal
-- `:pr <number>` — Load and review GitHub PR diff
+- `:pr <number>` — Load and review a GitHub or Azure DevOps PR diff
 - `:prs` — Open interactive PR picker
+- `:checks` / `:threads` — PR CI status / list PR threads (gutter `◆`/`◇`, `]t`/`[t`)
+- `:directives orphans` — List orphaned comments; `repin <n>` or `drop --yes`
 - `:f` / `:files` — Open fuzzy file finder
 - `:pane` / `:panes` — Open `tmux` target pane selector
 - `:sp` / `:split` — Toggle split / unified view
 - `:tree` / `:drawer` — Toggle file tree drawer
-- `:risk` / `:audit` — Re-scan current diff for security & test risks
+- `:risk` — Re-scan current diff for security & test risks
+- `:audit` — Audit the whole codebase (not just the diff)
 - `:r` / `:review` — Compile directives into batch review file and blast to agent
 - `:e` / `:reload` — Reload diff from disk
 - `:clear` — Clear all review directives
@@ -263,7 +268,7 @@ lgtm/
 │   ├── lgtm-ast/src/         # tree-sitter parsing and queries
 │   ├── lgtm-core/src/        # UI-free engine
 │   │   ├── model.rs          # Diff data models
-│   │   ├── git/, pr/         # Git diff engine; GitHub PR via `gh`
+│   │   ├── git/, pr/         # Git diff engine; PR providers (`forge/`: gh, az)
 │   │   ├── scan.rs           # Full repository audit scanner
 │   │   ├── guard/            # Security, complexity, symbols, API drift, dead code, arch, deps, duplicate
 │   │   ├── comment/, turn/   # Directives; reviewed-file tracker (.lgtm/state.json)

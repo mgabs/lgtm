@@ -1,6 +1,5 @@
 use crate::git::GitEngine;
 use crate::model::DiffSnapshot;
-use crate::pr::PrEngine;
 use anyhow::Result;
 
 pub trait DiffSource {
@@ -33,14 +32,17 @@ impl DiffSource for RevisionSource<'_> {
     }
 }
 
-pub struct PullRequestSource(pub u64);
+pub struct PullRequestSource {
+    pub pr: u64,
+    pub repo: std::path::PathBuf,
+}
 
 impl DiffSource for PullRequestSource {
     fn snapshot(&self) -> Result<DiffSnapshot> {
-        PrEngine::fetch_pr_diff(self.0)
+        crate::forge::open(&self.repo).pr_diff(self.pr)
     }
     fn describe(&self) -> String {
-        format!("PR #{} diff", self.0)
+        format!("PR #{} diff", self.pr)
     }
 }
 
@@ -60,6 +62,13 @@ mod tests {
             .describe(),
             "Revision 'HEAD~1'"
         );
-        assert_eq!(PullRequestSource(7).describe(), "PR #7 diff");
+        assert_eq!(
+            PullRequestSource {
+                pr: 7,
+                repo: ".".into()
+            }
+            .describe(),
+            "PR #7 diff"
+        );
     }
 }

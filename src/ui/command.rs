@@ -15,14 +15,18 @@ pub fn command_description(cmd: &str) -> &'static str {
         "diff" => "Return to diff view",
         "commit" | "ci" => "Open Commit Forge to commit staged changes",
         "c" | "comments" | "directives" | "todo" => {
-            "Open review directives list (`:directives recheck` reclassifies outcomes)"
+            "Open review directives list (`:directives recheck` reclassifies outcomes; `:directives orphans` lists, re-pins or drops orphaned ones)"
         }
         "r" | "review" | "send" | "push" | "submit" => "Export & blast batch review to agent",
         "thread" => "Reply to or resolve a remote thread (:thread reply|resolve|unresolve <n>)",
         "checks" => "Refresh CI check status for the open PR",
         "threads" => "List remote review threads for the open PR",
         "hidden" => "List suppressed and baselined findings",
-        "risk" | "audit" | "scan" => "Re-scan diff for security & test risks",
+        "audit" | "issues" => {
+            "Audit the whole codebase (not just the diff) for security & architecture issues"
+        }
+        "scan" => "Scan changed files, or the whole codebase with `:scan repo`",
+        "risk" => "Re-scan diff for security & test risks",
         "e" | "edit" | "reload" => "Reload diff from disk / PR",
         "clear" => "Clear all review directives",
         "y" | "yank" => "Yank current code line",
@@ -133,6 +137,7 @@ mod tests {
             command_description("risk"),
             "Re-scan diff for security & test risks"
         );
+        assert!(command_description("audit").contains("whole codebase"));
         assert_eq!(command_description("unknown_command"), "");
     }
 }

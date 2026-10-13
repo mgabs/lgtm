@@ -659,15 +659,30 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                 .comments
                                 .iter()
                                 .filter(|c| {
-                                    c.file_path == file.display_name()
+                                    !c.orphaned
+                                        && c.file_path == file.display_name()
                                         && Some(c.target_line_no) == line_no
                                 })
                                 .collect();
+
+                            let thread_state = line_no.and_then(|n| {
+                                lgtm_core::github::thread_marker(
+                                    &app.threads,
+                                    &file.display_name(),
+                                    n,
+                                )
+                            });
 
                             let gutter_icon = if in_visual {
                                 "▌ "
                             } else if !matching_alerts.is_empty() {
                                 "⚠️ "
+                            } else if let Some(open) = thread_state {
+                                if open {
+                                    "◆ "
+                                } else {
+                                    "◇ "
+                                }
                             } else if !matching_comments.is_empty() {
                                 if matching_comments.iter().all(|c| c.is_resolved) {
                                     "✓ "
@@ -685,6 +700,10 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                             } else if !matching_alerts.is_empty() {
                                 Style::default()
                                     .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD)
+                            } else if let Some(open) = thread_state {
+                                Style::default()
+                                    .fg(if open { Color::Cyan } else { Color::Green })
                                     .add_modifier(Modifier::BOLD)
                             } else if !matching_comments.is_empty()
                                 && matching_comments.iter().all(|c| c.is_resolved)
