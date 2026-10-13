@@ -50,7 +50,9 @@
 - **Interactive Commit Forge (`C` / `:commit`)**: Craft conventional commits (`feat:`, `fix:`, `refactor:`, etc.) directly from staged hunks with automated diff-aware commit message synthesis.
 - **Tabbed Interactive Help Modal (`?` / `h`)**: 7 discrete documentation tabs covering Overview & Modes, Motions, Directives, Staging & Forge, Folding, Guardrails, and Ex-Commands & CI.
 - **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:diff <rev>`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
-- **GitHub PR Review Mode**: Review GitHub PRs directly (`lgtm pr <num>` or `:pr <num>`), write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review`.
+- **PR Review Mode**: Review GitHub PRs (`gh`) or Azure DevOps PRs (`az`, read path: list, diff, policies) with `lgtm pr <num>` or `:pr <num>`, write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review` on GitHub.
+- **CI step**: `lgtm ci --rev origin/main...HEAD` gates a committed range (exit 0 pass, 1 blocking findings, 2 tool error); a composite GitHub Action (`mgabs/lgtm`) adds verified install, SARIF upload and a job summary.
+- **Orphaned comments**: comments re-pin when code moves and are flagged `⚠ Orphaned` when their code is gone, never deleted.
 - **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and instant report export (`w` / `:export`).
 - **Headless CI & Security Gates**:
   - `lgtm check`: Pre-commit / CI gate that blocks builds on critical security vulnerabilities or complexity spikes.
@@ -264,7 +266,7 @@ lgtm/
 │   ├── lgtm-ast/src/         # tree-sitter parsing and queries
 │   ├── lgtm-core/src/        # UI-free engine
 │   │   ├── model.rs          # Diff data models
-│   │   ├── git/, pr/         # Git diff engine; GitHub PR via `gh`
+│   │   ├── git/, pr/         # Git diff engine; PR providers (`forge/`: gh, az)
 │   │   ├── scan.rs           # Full repository audit scanner
 │   │   ├── guard/            # Security, complexity, symbols, API drift, dead code, arch, deps, duplicate
 │   │   ├── comment/, turn/   # Directives; reviewed-file tracker (.lgtm/state.json)

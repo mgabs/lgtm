@@ -104,6 +104,7 @@ cp target/release/lgtm /usr/local/bin/lgtm
 ### Requirements
 - **OS**: macOS, Linux, Windows (via WSL2 or Windows Terminal)
 - **Git**: Git 2.20+ installed
+- **PR features**: `gh` (GitHub) or `az` with the `azure-devops` extension (Azure DevOps); only needed for `:pr`, `:prs`, checks and posting
 - **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
 
 ---
@@ -362,6 +363,8 @@ lgtm check --strict
 ```
 
 ### 2. `lgtm scan` & Interactive Codebase Audit Mode
+`:audit` and `:scan repo` audit the **whole codebase**, not just the diff; plain `:scan` and `:risk` cover changed files only.
+
 Recursively audits all source files in the repository for security vulnerabilities, architectural violations, and code quality issues:
 
 ```bash
@@ -400,7 +403,9 @@ Threads: after `:threads`, `:thread reply <n> <text>`, `:thread resolve <n>` and
 
 Directive outcomes (`lgtm_core::outcome`): each comment stores the hash of its hunk when written. On every diff reload, open directives from earlier turns are classified as `untouched` (same hunk), `changed` (file still in the diff, hunk differs), `gone` (file left the diff) or `orphaned` (no baseline, e.g. older comments). The result is saved on the comment. Agent claims are stored apart (`claim`) and never change the outcome or resolve anything; "claimed but not changed" is flagged. In the directive list (`:c`) each open directive shows its verdict (`[changed]`, `[claimed but not changed]` in red, ...) and the title shows the per-turn counts; `:directives recheck` recomputes on demand and prints the counts. Resolving stays a human action: `v`/Space in the list. No outcome filter yet.
 
-Review state (`lgtm_core::review`): in the TUI, `M` marks or unmarks the current hunk and `v` the whole file; marks persist per target (`pr-N`, revision or `working`) and survive edits above the hunk. The file list shows `✓n/m` for partly reviewed files. `lgtm review export [target]` prints the JSON and `lgtm review import <file>` merges it (hunks by hash, comments by file+code+text; local wins on conflicts, which are listed on stderr). Comments still live in `comments.jsonl` until a later stage moves them. Storage: `.lgtm/reviews/<target>.json` holds hunk marks and comments keyed by a whitespace-normalized hunk content hash. After a diff reload `reanchor` moves comments by exact hash, then fuzzy code+context, else marks them `orphaned` (never deleted). The first open migrates `comments.jsonl` to the new layout and keeps `comments.jsonl.bak`; files with a newer `version` are refused.
+Review state (`lgtm_core::review`): in the TUI, `M` marks or unmarks the current hunk and `v` the whole file; marks persist per target (`pr-N`, revision or `working`) and survive edits above the hunk. The file list shows `✓n/m` for partly reviewed files. `lgtm review export [target]` prints the JSON and `lgtm review import <file>` merges it (hunks by hash, comments by file+code+text; local wins on conflicts, which are listed on stderr). Storage: `.lgtm/reviews/<target>.json` holds hunk marks (keyed by a whitespace-normalized hunk content hash) and the review-store comment model with `reanchor`; files with a newer `version` are refused.
+
+Comments and directives still live in `.lgtm/comments.jsonl` (ids stay stable for MCP). On every diff reload they are re-pinned: the commented code plus its neighbours is searched in the same file and the nearest match wins. If it is gone from a file still in the diff, the comment is flagged `orphaned` (`⚠ Orphaned` in `:c`, a count in the header, no inline marker) and never deleted; it recovers if the code returns. Comments on files outside the current diff, or on deleted lines, are left as they are.
 
 In the TUI, suppressed and baselined findings never appear in the alert list or block anything. The header shows a dim `(+N suppressed, M baselined :hidden)` counter, and `:hidden` lists the first five in the status line.
 
@@ -487,6 +492,18 @@ lgtm ci --rev "origin/${TARGET_BRANCH}...HEAD" -f markdown
 exec lgtm check
 ```
 
+### Azure DevOps pull requests
+
+lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.com`, `*.visualstudio.com` are Azure DevOps; everything else keeps using `gh`). Azure uses the `az` CLI with the `azure-devops` extension: `az extension add --name azure-devops`, then `az login` (or `az devops login`). lgtm never handles tokens.
+
+| Works | Not yet (planned) |
+|---|---|
+| `:prs`, `lgtm prs`: active PRs | `:threads` and inline thread markers |
+| `:pr <n>`, `lgtm pr <n>`: fetches the PR's source and target branches into `refs/lgtm/pr/<n>/head` and `base`, then diffs them locally | posting comments, replies, resolve, votes |
+| `:checks`: branch policies as pass / fail / pending | `lgtm ci` `##vso` annotations |
+
+Errors name the fix: missing `az`, missing extension, or not logged in. The organization and project come from the git remote (`--detect true`). Unverified against a live Azure DevOps project.
+
 ## 8. Ex-Commands Dictionary (`:cmds`)
 
 Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmenu auto-completion:
@@ -559,7 +576,7 @@ debounce_ms = 300
 | `lgtm` / `diff` / `status` / `review` | Launch interactive diff reviewer TUI (default) |
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
 | `lgtm init` / `--init` | Create `.lgtm/config.toml` |
-| `lgtm pr <n>` / `--pr <n>` | Review GitHub PR (requires `gh`) |
+| `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via `gh`, Azure DevOps via `az`) |
 | `lgtm prs` | List and pick open PRs |
 | `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
 | `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
@@ -616,7 +633,7 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 | `src/ui/` | Ratatui rendering split by view; `modals/` for dialogs |
 | `model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
 | `scan.rs` | Full repo scanner and report generator |
-| `git/`, `pr/` | Git diff engine; GitHub PR via `gh` |
+| `git/`, `pr/`, `forge/` | Git diff engine; PR providers (`forge`: GitHub via `gh`, Azure DevOps via `az`) |
 | `guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
 | `comment/`, `turn/` | Directives; reviewed-file state |
 | `ipc/` | tmux injection, OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |

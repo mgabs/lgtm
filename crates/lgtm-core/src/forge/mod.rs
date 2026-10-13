@@ -5,6 +5,8 @@ use crate::pr::{PrEngine, PullRequestSummary};
 use anyhow::{bail, Result};
 use std::path::Path;
 
+pub mod azure;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForgeKind {
     GitHub,
@@ -81,7 +83,7 @@ impl Forge for GitHubForge {
     }
 }
 
-/// Stands in for a detected host that has no provider yet; every call explains why.
+/// Placeholder for operations a provider has not implemented yet; every call explains why.
 pub struct Unsupported(pub &'static str);
 
 impl Unsupported {
@@ -132,7 +134,7 @@ impl Forge for Unsupported {
 /// Provider for `repo`'s `origin`. Unknown hosts keep the GitHub (`gh`) behavior.
 pub fn open(repo: &Path) -> Box<dyn Forge> {
     match kind_of(repo) {
-        ForgeKind::Azure => Box::new(Unsupported("Azure DevOps")),
+        ForgeKind::Azure => Box::new(azure::AzureForge::new(repo.to_path_buf())),
         _ => Box::new(GitHubForge),
     }
 }
