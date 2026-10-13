@@ -2,11 +2,11 @@
 
 Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. D1–D3, F1, G1–G2 done on `rel.0.8.1`. Pending: A4–A6, D4, E6–E8, E5′, F2–F3, G3–G5.
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. D1–D3, F1, G1–G3 done on `rel.0.8.1`. Pending: A4–A6, D4, E6–E8, E5′, F2, F3 (jump keys), G4–G5.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
-| `rel.0.8.1` | D1–D3, F1, G1–G2 | v0.8.1 | `--rev`, Action, CI recipes, orphaned comments, Azure DevOps read path; cut from `main` after v0.8.0, plus the roadmap commit |
+| `rel.0.8.1` | D1–D3, F1, G1–G3 | v0.8.1 | `--rev`, Action, CI recipes, orphaned comments, Azure DevOps read path; cut from `main` after v0.8.0, plus the roadmap commit |
 | `rel.0.8` | R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 | v0.8.0 | merged to `main` via PR #10, released as v0.8.0 |
 
 All waves land in v0.8.0 (decision: one release). `rel.0.10`, `rel.0.11` and `rel.0.12` are superseded by `rel.0.8`. A4–A6 and D1–D4 are open and will follow in later releases.
@@ -81,7 +81,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 |---|---|---|---|
 | G1 ✅ | `forge` module: `Forge` trait, `origin` URL detection, GitHub moved onto it unchanged; Azure remotes get a clear "not supported yet" instead of a `gh` failure | M | C4 |
 | G2 ✅ | Azure read path: `:prs`, `:pr <n>` (diff from git ref), policies as checks | M | G1 |
-| G3 | Azure threads read + inline markers | M | G1, F3 |
+| G3 ✅ | Azure threads read (`az devops invoke`) + inline markers (shared with F3) | M | G1, F3 |
 | G4 | Azure post, reply, resolve, vote | M | G2 |
 | G5 | `##vso` annotations, WIKI, Azure Pipelines recipe | S | G2, D3 |
 
@@ -90,7 +90,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 |---|---|---|---|
 | F1 ✅ | Re-anchor `comments.jsonl` comments on every reload (fuzzy code+context match, nearest line) and flag orphans via `orphaned`; storage stays `comments.jsonl` so directive ids and MCP stay stable. Comments on files outside the diff or on deleted lines are left alone | M | C1 |
 | F2 | Orphan UI: `⚠` marker and `:directives orphans`, jump to the nearest hunk, re-pin or delete. Directive recheck re-anchors instead of only re-hashing | S | F1 |
-| F3 | Inline thread markers: map remote thread path/line to diff rows (reuse the `post` mapper), margin glyph (`◆` open, `✓` resolved), `]t`/`[t` to jump, reply and resolve from the marker | M | C4 |
+| F3 (partial) | Markers `◆`/`◇` done with G3; still open: `]t`/`[t` jump and reply/resolve from the marker. Original scope: inline thread markers: map remote thread path/line to diff rows (reuse the `post` mapper), margin glyph (`◆` open, `✓` resolved), `]t`/`[t` to jump, reply and resolve from the marker | M | C4 |
 
 Order: F1 → F2 → F3, then E6 → E7 → E8, then E5′. D1–D3 (CI step with `--rev` and the Action) stay first, since they unlock adoption.
 

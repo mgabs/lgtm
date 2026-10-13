@@ -1,7 +1,7 @@
 //! Azure DevOps through the `az` CLI (`azure-devops` extension). lgtm never touches tokens.
 use super::{Forge, Unsupported};
 use crate::git::GitEngine;
-use crate::github::{Bucket, Check, GithubClient, Thread};
+use crate::github::{Bucket, Check, GithubClient, Thread, ThreadComment};
 use crate::model::DiffSnapshot;
 use crate::pr::{PrAuthor, PullRequestSummary};
 use anyhow::{bail, Context, Result};
@@ -42,21 +42,100 @@ pub fn explain(stderr: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Remote {
+    pub org: String,
+    pub project: String,
+    pub repo: String,
+}
+
+fn unescape(s: &str) -> String {
+    s.replace("%20", " ")
+}
+
+/// Parses the three Azure DevOps remote shapes (https, ssh `v3`, legacy `visualstudio.com`).
+pub fn parse_remote(url: &str) -> Option<Remote> {
+    let mk = |org: &str, project: &str, repo: &str| Remote {
+        org: org.to_string(),
+        project: unescape(project),
+        repo: unescape(repo),
+    };
+    if let Some((_, rest)) = url.split_once("ssh.dev.azure.com:v3/") {
+        let p: Vec<&str> = rest.trim_end_matches('/').split('/').collect();
+        return (p.len() == 3).then(|| mk(p[0], p[1], p[2]));
+    }
+    let rest = url.split_once("://")?.1;
+    let (host, path) = rest.split_once('/')?;
+    let host = host.rsplit('@').next()?;
+    let p: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    if host == "dev.azure.com" && p.len() == 4 && p[2] == "_git" {
+        return Some(mk(p[0], p[1], p[3]));
+    }
+    let org = host.strip_suffix(".visualstudio.com")?;
+    let p: Vec<&str> = p
+        .into_iter()
+        .filter(|s| *s != "DefaultCollection")
+        .collect();
+    (p.len() == 3 && p[1] == "_git").then(|| mk(org, p[0], p[2]))
+}
+
 pub struct AzureForge {
     repo: PathBuf,
+    remote: Option<Remote>,
     runner: Box<dyn Runner>,
 }
 
 impl AzureForge {
     pub fn new(repo: PathBuf) -> Self {
+        let remote = git2::Repository::open(&repo)
+            .ok()
+            .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
+            .and_then(|u| parse_remote(&u));
         let runner = Box::new(SystemRunner(repo.clone()));
-        Self { repo, runner }
+        Self {
+            repo,
+            remote,
+            runner,
+        }
     }
 
     fn az_json(&self, args: &[&str]) -> Result<Value> {
         let mut full = args.to_vec();
         full.extend(["--detect", "true", "--output", "json"]);
         let text = self.runner.run("az", &full)?;
+        serde_json::from_str(&text).context("unexpected `az` output")
+    }
+
+    /// REST call through `az devops invoke`, explicit about org, project and repository.
+    fn invoke(&self, resource: &str, pr: u64) -> Result<Value> {
+        let Some(r) = &self.remote else {
+            bail!("origin is not a recognized Azure DevOps URL");
+        };
+        let org = format!("https://dev.azure.com/{}", r.org);
+        let route = [
+            format!("project={}", r.project),
+            format!("repositoryId={}", r.repo),
+            format!("pullRequestId={pr}"),
+        ];
+        let mut args = vec![
+            "devops",
+            "invoke",
+            "--area",
+            "git",
+            "--resource",
+            resource,
+            "--organization",
+            &org,
+            "--api-version",
+            "7.1",
+            "--http-method",
+            "get",
+            "--output",
+            "json",
+            "--route-parameters",
+        ];
+        args.extend(route.iter().map(String::as_str));
+        let text = self.runner.run("az", &args)?;
         serde_json::from_str(&text).context("unexpected `az` output")
     }
 }
@@ -80,6 +159,57 @@ pub fn parse_prs(v: &Value) -> Vec<PullRequestSummary> {
             additions: 0,
             deletions: 0,
             state: s(p, "status"),
+        })
+        .collect()
+}
+
+/// Azure thread statuses that mean "done"; the rest (active, pending, unknown) stay open.
+fn thread_closed(status: &str) -> bool {
+    matches!(status, "fixed" | "closed" | "wontFix" | "byDesign")
+}
+
+pub fn parse_threads(v: &Value) -> Vec<Thread> {
+    let s = |x: &Value, p: &str| {
+        x.pointer(p)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    v["value"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|t| !t["isDeleted"].as_bool().unwrap_or(false))
+        .filter_map(|t| {
+            let comments: Vec<ThreadComment> = t["comments"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|c| {
+                    c["commentType"].as_str() != Some("system")
+                        && !c["isDeleted"].as_bool().unwrap_or(false)
+                })
+                .map(|c| ThreadComment {
+                    id: c["id"].as_u64().unwrap_or(0),
+                    author: s(c, "/author/displayName"),
+                    body: s(c, "/content"),
+                })
+                .collect();
+            if comments.is_empty() {
+                return None;
+            }
+            Some(Thread {
+                id: t["id"].as_u64().unwrap_or(0).to_string(),
+                path: s(t, "/threadContext/filePath")
+                    .trim_start_matches('/')
+                    .to_string(),
+                line: t
+                    .pointer("/threadContext/rightFileStart/line")
+                    .and_then(Value::as_u64)
+                    .map(|l| l as u32),
+                resolved: thread_closed(&s(t, "/status")),
+                comments,
+            })
         })
         .collect()
 }
@@ -149,8 +279,8 @@ impl GithubClient for AzureForge {
             &pr.to_string(),
         ])?))
     }
-    fn threads(&self, _: u64) -> Result<Vec<Thread>> {
-        Unsupported("Azure DevOps threads").threads(0)
+    fn threads(&self, pr: u64) -> Result<Vec<Thread>> {
+        Ok(parse_threads(&self.invoke("pullRequestThreads", pr)?))
     }
     fn head_sha(&self, _: u64) -> Result<String> {
         Unsupported("Azure DevOps inline comments").head_sha(0)
@@ -191,6 +321,7 @@ mod tests {
     fn forge(repo: &str, fakes: Vec<(&'static str, &'static str)>) -> AzureForge {
         AzureForge {
             repo: repo.into(),
+            remote: parse_remote("https://dev.azure.com/org/My%20Proj/_git/repo"),
             runner: Box::new(Fake(RefCell::new(vec![]), fakes)),
         }
     }
@@ -279,7 +410,7 @@ mod tests {
     fn missing_branches_and_writes_are_errors() {
         let f = forge(".", vec![("pr show", "{}")]);
         assert!(f.pr_diff(1).unwrap_err().to_string().contains("no source"));
-        assert!(f.threads(1).is_err() && f.post_general(1, "x").is_err());
+        assert!(f.post_general(1, "x").is_err());
         assert!(f.post_review(1, "x", "y").is_err());
     }
 
@@ -288,5 +419,74 @@ mod tests {
         assert!(explain("Please run 'az login' to setup account").contains("az login"));
         assert!(explain("'repos' is not in the 'az' command group").contains("extension add"));
         assert!(explain("boom").starts_with("az failed"));
+    }
+
+    #[test]
+    fn parses_remote_shapes() {
+        let want = |o: &str, p: &str, r: &str| {
+            Some(Remote {
+                org: o.into(),
+                project: p.into(),
+                repo: r.into(),
+            })
+        };
+        assert_eq!(
+            parse_remote("https://dev.azure.com/o/P%20Q/_git/r"),
+            want("o", "P Q", "r")
+        );
+        assert_eq!(
+            parse_remote("https://u@dev.azure.com/o/p/_git/r/"),
+            want("o", "p", "r")
+        );
+        assert_eq!(
+            parse_remote("git@ssh.dev.azure.com:v3/o/p/r"),
+            want("o", "p", "r")
+        );
+        assert_eq!(
+            parse_remote("https://o.visualstudio.com/DefaultCollection/p/_git/r"),
+            want("o", "p", "r")
+        );
+        assert_eq!(
+            parse_remote("https://o.visualstudio.com/p/_git/r"),
+            want("o", "p", "r")
+        );
+        assert_eq!(parse_remote("git@github.com:a/b.git"), None);
+        assert_eq!(parse_remote("https://dev.azure.com/o/p"), None);
+    }
+
+    #[test]
+    fn reads_threads_through_devops_invoke() {
+        let json = r#"{"value":[
+          {"id":3,"status":"active","threadContext":{"filePath":"/src/a.rs","rightFileStart":{"line":12}},
+           "comments":[{"id":1,"author":{"displayName":"Ann"},"content":"fix","commentType":"text"}]},
+          {"id":4,"status":"fixed","threadContext":null,
+           "comments":[{"id":1,"author":{"displayName":"Bo"},"content":"general","commentType":"text"}]},
+          {"id":5,"status":"active","comments":[{"id":1,"content":"x","commentType":"system"}]},
+          {"id":6,"status":"active","isDeleted":true,"comments":[{"id":1,"content":"x","commentType":"text"}]}]}"#;
+        let f = forge(".", vec![("pullRequestThreads", json)]);
+        let t = f.threads(9).unwrap();
+        assert_eq!(t.len(), 2);
+        assert_eq!(
+            (
+                t[0].id.as_str(),
+                t[0].path.as_str(),
+                t[0].line,
+                t[0].resolved
+            ),
+            ("3", "src/a.rs", Some(12), false)
+        );
+        assert_eq!(t[0].comments[0].author, "Ann");
+        assert!(t[1].resolved && t[1].line.is_none() && t[1].path.is_empty());
+    }
+
+    #[test]
+    fn invoke_needs_a_recognized_remote() {
+        let mut f = forge(".", vec![]);
+        f.remote = None;
+        assert!(f
+            .threads(1)
+            .unwrap_err()
+            .to_string()
+            .contains("not a recognized"));
     }
 }

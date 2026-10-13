@@ -64,6 +64,15 @@ pub trait GithubClient {
     fn set_resolved(&self, thread_id: &str, resolved: bool) -> Result<()>;
 }
 
+/// Remote threads on `path:line`: `Some(true)` if any is open, `Some(false)` if all are resolved.
+pub fn thread_marker(threads: &[Thread], path: &str, line: u32) -> Option<bool> {
+    let here: Vec<&Thread> = threads
+        .iter()
+        .filter(|t| t.path == path && t.line == Some(line))
+        .collect();
+    (!here.is_empty()).then(|| here.iter().any(|t| !t.resolved))
+}
+
 pub struct GhClient;
 
 #[derive(Deserialize)]
