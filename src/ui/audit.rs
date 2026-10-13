@@ -101,7 +101,9 @@ pub(crate) fn render_audit_file_drawer(frame: &mut Frame, area: Rect, app: &App)
             .border_style(Style::default().fg(border_color)),
     );
 
-    frame.render_widget(list, area);
+    let mut state =
+        ratatui::widgets::ListState::default().with_selected(Some(app.selected_file_idx));
+    frame.render_stateful_widget(list, area, &mut state);
 }
 
 pub(crate) fn render_audit_report_view(frame: &mut Frame, area: Rect, app: &App) {

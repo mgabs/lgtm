@@ -17,7 +17,7 @@ pub enum ForgeKind {
 /// Classifies a git remote URL.
 pub fn detect(url: &str) -> ForgeKind {
     let u = url.to_ascii_lowercase();
-    if u.contains("dev.azure.com") || u.contains(".visualstudio.com") {
+    if u.contains("dev.azure.com") || u.contains(".visualstudio.com") || u.contains("/_git/") {
         ForgeKind::Azure
     } else if u.contains("github.com") || u.contains("github.") {
         ForgeKind::GitHub
@@ -147,6 +147,10 @@ mod tests {
     fn detects_hosts() {
         for (url, want) in [
             ("https://dev.azure.com/o/p/_git/r", ForgeKind::Azure),
+            (
+                "https://tfs.corp.example/tfs/Col/p/_git/r",
+                ForgeKind::Azure,
+            ),
             ("git@ssh.dev.azure.com:v3/o/p/r", ForgeKind::Azure),
             ("https://o.visualstudio.com/p/_git/r", ForgeKind::Azure),
             ("git@github.com:a/b.git", ForgeKind::GitHub),

@@ -144,7 +144,9 @@ pub(crate) fn render_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
             .border_style(Style::default().fg(Color::Cyan)),
     );
 
-    frame.render_widget(list, area);
+    let mut state =
+        ratatui::widgets::ListState::default().with_selected(Some(app.selected_file_idx));
+    frame.render_stateful_widget(list, area, &mut state);
 }
 
 pub(crate) fn find_intra_line_pairs(

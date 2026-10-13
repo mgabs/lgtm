@@ -14,6 +14,10 @@
 - Inline thread markers: after `:threads`, lines with remote discussion show `◆` (open) or `◇` (resolved) in the diff gutter, on GitHub and Azure DevOps.
 - Orphaned comments: comments are re-pinned after every diff reload and flagged `⚠ Orphaned` when their code is gone (never deleted).
 
+### Fixed
+- File sidebar follows the active file when navigating with `]]` / `[[` instead of scrolling out of view (diff and audit views).
+- On-prem Azure DevOps Server remotes (`.../_git/...`) are detected as Azure.
+
 ### Changed
 - Exit codes for `check` / `ci`: 0 pass, 1 blocking findings, 2 tool error (was 1 for errors).
 - `:audit` is described and documented as a whole-codebase audit; `:scan` without `repo` and `:risk` cover the diff only.
