@@ -58,6 +58,9 @@ impl App {
             "c" | "comments" | "directives" | "todo" if args.first() == Some(&"recheck") => {
                 self.recheck_directives();
             }
+            "c" | "comments" | "directives" | "todo" if args.first() == Some(&"orphans") => {
+                self.orphans_command(&args[1..]);
+            }
             "c" | "comments" | "directives" | "todo" => {
                 self.comment_list_selected_idx = 0;
                 self.active_view = ActiveView::CommentList;
@@ -768,6 +771,75 @@ mod tests {
         app.thread_action(&bad, &["resolve", "1", "--yes"]);
         assert_eq!(app.status_message.as_deref(), Some("rate limited"));
         assert!(!app.threads[0].resolved);
+    }
+
+    #[test]
+    fn orphans_list_repin_and_drop() {
+        use crate::model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType};
+        let mut app = create_test_app();
+        app.execute_command("directives orphans");
+        assert_eq!(app.status_message.as_deref(), Some("No orphaned comments"));
+        let mk = |orphaned| lgtm_core::comment::CommentAnchor {
+            file_path: "old.rs".into(),
+            target_line_no: 9,
+            target_code: "x".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "x".into(),
+            replies: vec![],
+            created_at_turn: 0,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            orphaned,
+            track: Default::default(),
+        };
+        app.comments = vec![mk(true), mk(false), mk(true)];
+        app.execute_command("directives orphans");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("2 orphaned: 1) old.rs:9, 2) old.rs:9")
+        );
+        app.snapshot = DiffSnapshot::new(vec![FileDiff {
+            old_path: None,
+            new_path: "new.rs".into(),
+            change_type: ChangeType::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@".into(),
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![DiffLine {
+                    line_type: LineType::Addition,
+                    content: "y".into(),
+                    old_line_num: None,
+                    new_line_num: Some(3),
+                }],
+                is_folded: false,
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }]);
+        app.selected_file_idx = 0;
+        app.cursor_line_idx = 0;
+        app.execute_command("directives orphans repin 1");
+        assert_eq!(app.status_message.as_deref(), Some("Re-pinned to new.rs:3"));
+        assert_eq!(
+            (app.comments[0].orphaned, app.comments[0].target_line_no),
+            (false, 3)
+        );
+        app.execute_command("directives orphans drop");
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Would delete 1"));
+        assert_eq!(app.comments.len(), 3);
+        app.execute_command("directives orphans drop --yes");
+        assert_eq!(app.comments.len(), 2);
     }
 
     #[test]

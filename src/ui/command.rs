@@ -15,7 +15,7 @@ pub fn command_description(cmd: &str) -> &'static str {
         "diff" => "Return to diff view",
         "commit" | "ci" => "Open Commit Forge to commit staged changes",
         "c" | "comments" | "directives" | "todo" => {
-            "Open review directives list (`:directives recheck` reclassifies outcomes)"
+            "Open review directives list (`:directives recheck` reclassifies outcomes; `:directives orphans` lists, re-pins or drops orphaned ones)"
         }
         "r" | "review" | "send" | "push" | "submit" => "Export & blast batch review to agent",
         "thread" => "Reply to or resolve a remote thread (:thread reply|resolve|unresolve <n>)",

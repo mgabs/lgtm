@@ -2,7 +2,7 @@
 
 Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. D1–D3, F1, G1–G5 done on `rel.0.8.1`. Pending: A4–A6, D4, E6–E8, E5′, F2.
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. D1–D3, F1–F3, G1–G5 done on `rel.0.8.1`. Pending: A4–A6, D4, E6–E8, E5′.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
@@ -89,7 +89,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
 | F1 ✅ | Re-anchor `comments.jsonl` comments on every reload (fuzzy code+context match, nearest line) and flag orphans via `orphaned`; storage stays `comments.jsonl` so directive ids and MCP stay stable. Comments on files outside the diff or on deleted lines are left alone | M | C1 |
-| F2 | Orphan UI: `⚠` marker and `:directives orphans`, jump to the nearest hunk, re-pin or delete. Directive recheck re-anchors instead of only re-hashing | S | F1 |
+| F2 ✅ | Orphan UI: `⚠` marker and `:directives orphans`, jump to the nearest hunk, re-pin or delete. Directive recheck re-anchors instead of only re-hashing | S | F1 |
 | F3 ✅ (partial) | Markers `◆`/`◇` done with G3, `]t`/`[t` jump done; still open: reply/resolve from the marker (`:thread` covers it). Original scope: inline thread markers: map remote thread path/line to diff rows (reuse the `post` mapper), margin glyph (`◆` open, `✓` resolved), `]t`/`[t` to jump, reply and resolve from the marker | M | C4 |
 
 Order: F1 → F2 → F3, then E6 → E7 → E8, then E5′. D1–D3 (CI step with `--rev` and the Action) stay first, since they unlock adoption.
