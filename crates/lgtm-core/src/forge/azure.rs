@@ -1,5 +1,5 @@
 //! Azure DevOps through the `az` CLI (`azure-devops` extension). lgtm never touches tokens.
-use super::{Forge, Unsupported};
+use super::Forge;
 use crate::git::GitEngine;
 use crate::github::{Bucket, Check, GithubClient, Thread, ThreadComment};
 use crate::model::DiffSnapshot;
@@ -79,6 +79,8 @@ pub fn parse_remote(url: &str) -> Option<Remote> {
     (p.len() == 3 && p[1] == "_git").then(|| mk(org, p[0], p[2]))
 }
 
+static BODY_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 pub struct AzureForge {
     repo: PathBuf,
     remote: Option<Remote>,
@@ -108,15 +110,42 @@ impl AzureForge {
 
     /// REST call through `az devops invoke`, explicit about org, project and repository.
     fn invoke(&self, resource: &str, pr: u64) -> Result<Value> {
+        self.call("get", resource, pr, None, None)
+    }
+
+    /// `az devops invoke` with an optional `threadId` route and JSON body (sent via a temp file).
+    fn call(
+        &self,
+        method: &str,
+        resource: &str,
+        pr: u64,
+        thread: Option<&str>,
+        body: Option<&Value>,
+    ) -> Result<Value> {
         let Some(r) = &self.remote else {
             bail!("origin is not a recognized Azure DevOps URL");
         };
         let org = format!("https://dev.azure.com/{}", r.org);
-        let route = [
+        let mut route = vec![
             format!("project={}", r.project),
             format!("repositoryId={}", r.repo),
             format!("pullRequestId={pr}"),
         ];
+        if let Some(t) = thread {
+            route.push(format!("threadId={t}"));
+        }
+        let file = match body {
+            Some(b) => {
+                let p = std::env::temp_dir().join(format!(
+                    "lgtm-az-{}-{}.json",
+                    std::process::id(),
+                    BODY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+                std::fs::write(&p, b.to_string())?;
+                Some(p)
+            }
+            None => None,
+        };
         let mut args = vec![
             "devops",
             "invoke",
@@ -129,14 +158,35 @@ impl AzureForge {
             "--api-version",
             "7.1",
             "--http-method",
-            "get",
+            method,
             "--output",
             "json",
-            "--route-parameters",
         ];
+        let path = file.as_ref().map(|p| p.to_string_lossy().into_owned());
+        if let Some(p) = &path {
+            args.extend(["--in-file", p]);
+        }
+        args.push("--route-parameters");
         args.extend(route.iter().map(String::as_str));
-        let text = self.runner.run("az", &args)?;
-        serde_json::from_str(&text).context("unexpected `az` output")
+        let out = self.runner.run("az", &args);
+        if let Some(p) = &file {
+            let _ = std::fs::remove_file(p);
+        }
+        serde_json::from_str(&out?).context("unexpected `az` output")
+    }
+
+    fn new_thread(&self, pr: u64, body: &str, context: Option<Value>) -> Result<u64> {
+        let mut t = serde_json::json!({
+            "comments": [{"parentCommentId": 0, "content": body, "commentType": 1}],
+            "status": 1,
+        });
+        if let Some(c) = context {
+            t["threadContext"] = c;
+        }
+        let v = self.call("post", "pullRequestThreads", pr, None, Some(&t))?;
+        v["id"]
+            .as_u64()
+            .context("Azure DevOps returned no thread id")
     }
 }
 
@@ -263,8 +313,29 @@ impl Forge for AzureForge {
         GitEngine::new(&self.repo).compute_revision_diff(&format!("{base}...{head}"))
     }
 
-    fn post_review(&self, _: u64, _: &str, _: &str) -> Result<()> {
-        Unsupported("Azure DevOps review posting").post_review(0, "", "")
+    /// `APPROVE` and `REQUEST_CHANGES` set the vote (plus the body as a comment); `COMMENT` only comments.
+    fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()> {
+        let vote = match event {
+            "APPROVE" => Some("approve"),
+            "REQUEST_CHANGES" => Some("wait-for-author"),
+            "COMMENT" => None,
+            other => bail!("unknown review event '{other}'"),
+        };
+        if !body.is_empty() {
+            self.post_general(pr, body)?;
+        }
+        if let Some(v) = vote {
+            self.az_json(&[
+                "repos",
+                "pr",
+                "set-vote",
+                "--id",
+                &pr.to_string(),
+                "--vote",
+                v,
+            ])?;
+        }
+        Ok(())
     }
 }
 
@@ -282,20 +353,44 @@ impl GithubClient for AzureForge {
     fn threads(&self, pr: u64) -> Result<Vec<Thread>> {
         Ok(parse_threads(&self.invoke("pullRequestThreads", pr)?))
     }
-    fn head_sha(&self, _: u64) -> Result<String> {
-        Unsupported("Azure DevOps inline comments").head_sha(0)
+    fn head_sha(&self, pr: u64) -> Result<String> {
+        let v = self.az_json(&["repos", "pr", "show", "--id", &pr.to_string()])?;
+        v.pointer("/lastMergeSourceCommit/commitId")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .context("PR has no source commit")
     }
-    fn post_inline(&self, _: u64, _: &str, _: &str, _: u32, _: &str) -> Result<u64> {
-        Unsupported("Azure DevOps inline comments").post_inline(0, "", "", 0, "")
+    fn post_inline(&self, pr: u64, _sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+        let pos = serde_json::json!({"line": line, "offset": 1});
+        let ctx = serde_json::json!({
+            "filePath": format!("/{path}"),
+            "rightFileStart": pos,
+            "rightFileEnd": pos,
+        });
+        self.new_thread(pr, body, Some(ctx))
     }
-    fn post_general(&self, _: u64, _: &str) -> Result<u64> {
-        Unsupported("Azure DevOps comments").post_general(0, "")
+    fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
+        self.new_thread(pr, body, None)
     }
-    fn reply(&self, _: u64, _: u64, _: &str) -> Result<u64> {
-        Unsupported("Azure DevOps replies").reply(0, 0, "")
+    fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
+        let c =
+            serde_json::json!({"parentCommentId": comment_id, "content": body, "commentType": 1});
+        let v = self.call(
+            "post",
+            "pullRequestThreadComments",
+            pr,
+            Some(thread_id),
+            Some(&c),
+        )?;
+        v["id"]
+            .as_u64()
+            .context("Azure DevOps returned no comment id")
     }
-    fn set_resolved(&self, _: &str, _: bool) -> Result<()> {
-        Unsupported("Azure DevOps thread resolution").set_resolved("", false)
+    fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
+        let status = if resolved { "fixed" } else { "active" };
+        let b = serde_json::json!({ "status": status });
+        self.call("patch", "pullRequestThreads", pr, Some(thread_id), Some(&b))?;
+        Ok(())
     }
 }
 
@@ -410,8 +505,7 @@ mod tests {
     fn missing_branches_and_writes_are_errors() {
         let f = forge(".", vec![("pr show", "{}")]);
         assert!(f.pr_diff(1).unwrap_err().to_string().contains("no source"));
-        assert!(f.post_general(1, "x").is_err());
-        assert!(f.post_review(1, "x", "y").is_err());
+        assert!(f.post_review(1, "BOGUS", "y").is_err());
     }
 
     #[test]
@@ -477,6 +571,27 @@ mod tests {
         );
         assert_eq!(t[0].comments[0].author, "Ann");
         assert!(t[1].resolved && t[1].line.is_none() && t[1].path.is_empty());
+    }
+
+    #[test]
+    fn writes_go_through_devops_invoke_and_set_vote() {
+        let f = forge(
+            ".",
+            vec![
+                ("--http-method post --output json --in-file", r#"{"id":7}"#),
+                ("--http-method patch", "{}"),
+                ("set-vote", "{}"),
+                ("pr show", r#"{"lastMergeSourceCommit":{"commitId":"abc"}}"#),
+            ],
+        );
+        assert_eq!(f.head_sha(2).unwrap(), "abc");
+        assert_eq!(f.post_inline(2, "abc", "src/a.rs", 4, "hi").unwrap(), 7);
+        assert_eq!(f.post_general(2, "hi").unwrap(), 7);
+        assert_eq!(f.reply(2, "5", 1, "ok").unwrap(), 7);
+        f.set_resolved(2, "5", true).unwrap();
+        f.post_review(2, "APPROVE", "lgtm").unwrap();
+        f.post_review(2, "REQUEST_CHANGES", "").unwrap();
+        assert!(f.post_review(2, "NOPE", "").is_err());
     }
 
     #[test]

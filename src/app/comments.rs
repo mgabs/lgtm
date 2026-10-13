@@ -254,9 +254,9 @@ impl App {
             return;
         }
         let res = match verb {
-            "reply" => client.reply(pr, target, &text).map(|_| "Reply posted"),
+            "reply" => client.reply(pr, &id, target, &text).map(|_| "Reply posted"),
             _ => client
-                .set_resolved(&id, verb == "resolve")
+                .set_resolved(pr, &id, verb == "resolve")
                 .map(|_| "Thread updated"),
         };
         self.status_message = Some(match res {

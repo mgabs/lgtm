@@ -511,9 +511,11 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 | Works | Not yet (planned) |
 |---|---|
 | `:prs`, `lgtm prs`: active PRs | `]t` / `[t` jump between threads |
-| `:pr <n>`, `lgtm pr <n>`: fetches the PR's source and target branches into `refs/lgtm/pr/<n>/head` and `base`, then diffs them locally | posting comments, replies, resolve, votes |
+| `:pr <n>`, `lgtm pr <n>`: fetches the PR's source and target branches into `refs/lgtm/pr/<n>/head` and `base`, then diffs them locally | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
+| `:pr post --yes`: inline comments become threads on the new-side line, the rest one general thread; `:thread reply`, `resolve` (status `fixed`), `unresolve` (`active`) | |
+| Review submit: `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` only comments (body posted as a thread) | |
 
 After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line.
 

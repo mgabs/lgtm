@@ -2,11 +2,11 @@
 
 Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. D1–D3, F1, G1–G3, G5 done on `rel.0.8.1`. Pending: A4–A6, D4, E6–E8, E5′, F2, F3 (jump keys), G4.
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. D1–D3, F1, G1–G5 done on `rel.0.8.1`. Pending: A4–A6, D4, E6–E8, E5′, F2, F3 (jump keys).
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
-| `rel.0.8.1` | D1–D3, F1, G1–G3, G5 | v0.8.1 | `--rev`, Action, CI recipes, orphaned comments, Azure DevOps read path; cut from `main` after v0.8.0, plus the roadmap commit |
+| `rel.0.8.1` | D1–D3, F1, G1–G5 | v0.8.1 | `--rev`, Action, CI recipes, orphaned comments, Azure DevOps read path; cut from `main` after v0.8.0, plus the roadmap commit |
 | `rel.0.8` | R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 | v0.8.0 | merged to `main` via PR #10, released as v0.8.0 |
 
 All waves land in v0.8.0 (decision: one release). `rel.0.10`, `rel.0.11` and `rel.0.12` are superseded by `rel.0.8`. A4–A6 and D1–D4 are open and will follow in later releases.
@@ -82,7 +82,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | G1 ✅ | `forge` module: `Forge` trait, `origin` URL detection, GitHub moved onto it unchanged; Azure remotes get a clear "not supported yet" instead of a `gh` failure | M | C4 |
 | G2 ✅ | Azure read path: `:prs`, `:pr <n>` (diff from git ref), policies as checks | M | G1 |
 | G3 ✅ | Azure threads read (`az devops invoke`) + inline markers (shared with F3) | M | G1, F3 |
-| G4 | Azure post, reply, resolve, vote | M | G2 |
+| G4 ✅ | Azure post, reply, resolve, vote | M | G2 |
 | G5 ✅ | `##vso` annotations, WIKI, Azure Pipelines recipe | S | G2, D3 |
 
 ### F — Review UX debt (comments and threads)

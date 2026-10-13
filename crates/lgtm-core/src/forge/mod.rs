@@ -60,11 +60,11 @@ impl GithubClient for GitHubForge {
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
         GhClient.post_general(pr, body)
     }
-    fn reply(&self, pr: u64, comment_id: u64, body: &str) -> Result<u64> {
-        GhClient.reply(pr, comment_id, body)
+    fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
+        GhClient.reply(pr, thread_id, comment_id, body)
     }
-    fn set_resolved(&self, thread_id: &str, resolved: bool) -> Result<()> {
-        GhClient.set_resolved(thread_id, resolved)
+    fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
+        GhClient.set_resolved(pr, thread_id, resolved)
     }
 }
 
@@ -108,10 +108,10 @@ impl GithubClient for Unsupported {
     fn post_general(&self, _: u64, _: &str) -> Result<u64> {
         self.no()
     }
-    fn reply(&self, _: u64, _: u64, _: &str) -> Result<u64> {
+    fn reply(&self, _: u64, _: &str, _: u64, _: &str) -> Result<u64> {
         self.no()
     }
-    fn set_resolved(&self, _: &str, _: bool) -> Result<()> {
+    fn set_resolved(&self, _: u64, _: &str, _: bool) -> Result<()> {
         self.no()
     }
 }
