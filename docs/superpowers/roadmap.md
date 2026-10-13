@@ -79,7 +79,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 ### F — Review UX debt (comments and threads)
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
-| F1 | Comments into the review store: anchor by hunk hash, re-anchor on reload, mark orphans. One-time import of `comments.jsonl`; directive ids stay stable | M | C1 |
+| F1 ✅ | Re-anchor `comments.jsonl` comments on every reload (fuzzy code+context match, nearest line) and flag orphans via `orphaned`; storage stays `comments.jsonl` so directive ids and MCP stay stable. Comments on files outside the diff or on deleted lines are left alone | M | C1 |
 | F2 | Orphan UI: `⚠` marker and `:directives orphans`, jump to the nearest hunk, re-pin or delete. Directive recheck re-anchors instead of only re-hashing | S | F1 |
 | F3 | Inline thread markers: map remote thread path/line to diff rows (reuse the `post` mapper), margin glyph (`◆` open, `✓` resolved), `]t`/`[t` to jump, reply and resolve from the marker | M | C4 |
 

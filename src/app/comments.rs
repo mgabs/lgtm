@@ -9,10 +9,9 @@ impl App {
                 for line in &hunk.lines {
                     if line_counter == self.cursor_line_idx {
                         if let Some(lno) = line.new_line_num.or(line.old_line_num) {
-                            return self
-                                .comments
-                                .iter()
-                                .any(|c| c.file_path == path_str && c.target_line_no == lno);
+                            return self.comments.iter().any(|c| {
+                                !c.orphaned && c.file_path == path_str && c.target_line_no == lno
+                            });
                         }
                     }
                     line_counter += 1;
@@ -386,6 +385,7 @@ impl App {
                 is_resolved: false,
                 pr_number: self.pr.current_number,
                 remote_id: None,
+                orphaned: false,
                 track: lgtm_core::outcome::Tracking {
                     hunk_hash: lgtm_core::review::hunk_hash_at(
                         &self.snapshot.files,
@@ -511,6 +511,7 @@ mod tests {
             is_resolved: false,
             pr_number: None,
             remote_id: None,
+            orphaned: false,
             track: Default::default(),
         };
         app.comments.push(anchor);

@@ -170,8 +170,14 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     if !app.comments.is_empty() {
+        let orphans = app.comments.iter().filter(|c| c.orphaned).count();
+        let orphan_tag = if orphans > 0 {
+            format!(" ({orphans} ⚠ orphaned)")
+        } else {
+            String::new()
+        };
         header_spans.push(Span::styled(
-            format!(" 💬 {} comments |", app.comments.len()),
+            format!(" 💬 {} comments{} |", app.comments.len(), orphan_tag),
             Style::default()
                 .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD),

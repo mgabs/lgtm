@@ -659,7 +659,8 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                 .comments
                                 .iter()
                                 .filter(|c| {
-                                    c.file_path == file.display_name()
+                                    !c.orphaned
+                                        && c.file_path == file.display_name()
                                         && Some(c.target_line_no) == line_no
                                 })
                                 .collect();

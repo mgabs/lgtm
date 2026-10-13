@@ -40,6 +40,7 @@ fn directive(files: &[FileDiff], turn: u64) -> CommentAnchor {
         is_resolved: false,
         pr_number: None,
         remote_id: None,
+        orphaned: false,
         track: Tracking {
             hunk_hash: hunk_hash_at(files, "a.rs", 1),
             ..Default::default()

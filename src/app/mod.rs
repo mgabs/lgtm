@@ -308,7 +308,9 @@ impl App {
         self.snapshot = new_snapshot;
         self.comments = self.comment_store.load_comments();
         let turn = self.turn_manager.load_state().current_turn;
-        if lgtm_core::outcome::recheck(&mut self.comments, &self.snapshot.files, turn) {
+        let moved = lgtm_core::review::reanchor_anchors(&mut self.comments, &self.snapshot.files);
+        let rechecked = lgtm_core::outcome::recheck(&mut self.comments, &self.snapshot.files, turn);
+        if moved || rechecked {
             let _ = self.comment_store.save_comments(&self.comments);
         }
         self.load_marks();

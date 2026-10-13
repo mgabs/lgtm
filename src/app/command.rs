@@ -679,6 +679,7 @@ mod tests {
                     is_resolved: false,
                     pr_number: None,
                     remote_id: None,
+                    orphaned: false,
                     track: Default::default(),
                 });
         c.pr_number = Some(4);
@@ -780,6 +781,7 @@ mod tests {
             is_resolved: false,
             pr_number: None,
             remote_id: None,
+            orphaned: false,
             track: lgtm_core::outcome::Tracking {
                 hunk_hash: Some("abc".into()),
                 ..Default::default()
