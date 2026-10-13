@@ -387,6 +387,39 @@ impl App {
         }
     }
 
+    /// `]t` / `[t`: jump to the next or previous line with a remote thread in the current file.
+    pub fn jump_thread(&mut self, forward: bool) {
+        if self.threads.is_empty() {
+            self.status_message = Some("No threads; run :threads first".to_string());
+            return;
+        }
+        let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
+            return;
+        };
+        let path = file.display_name();
+        let rows = file
+            .hunks
+            .iter()
+            .flat_map(|h| &h.lines)
+            .enumerate()
+            .filter(|(_, l)| {
+                l.new_line_num.is_some_and(|n| {
+                    lgtm_core::github::thread_marker(&self.threads, &path, n).is_some()
+                })
+            })
+            .map(|(i, _)| i);
+        let cur = self.cursor_line_idx;
+        let hit = if forward {
+            rows.filter(|&i| i > cur).min()
+        } else {
+            rows.filter(|&i| i < cur).max()
+        };
+        match hit {
+            Some(i) => self.cursor_line_idx = i,
+            None => self.status_message = Some("No more threads in this file".to_string()),
+        }
+    }
+
     pub fn execute_search(&mut self, query: &str) {
         self.search_matches.clear();
         let q = query.to_lowercase();
@@ -585,6 +618,56 @@ mod tests {
         app.page_down(3);
         assert_eq!(app.cursor_line_idx, 3);
         app.page_up(2);
+        assert_eq!(app.cursor_line_idx, 1);
+    }
+
+    #[test]
+    fn thread_jump_moves_between_marked_lines() {
+        use crate::model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType};
+        let mut app = create_test_app();
+        let lines = (1..=6)
+            .map(|n| DiffLine {
+                line_type: LineType::Context,
+                content: "x".into(),
+                old_line_num: Some(n),
+                new_line_num: Some(n),
+            })
+            .collect();
+        let hunk = DiffHunk {
+            header: "@@".into(),
+            old_start: 1,
+            old_lines: 6,
+            new_start: 1,
+            new_lines: 6,
+            lines,
+            is_folded: false,
+        };
+        app.snapshot = DiffSnapshot::new(vec![FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("t.rs"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![hunk],
+            is_folded: false,
+            is_reviewed: false,
+        }]);
+        let th = |line| lgtm_core::github::Thread {
+            id: "1".into(),
+            path: "t.rs".into(),
+            line: Some(line),
+            resolved: false,
+            comments: vec![],
+        };
+        app.jump_thread(true);
+        assert!(app.status_message.as_deref().unwrap().contains(":threads"));
+        app.threads = vec![th(2), th(5)];
+        app.cursor_line_idx = 0;
+        app.jump_thread(true);
+        assert_eq!(app.cursor_line_idx, 1);
+        app.jump_thread(true);
+        assert_eq!(app.cursor_line_idx, 4);
+        app.jump_thread(false);
         assert_eq!(app.cursor_line_idx, 1);
     }
 

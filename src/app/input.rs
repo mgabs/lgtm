@@ -50,6 +50,14 @@ impl App {
                     self.next_alert();
                     return;
                 }
+                (']', KeyCode::Char('t')) => {
+                    self.jump_thread(true);
+                    return;
+                }
+                ('[', KeyCode::Char('t')) => {
+                    self.jump_thread(false);
+                    return;
+                }
                 ('[', KeyCode::Char('f')) | ('[', KeyCode::Char('[')) => {
                     self.prev_file();
                     return;

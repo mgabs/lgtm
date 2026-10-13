@@ -212,6 +212,10 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Jump to Next / Previous review directive / inline comment"),
                 ]),
                 Line::from(vec![
+                    Span::styled("  ]t / [t          ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Jump to Next / Previous remote PR thread (after :threads)"),
+                ]),
+                Line::from(vec![
                     Span::styled("  ]w / [w (or w/W) ", Style::default().fg(Color::Cyan)),
                     Span::raw("Jump to Next / Previous security alert or guard warning"),
                 ]),

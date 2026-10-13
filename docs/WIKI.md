@@ -125,6 +125,7 @@ lgtm
 | `]h` / `[h` | Hunk Navigation | Jump to next / previous diff hunk |
 | `]w` / `[w` or `w` / `W` | Alert Jump | Jump to next / previous security / quality guardrail alert |
 | `]c` / `[c` | Directive Jump | Jump to next / previous inline review comment |
+| `]t` / `[t` | Thread Jump | Jump to next / previous remote PR thread line in the file (after `:threads`) |
 | `gg` / `G` | Top / Bottom | Jump to top / bottom of current file diff |
 | `Ctrl-d` / `Ctrl-u` | Half-Page | Scroll half-page down / up (15 lines) |
 | `Ctrl-f` / `Ctrl-b` | Full-Page | Scroll full page down / up (25 lines) |
@@ -510,7 +511,7 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 
 | Works | Not yet (planned) |
 |---|---|
-| `:prs`, `lgtm prs`: active PRs | `]t` / `[t` jump between threads |
+| `:prs`, `lgtm prs`: active PRs reply / resolve from the marker |
 | `:pr <n>`, `lgtm pr <n>`: fetches the PR's source and target branches into `refs/lgtm/pr/<n>/head` and `base`, then diffs them locally | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
