@@ -463,7 +463,8 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 
 | Command | Aliases | Description |
 |---|---|---|
-| `:scan [repo]` | `:audit`, `:issues` | Launch interactive full repository Codebase Audit mode (issues only, no diff) |
+| `:audit` | `:issues` | Audit the whole codebase (issues only, no diff) |
+| `:scan [repo]` | — | Scan changed files; `:scan repo` audits the whole codebase |
 | `:export [path]` | — | Export audit scorecard report to Markdown (default: `lgtm-report.md`) |
 | `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/comments.jsonl` |
 | `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load revision range diff e.g. `:diff main..feat`) |

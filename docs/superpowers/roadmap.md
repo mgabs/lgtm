@@ -70,6 +70,19 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | E3 ✅ | Swift grammar + `swift/` pack | M | E1 |
 | E4 ✅ | Complexity and symbol guards on AST for TS/JS/Swift. Test-neutering stays line-based: its rules are one-line patterns, so the AST adds little | M | E1 |
 | E5 ❌ | TUI folding on AST. Dropped: fold state is per hunk and cursor motion indexes hunk lines, so in-hunk blocks would touch every motion path for a feature unverifiable without interactive use. Revisit on demand | S | E1 |
+| E6 | Whole-file parse mode in `lgtm-ast`; `"use client"` leak and server-action validation rules. Diff hunks only select which findings to keep | M | E2 |
+| E7 | Python grammar: AST complexity and identifiers, a few rules (`eval`/`exec`, `subprocess shell=True`, `pickle.loads`, bare `except`) | M | E1 |
+| E8 | Go, then Java grammars: complexity and identifiers first, rules on demand | M | E7 |
+| E5′ | Block-level folding (revisit E5): fold state keyed by AST block range inside a hunk; needs a visible-rows indirection for cursor motion. Do it after F1 so folds can persist in the review store | M | E1, F1 |
+
+### F — Review UX debt (comments and threads)
+| ID | Item | Effort | Depends on |
+|---|---|---|---|
+| F1 | Comments into the review store: anchor by hunk hash, re-anchor on reload, mark orphans. One-time import of `comments.jsonl`; directive ids stay stable | M | C1 |
+| F2 | Orphan UI: `⚠` marker and `:directives orphans`, jump to the nearest hunk, re-pin or delete. Directive recheck re-anchors instead of only re-hashing | S | F1 |
+| F3 | Inline thread markers: map remote thread path/line to diff rows (reuse the `post` mapper), margin glyph (`◆` open, `✓` resolved), `]t`/`[t` to jump, reply and resolve from the marker | M | C4 |
+
+Order: F1 → F2 → F3, then E6 → E7 → E8, then E5′. D1–D3 (CI step with `--rev` and the Action) stay first, since they unlock adoption.
 
 Order: web first (E1 → E2), then Swift (E3), then E4/E5.
 

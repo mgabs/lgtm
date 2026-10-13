@@ -183,7 +183,8 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:pane` / `:panes` — Open `tmux` target pane selector
 - `:sp` / `:split` — Toggle split / unified view
 - `:tree` / `:drawer` — Toggle file tree drawer
-- `:risk` / `:audit` — Re-scan current diff for security & test risks
+- `:risk` — Re-scan current diff for security & test risks
+- `:audit` — Audit the whole codebase (not just the diff)
 - `:r` / `:review` — Compile directives into batch review file and blast to agent
 - `:e` / `:reload` — Reload diff from disk
 - `:clear` — Clear all review directives

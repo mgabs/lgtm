@@ -492,8 +492,8 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Toggle Unified vs Side-by-Side Split Diff mode"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :scan, :audit        ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Launch full Codebase Audit mode (issues only, no diff view)"),
+                    Span::styled("  :audit, :scan repo   ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Audit the whole codebase (issues only, no diff view); plain :scan covers changes only"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :export [path]       ", Style::default().fg(Color::Cyan)),
