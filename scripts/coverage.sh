@@ -9,7 +9,7 @@ echo " Enforcing Minimum Coverage Threshold: ${MIN_COVERAGE}%"
 echo "=================================================="
 
 # 1. Run full cargo test suite
-cargo test -- --nocapture
+cargo test --workspace -- --nocapture
 
 # 2. Run LGTM binary coverage audit gate
 cargo run -- coverage --min "${MIN_COVERAGE}"

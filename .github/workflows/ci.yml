@@ -41,10 +41,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy Linter
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Check Crate Boundaries
+        run: ./scripts/check-boundaries.sh
 
       - name: Run Unit & Integration Tests
-        run: cargo test --verbose -- --nocapture
+        run: cargo test --workspace --verbose -- --nocapture
 
       - name: Run Code Coverage Gate (>= 90%)
         run: ./scripts/coverage.sh 90.0

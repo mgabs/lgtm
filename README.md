@@ -30,7 +30,7 @@
 - **Live Streaming Diffs**: Instant AST & streaming git patch parsing; automatically refreshes when files change on disk.
 - **Vim Motion Engine**: Full `j`/`k`, `gg`/`G`, `{`/`}`, `]f`/`[f`, `]h`/`[h`, `]c`/`[c`, `]w`/`[w`, `]u`/`[u`, `zz`/`zt`/`zb`, `/` search, `*`/`#` symbol search, `y` yank, `PgUp`/`PgDn`.
 - **Git Revision & Range Diffing**: Direct comparison of branch ranges (`lgtm main..feat`, `lgtm HEAD~3..HEAD`), commit hashes, or in-app via `:diff <range>`.
-- **Native MCP Server Mode (`lgtm serve --mcp` / `lgtm mcp`)**: Standard JSON-RPC Model Context Protocol (MCP) server over stdio for autonomous AI agents (Claude Code, Cursor, Windsurf, Aider) to query diffs, run security scans, and manage review directives programmatically.
+- **Native MCP Server Mode (`lgtm serve --mcp` / `lgtm mcp`)**: Standard JSON-RPC Model Context Protocol (MCP) server over stdio for autonomous AI agents (Claude Code, Cursor, Windsurf, Aider) to query diffs, run security scans, and manage review directives programmatically, including recording claims that a directive was handled (verified against the diff, never auto-resolved).
 - **Quick Steering Directive Chords**: 1-key canned directive templates:
   - `ca`: ⚡ Test Coverage (`Add unit/regression tests covering these branches.`)
   - `cs`: 🔒 Security (`Ensure inputs are sanitized, parameterized, and auth checks enforced.`)
@@ -254,32 +254,24 @@ make check
 
 ```
 lgtm/
-├── src/
-│   ├── main.rs               # CLI dispatcher, headless CI runner & subcommands
-│   ├── app.rs                # State machine, key handlers & Vim motion engine
-│   ├── ui/mod.rs             # Ratatui rendering, drawer, tabs, commit forge & modals
-│   ├── model.rs              # Diff data models (DiffSnapshot, FileDiff, DiffHunk, DiffLine)
-│   ├── git/mod.rs            # Streaming git diff engine + non-git directory fallback
-│   ├── pr/mod.rs             # GitHub PR engine via `gh` CLI & unified diff parser
-│   ├── scan.rs               # Full repository audit scanner
-│   ├── guard/
-│   │   ├── mod.rs            # Guard aggregator, severities & ignore directives
-│   │   ├── security.rs       # Entropy secrets, OWASP sinks, auth bypass
-│   │   ├── complexity.rs     # Cognitive complexity spike analyzer
-│   │   ├── symbols.rs        # Identifier typo & symbol hallucination detector
-│   │   ├── api_drift.rs      # Public API signature drift detector
-│   │   ├── dead_code.rs      # Dead function / unused addition detector
-│   │   ├── arch.rs           # Layer boundary, stray file & blast radius
-│   │   ├── deps.rs           # Unpinned / typosquatted dependencies
-│   │   └── duplicate.rs      # Duplicate helper anti-pattern
-│   ├── comment/mod.rs        # Directive storage, PR metadata & batch review compiler
-│   ├── turn/mod.rs           # Turn manager & reviewed file tracker (.lgtm/state.json)
-│   ├── ipc/mod.rs            # Tmux pane injector & OSC 52 clipboard fallback
-│   ├── watcher/mod.rs        # Filesystem watcher & debouncer
-│   ├── mcp/mod.rs            # MCP JSON-RPC stdio server
-│   ├── coverage/mod.rs       # LCOV parsing & delta coverage
-│   ├── verify/mod.rs         # Inverted test verification
-│   └── mutate/mod.rs         # Mutation testing engine (12 AST/binary mutant operators)
+├── src/                      # `lgtm` binary: TUI + CLI
+│   ├── main.rs               # CLI dispatcher
+│   ├── cli.rs, headless.rs   # CLI definitions, headless runners & subcommands
+│   ├── app/                  # State machine, key handlers & Vim motion engine
+│   └── ui/                   # Ratatui rendering, drawer, tabs, commit forge & modals
+├── crates/
+│   ├── lgtm-ast/src/         # tree-sitter parsing and queries
+│   ├── lgtm-core/src/        # UI-free engine
+│   │   ├── model.rs          # Diff data models
+│   │   ├── git/, pr/         # Git diff engine; GitHub PR via `gh`
+│   │   ├── scan.rs           # Full repository audit scanner
+│   │   ├── guard/            # Security, complexity, symbols, API drift, dead code, arch, deps, duplicate
+│   │   ├── comment/, turn/   # Directives; reviewed-file tracker (.lgtm/state.json)
+│   │   ├── ipc/              # Tmux injector, OSC 52 clipboard, AgentSink trait
+│   │   ├── diff_source.rs    # DiffSource trait
+│   │   ├── watcher/          # Filesystem watcher & debouncer
+│   │   └── coverage/, verify/, mutate/  # Quality gates
+│   └── lgtm-mcp/src/lib.rs   # MCP JSON-RPC stdio server
 ├── scripts/
 │   ├── coverage.sh           # Automated coverage enforcer script
 │   └── mutate.sh             # Automated mutation test runner
@@ -293,7 +285,7 @@ lgtm/
 
 ## Documentation & Wiki
 
-For full detailed guides on human-in-the-loop steering, MCP server configuration, AST folding, staging, and static guardrails:
+For full detailed guides on human-in-the-loop steering, MCP server configuration, hunk folding, staging, and static guardrails:
 👉 **[Read the Full LGTM Wiki & User Manual](docs/WIKI.md)**
 
 ---

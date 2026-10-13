@@ -1,32 +1,43 @@
-[package]
-name = "lgtm"
-version = "0.7.0"
+[workspace]
+members = ["crates/lgtm-core", "crates/lgtm-mcp", "crates/lgtm-ast"]
+
+[workspace.package]
+version = "0.8.0"
 edition = "2021"
-description = "Real-Time Terminal Diff Reviewer & Agent Steering Engine"
 authors = ["lgtm contributors"]
 
-[dependencies]
-# TUI & Terminal
-ratatui = "0.29.0"
-crossterm = { version = "0.28.1", features = ["event-stream"] }
-
-# Git & File Watcher
-git2 = { version = "0.20.4", features = ["vendored-openssl", "vendored-libgit2"] }
-notify = "6.1.1"
-notify-debouncer-mini = "0.4.1"
-similar = { version = "2.6.0", features = ["inline"] }
-
-# Navigation & Search
-fuzzy-matcher = "0.3.7"
-
-# Concurrency & Serialization
-crossbeam-channel = "0.5.13"
+[workspace.dependencies]
+anyhow = "1.0.95"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.134"
+crossbeam-channel = "0.5.13"
+git2 = { version = "0.20.4", features = ["vendored-openssl", "vendored-libgit2"] }
+notify = "6.1.1"
+fuzzy-matcher = "0.3.7"
+toml = "0.8"
+notify-debouncer-mini = "0.4.1"
+lgtm-core = { path = "crates/lgtm-core" }
+lgtm-ast = { path = "crates/lgtm-ast" }
+lgtm-mcp = { path = "crates/lgtm-mcp" }
 
-# CLI & Utilities
+[package]
+name = "lgtm"
+version.workspace = true
+edition.workspace = true
+description = "Real-Time Terminal Diff Reviewer & Agent Steering Engine"
+authors.workspace = true
+
+[dependencies]
+lgtm-core.workspace = true
+lgtm-mcp.workspace = true
+ratatui = "0.29.0"
+crossterm = { version = "0.28.1", features = ["event-stream"] }
+similar = { version = "2.6.0", features = ["inline"] }
+fuzzy-matcher.workspace = true
+crossbeam-channel.workspace = true
+serde_json.workspace = true
 clap = { version = "4.5.23", features = ["derive"] }
-anyhow = "1.0.95"
+anyhow.workspace = true
 
 [profile.release]
 opt-level = 3

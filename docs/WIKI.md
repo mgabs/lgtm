@@ -223,6 +223,34 @@ Once you have staged your verified hunks (`s` / `S`), press **`C`** (or type **`
 - **Trigger**: Warns if a function's cognitive complexity increases by $\ge +5$ points.
 - **Remediation**: Extract sub-functions or refactor into early return guard clauses.
 
+### AST-based web rules
+Identifier typo detection (`typo/identifier`) reads real identifiers from the AST, so strings and comments are ignored. Cognitive complexity (`cx/complexity-spike`) also uses the AST for TS/JS/Swift hunks (branch cost = 1 + nesting, `else if` adds no depth); other languages keep the text heuristic.
+
+`lgtm-ast` parses JS/TS/JSX/TSX with tree-sitter and guards query syntax nodes instead of text. Only matches on added lines are reported. Each hunk's new-side lines are parsed as a fragment, so rules needing whole-file context are not possible yet. Rules (added lines only):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `web/dangerous-html` | High | `dangerouslySetInnerHTML` |
+| `web/inner-html` | High | `innerHTML` / `outerHTML` assignment |
+| `web/eval` | Critical | `eval(...)` |
+| `next/public-secret` | Critical | `process.env.NEXT_PUBLIC_*` with SECRET/TOKEN/PASSWORD/PRIVATE/API_KEY |
+| `web/hook-conditional` | High | `useX()` inside if/loop/ternary (within one function) |
+| `web/ts-escape` | Warn | `@ts-ignore` / `@ts-nocheck` |
+
+Swift (`.swift`, same engine):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `swift/force-unwrap` | Warn | `x!` |
+| `swift/try-bang` | High | `try!` |
+| `swift/force-cast` | Warn | `as!` |
+| `swift/weak-crypto` | High | `CC_MD5`, `CC_SHA1`, `Insecure.MD5/SHA1` |
+| `swift/secret-in-userdefaults` | High | `UserDefaults ... forKey: "…token/password/secret/apikey…"` |
+| `test/xctskip` | Warn | `XCTSkip` |
+| `swift/empty-catch` | Warn | `catch { }` |
+
+Not yet: ATS disabled (`NSAllowsArbitraryLoads` lives in a plist, not Swift), permissive `WKWebView`. Web: `"use client"` boundary leaks and unvalidated server actions (need whole-file context).
+
 ### Identifier Hallucination & Typo Guard
 - **What it checks**: Extracts project-wide symbol identifiers (variable names, functions, structs, methods).
 - **Trigger**: Flags new identifiers that have a Levenshtein edit distance of $1 \le d \le 2$ from existing symbols (e.g. agent typed `user_token` when the project defines `usertoken`).
@@ -314,6 +342,12 @@ Add `lgtm` to your MCP client configuration (`~/.claude/claude_desktop_config.js
 | `lgtm_security_scan` | Run static analysis guardrails for OWASP leaks, complexity spikes, and test neutering | `strict` (boolean, flag only Critical/High) |
 | `lgtm_list_directives` | Read all human review directives from `.lgtm/comments.jsonl` | *(None)* |
 | `lgtm_add_directive` | Anchor a review directive to a specific file and line | `file` (string), `line` (integer), `content` (string) |
+| `lgtm_directive_status` | Directives with 1-based `id`, outcome, claim and verdict | *(None)* |
+| `lgtm_review_state` | Reviewed hunk count and directive counts | *(None)* |
+| `lgtm_scan_changes` | Findings new since the previous call | *(None)* |
+| `lgtm_resolve_directive` | Record a claim only; never resolves | `id` (integer), `note` (string) |
+
+**Claims:** an agent calls `lgtm_resolve_directive` to say it handled a directive. lgtm only stores the claim and checks it against the diff (shown as a verdict such as `claimed but not changed` in the directive list). Only the human resolves. MCP writes are limited to directives and claims; it never stages, commits, posts or edits code. `lgtm_scan_changes` keeps its seen fingerprints in `.lgtm/last_scan.json`.
 
 ---
 
@@ -345,6 +379,32 @@ lgtm scan --output lgtm-report.md
 # Generate SARIF 2.1.0 report for GitHub Security tab
 lgtm scan --format sarif --output lgtm-results.sarif
 ```
+
+Config (`.lgtm.toml`) is applied by `check`, `ci`, `scan`, `risk` and the TUI through one pipeline in `lgtm-core::findings`: suppress (inline + `[ignore]`), then `[severity]` overrides. Suppression forms:
+
+- `lgtm:ignore` (and variants) hides every rule on that line.
+- `lgtm:ignore(sec/tls-bypass, dead/*)` hides only the listed rules.
+- `[ignore] paths` and `[ignore.rules]` globs (`*` within a segment, `**` across) hide by file.
+- `[severity] "rule-or-prefix/*" = critical|high|warning|info|off`: exact IDs beat prefixes, `info` maps to `warning`, `off` drops the finding.
+- `thresholds.complexity_increase` hides complexity spikes below that many points (guards report from 8).
+
+Suppressed counts go to stderr; `check`/`ci --show-suppressed` lists them. `ci` ignores the user config file; `--no-user-config` or `LGTM_NO_USER_CONFIG=1` ignores it elsewhere.
+
+Baselines: `lgtm baseline update [--prune]` runs a full scan and records `{rule_id, file, fingerprint}` entries, sorted, in `[baseline] file` (default `.lgtm-baseline.json`). `check`, `ci`, `scan`, `risk` and the TUI then treat matching findings as existing: they are counted on stderr and never affect the exit code. `scan` also reports stale entries (no matching finding); `--prune` removes them. Critical findings are never baselined unless `[baseline] allow_critical = true`. Fingerprints ignore line numbers, so moving code keeps its baseline entry; Editing the flagged line makes it new again.
+
+GitHub (read-only): `lgtm_core::github::GithubClient` hides `gh`; `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line. Both run only on demand; a missing or unauthenticated `gh` gives a clear message and local features keep working. lgtm never handles tokens.
+
+Posting: `:pr post` previews how many comments would go inline (line is in the diff) or into one combined general comment; `:pr post --yes` sends them, saving each comment's `remote_id` right away so a failed run resumes without duplicates ("N of M posted"). Only unresolved comments made while that PR was open are posted. Not yet: re-anchoring on a changed PR head, orphan skipping, and a `↑ #id` marker in the UI.
+
+Threads: after `:threads`, `:thread reply <n> <text>`, `:thread resolve <n>` and `:thread unresolve <n>` (n = 1-based position in the list) preview what they would do; add `--yes` to send. Nothing is replied to or resolved without it, and a 403 or auth failure is shown as is, never retried.
+
+Directive outcomes (`lgtm_core::outcome`): each comment stores the hash of its hunk when written. On every diff reload, open directives from earlier turns are classified as `untouched` (same hunk), `changed` (file still in the diff, hunk differs), `gone` (file left the diff) or `orphaned` (no baseline, e.g. older comments). The result is saved on the comment. Agent claims are stored apart (`claim`) and never change the outcome or resolve anything; "claimed but not changed" is flagged. In the directive list (`:c`) each open directive shows its verdict (`[changed]`, `[claimed but not changed]` in red, ...) and the title shows the per-turn counts; `:directives recheck` recomputes on demand and prints the counts. Resolving stays a human action: `v`/Space in the list. No outcome filter yet.
+
+Review state (`lgtm_core::review`): in the TUI, `M` marks or unmarks the current hunk and `v` the whole file; marks persist per target (`pr-N`, revision or `working`) and survive edits above the hunk. The file list shows `✓n/m` for partly reviewed files. `lgtm review export [target]` prints the JSON and `lgtm review import <file>` merges it (hunks by hash, comments by file+code+text; local wins on conflicts, which are listed on stderr). Comments still live in `comments.jsonl` until a later stage moves them. Storage: `.lgtm/reviews/<target>.json` holds hunk marks and comments keyed by a whitespace-normalized hunk content hash. After a diff reload `reanchor` moves comments by exact hash, then fuzzy code+context, else marks them `orphaned` (never deleted). The first open migrates `comments.jsonl` to the new layout and keeps `comments.jsonl.bak`; files with a newer `version` are refused.
+
+In the TUI, suppressed and baselined findings never appear in the alert list or block anything. The header shows a dim `(+N suppressed, M baselined :hidden)` counter, and `:hidden` lists the first five in the status line.
+
+Every finding carries a kebab-case `rule_id` (e.g. `sec/tls-bypass`) and a `fingerprint` (rule + file + whitespace-normalized line + occurrence index, independent of line number). JSON exposes both; SARIF uses `ruleId` and `partialFingerprints["lgtmFingerprint/v1"]`.
 
 #### Interactive Audit Mode Keybindings
 When in Codebase Audit Mode (`ActiveView::AuditReport`):
@@ -471,6 +531,7 @@ debounce_ms = 300
 | `lgtm pr <n>` / `--pr <n>` | Review GitHub PR (requires `gh`) |
 | `lgtm prs` | List and pick open PRs |
 | `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
+| `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
 | `lgtm ci [--strict] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
 | `lgtm audit` | Interactive repository audit TUI |
@@ -516,20 +577,22 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 
 ## 13. Source Module Map
 
-| Path | Role |
+| Path (under `crates/lgtm-core/src/` unless noted) | Role |
 |---|---|
-| `src/main.rs` | CLI dispatcher, headless runners |
-| `src/app.rs` | TUI state machine, keys, Vim motions |
-| `src/ui/` | Ratatui rendering, modals |
-| `src/model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
-| `src/scan.rs` | Full repo scanner and report generator |
-| `src/git/`, `src/pr/` | Git diff engine; GitHub PR via `gh` |
-| `src/guard/` | Static analysis guards (see sections 4, 11) |
-| `src/comment/`, `src/turn/` | Directives; reviewed-file state |
-| `src/ipc/` | tmux injection, OSC 52 clipboard |
-| `src/watcher/` | Debounced filesystem watcher |
-| `src/mcp/` | MCP server |
-| `src/coverage/`, `src/mutate/`, `src/verify/` | Quality gates |
+| `src/main.rs` | Entry point, TUI launcher |
+| `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `coverage`, `init`) |
+| `src/app/` | TUI state machine split by concern: input, motion, command, comments, staging, audit, pr, commit, external; `state` holds CommandLine, pickers, AuditState, PrState |
+| `src/ui/` | Ratatui rendering split by view; `modals/` for dialogs |
+| `model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
+| `scan.rs` | Full repo scanner and report generator |
+| `git/`, `pr/` | Git diff engine; GitHub PR via `gh` |
+| `guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
+| `comment/`, `turn/` | Directives; reviewed-file state |
+| `ipc/` | tmux injection, OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |
+| `diff_source.rs` | `DiffSource` trait: working tree, revision, PR |
+| `watcher/` | Debounced filesystem watcher |
+| `crates/lgtm-mcp/src/lib.rs` (crate root) | MCP server |
+| `coverage/`, `mutate/`, `verify/` | Quality gates |
 
 ---
 
