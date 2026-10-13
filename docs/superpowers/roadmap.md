@@ -76,6 +76,15 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | E8 | Go, then Java grammars: complexity and identifiers first, rules on demand | M | E7 |
 | E5′ | Block-level folding (revisit E5): fold state keyed by AST block range inside a hunk; needs a visible-rows indirection for cursor motion. Do it after F1 so folds can persist in the review store | M | E1, F1 |
 
+### G — Azure DevOps pull requests (spec: `specs/2026-10-13-azure-devops-design.md`, draft)
+| ID | Item | Effort | Depends on |
+|---|---|---|---|
+| G1 | `Forge` trait + remote detection; GitHub moved onto it unchanged | M | C4 |
+| G2 | Azure read path: `:prs`, `:pr <n>` (diff from git ref), policies as checks | M | G1 |
+| G3 | Azure threads read + inline markers | M | G1, F3 |
+| G4 | Azure post, reply, resolve, vote | M | G2 |
+| G5 | `##vso` annotations, WIKI, Azure Pipelines recipe | S | G2, D3 |
+
 ### F — Review UX debt (comments and threads)
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
