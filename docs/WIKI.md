@@ -396,7 +396,7 @@ Suppressed counts go to stderr; `check`/`ci --show-suppressed` lists them. `ci` 
 
 Baselines: `lgtm baseline update [--prune]` runs a full scan and records `{rule_id, file, fingerprint}` entries, sorted, in `[baseline] file` (default `.lgtm-baseline.json`). `check`, `ci`, `scan`, `risk` and the TUI then treat matching findings as existing: they are counted on stderr and never affect the exit code. `scan` also reports stale entries (no matching finding); `--prune` removes them. Critical findings are never baselined unless `[baseline] allow_critical = true`. Fingerprints ignore line numbers, so moving code keeps its baseline entry; Editing the flagged line makes it new again.
 
-GitHub (read-only): `lgtm_core::github::GithubClient` hides `gh`; `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line and marks their lines in the diff gutter (`◆` open, `◇` resolved). Both run only on demand; a missing or unauthenticated `gh` gives a clear message and local features keep working. lgtm never handles tokens.
+Remote PR calls: `lgtm_core::github::GithubClient` hides `gh` (Azure DevOps uses `az`, see below); `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line and marks their lines in the diff gutter (`◆` open, `◇` resolved). Both run only on demand; a missing or unauthenticated `gh` gives a clear message and local features keep working. lgtm never handles tokens.
 
 Posting: `:pr post` previews how many comments would go inline (line is in the diff) or into one combined general comment; `:pr post --yes` sends them, saving each comment's `remote_id` right away so a failed run resumes without duplicates ("N of M posted"). Only unresolved comments made while that PR was open are posted. Not yet: re-anchoring on a changed PR head, orphan skipping, and a `↑ #id` marker in the UI.
 
@@ -542,6 +542,9 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:pane [id]` | `:panes` | Select or set target `tmux` agent pane ID (e.g. `:pane %2`) |
 | `:sp` | `:split`, `:vsp` | Toggle Unified Diff vs Side-by-Side Dual Pane Diff |
 | `:c` | `:comments`, `:todo` | Open review directives management drawer |
+| `:c recheck` / `:c orphans [repin <n> \| drop [--yes]]` | `:directives` | Reclassify outcomes; list, re-pin or drop orphaned comments |
+| `:checks` / `:threads` | — | CI status in the header / list PR threads and mark their lines (`]t`/`[t` jump) |
+| `:thread reply <n> <text>` / `resolve <n>` / `unresolve <n>` | — | Preview; add `--yes` to send |
 | `:r` | `:review`, `:send` | Compile directives batch prompt and blast to target agent pane |
 | `:risk` | — | Re-scan current diff for security, test fraud, and complexity risks |
 | `:reload` | `:e`, `:edit` | Reload diff snapshot from working tree or GitHub PR |

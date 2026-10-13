@@ -5,7 +5,7 @@
 ### Added
 - `lgtm check` / `lgtm ci` take `--rev <spec>` (for example `origin/main...HEAD`) to gate a committed range.
 - Composite GitHub Action (`action.yml`): checksum-verified install, `--rev` gate, SARIF upload, job summary, `exit-code` and `new-findings` outputs.
-- CI recipes for GitLab CI, Azure DevOps and a pre-commit hook (WIKI, section 7).
+- CI recipes for GitLab CI, Azure Pipelines and a pre-commit hook (WIKI, section 7).
 - Azure DevOps pull requests via the `az` CLI: `:prs`, `:pr <n>`, and `:checks` (branch policies) and `:threads`. Provider chosen from the `origin` URL. Posting inline and general comments, replies, resolve/unresolve and votes (approve, wait-for-author) work too.
 - `lgtm ci` emits Azure Pipelines `##vso[task.logissue]` annotations (auto on `TF_BUILD`, or `-f azure`); WIKI has an Azure Pipelines recipe.
 - `]t` / `[t` jump between thread lines in the file.

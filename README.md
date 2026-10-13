@@ -179,8 +179,10 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:q` / `:q!` — Quit
 - `:wq` / `:x` — Save directives and quit
 - `:commit` / `:cforge` — Open Commit Forge modal
-- `:pr <number>` — Load and review GitHub PR diff
+- `:pr <number>` — Load and review a GitHub or Azure DevOps PR diff
 - `:prs` — Open interactive PR picker
+- `:checks` / `:threads` — PR CI status / list PR threads (gutter `◆`/`◇`, `]t`/`[t`)
+- `:directives orphans` — List orphaned comments; `repin <n>` or `drop --yes`
 - `:f` / `:files` — Open fuzzy file finder
 - `:pane` / `:panes` — Open `tmux` target pane selector
 - `:sp` / `:split` — Toggle split / unified view

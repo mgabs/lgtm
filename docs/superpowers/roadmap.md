@@ -127,8 +127,8 @@ Open: none. Prioritization complete; next step is implementation plans (writing-
 | 3 C | v0.8.0 | Re-anchoring property tests pass (insert above, move, rename); migration from old files tested; posting resumable against the fake client; manual smoke test against a real PR |
 | 4 A | v0.8.0 for A1–A3; A4–A6 later | Claim-vs-diff matrix tested; one real MCP client smoke-tested; sinks smoke-checklist completed; existing MCP tools backward compatible |
 | 5 E | v0.8.0 | E1–E4 done: web and Swift rules have positive/negative fixtures; complexity/typo guards on AST; non-AST languages unchanged. Open: whole-file parse for `"use client"` and server-action rules |
-| 6 D | v0.8.2 | D1–D3 done (`--rev`, exit codes, `action.yml`, WIKI recipes; the Action is untested against a real release until v0.8.2 ships). Pending: `--rev` on `check`/`ci`, exit codes 0/1/2, composite Action |
+| 6 D | v0.8.2 | D1–D3 done (`--rev`, exit codes, `action.yml`, WIKI recipes; the Action is untested against a real release until v0.8.2 ships). Pending: D4 (self-test workflow, needs a published release) |
 
-Unverified in the field (manual checks before release): `gh` calls (`checks`, GraphQL threads, REST post/reply/resolve), TUI parts (`M`, `✓n/m`, CI header, verdict tags), Homebrew tap and `cargo install --git`.
+Unverified in the field (manual checks before release): all `az` calls (list, show, policy, invoke, set-vote), the Azure Pipelines annotations, the composite Action, `gh` calls (`checks`, GraphQL threads, REST post/reply/resolve), TUI parts (`M`, `✓n/m`, CI header, verdict tags), Homebrew tap and `cargo install --git`.
 
 Branch protection / required status checks on trunk is a manual human step (not verifiable from the checkout); confirm before wave 1 starts.
