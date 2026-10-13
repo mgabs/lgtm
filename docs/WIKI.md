@@ -305,6 +305,7 @@ lgtm pr 42
 ### In-App Revision Switching
 Type `:` in diff view to change comparison targets dynamically:
 - `:diff main..feature`
+- `:diff main` (a branch name): what the current branch changed since it diverged from `main` (same as `main...HEAD`); the diff is audited and the alert count shown. Uncommitted changes are not included.
 - `:rev HEAD~2..HEAD`
 - `:pr 104`
 - `:reload` (or `:e`) to re-scan current target from disk
@@ -512,13 +513,15 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 | Works | Not yet (planned) |
 |---|---|
 | `:prs`, `lgtm prs`: active PRs | |
-| `:pr <n>`, `lgtm pr <n>`: fetches the PR's source and target branches into `refs/lgtm/pr/<n>/head` and `base`, then diffs them locally | |
+| `:pr <n>`, `lgtm pr <n>`: fetches `refs/pull/<n>/merge` (one `git fetch`, no `az` call) and diffs target against source locally; if that ref is missing it fetches the source and target branches into `refs/lgtm/pr/<n>/head` and `base` (one `az` call) | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
 | `:pr post --yes`: inline comments become threads on the new-side line, the rest one general thread; `:thread reply`, `resolve` (status `fixed`), `unresolve` (`active`) | |
 | Review submit: `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` only comments (body posted as a thread) | |
 
 After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line.
+
+Speed: `:prs`, `:checks` and `:threads` run in the background (the status line shows "Loading..."), and Azure reads call the REST API with `curl` using one `az account get-access-token` per session (about 30 minutes, memory only; the token goes to curl through a private temp file, never the command line). Results are cached for 5 minutes and any write (post, reply, resolve, vote) clears the cache. If `curl` or the token fails, lgtm falls back to `az repos` / `az devops invoke` (slower, same result).
 
 Errors name the fix: missing `az`, missing extension, or not logged in. The organization and project come from the git remote (`--detect true`). Unverified against a live Azure DevOps project.
 
@@ -532,7 +535,7 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:scan [repo]` | — | Scan changed files; `:scan repo` audits the whole codebase |
 | `:export [path]` | — | Export audit scorecard report to Markdown (default: `lgtm-report.md`) |
 | `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/comments.jsonl` |
-| `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load revision range diff e.g. `:diff main..feat`) |
+| `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load a range, e.g. `:diff main..feat`; a bare branch name means `<branch>...HEAD`, audited on load) |
 | `:q` | `:quit`, `:exit` | Quit `lgtm` (`:q!` force quit without saving) |
 | `:wq` | `:x` | Save directives and quit |
 | `:commit [msg]` | `:ci` | Open Commit Forge modal or commit staged changes with message |

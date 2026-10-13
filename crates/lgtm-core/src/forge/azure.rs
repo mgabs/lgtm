@@ -19,6 +19,7 @@ impl Runner for SystemRunner {
     fn run(&self, program: &str, args: &[&str]) -> Result<String> {
         let out = Command::new(program)
             .args(args)
+            .env("AZURE_CORE_COLLECT_TELEMETRY", "false")
             .current_dir(&self.0)
             .output()
             .with_context(|| format!("`{program}` is not installed or not on PATH"))?;
@@ -79,12 +80,23 @@ pub fn parse_remote(url: &str) -> Option<Remote> {
     (p.len() == 3 && p[1] == "_git").then(|| mk(org, p[0], p[2]))
 }
 
+/// Bearer token shared by every forge instance in this process (a new forge is opened per command).
+static TOKEN: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
+const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+/// REST read results by URL; cleared by any write so replies and resolves show up at once.
+static CACHE: std::sync::Mutex<Vec<(String, std::time::Instant, Value)>> =
+    std::sync::Mutex::new(Vec::new());
+const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+const DEVOPS_RESOURCE: &str = "499b84ac-1321-427f-aa17-267ca6975798";
+
 static BODY_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 pub struct AzureForge {
     repo: PathBuf,
     remote: Option<Remote>,
     runner: Box<dyn Runner>,
+    /// Reuse the process-wide token (off in tests so each forge fetches its own).
+    shared: bool,
 }
 
 impl AzureForge {
@@ -98,7 +110,112 @@ impl AzureForge {
             repo,
             remote,
             runner,
+            shared: true,
         }
+    }
+
+    fn token(&self) -> Result<String> {
+        if self.shared {
+            if let Some((t, at)) = &*TOKEN.lock().unwrap() {
+                if at.elapsed() < TOKEN_TTL {
+                    return Ok(t.clone());
+                }
+            }
+        }
+        let t = self
+            .runner
+            .run(
+                "az",
+                &[
+                    "account",
+                    "get-access-token",
+                    "--resource",
+                    DEVOPS_RESOURCE,
+                    "--query",
+                    "accessToken",
+                    "--output",
+                    "tsv",
+                ],
+            )?
+            .trim()
+            .to_string();
+        if t.is_empty() {
+            bail!("az returned no access token");
+        }
+        if self.shared {
+            *TOKEN.lock().unwrap() = Some((t.clone(), std::time::Instant::now()));
+        }
+        Ok(t)
+    }
+
+    /// GET against the Azure DevOps REST API with `curl` (about 100x faster than starting `az`).
+    /// `scope` is `repo` (under the repository) or `project` (under the project). The bearer token
+    /// goes through a private temp file so it never appears in the process list.
+    fn rest(&self, scope: &str, path: &str) -> Result<Value> {
+        let Some(r) = &self.remote else {
+            bail!("origin is not a recognized Azure DevOps URL");
+        };
+        let root = format!("https://dev.azure.com/{}/{}/_apis", r.org, r.project);
+        let url = match scope {
+            "repo" => format!("{root}/git/repositories/{}/{path}", r.repo),
+            _ => format!("{root}/{path}"),
+        };
+        if self.shared {
+            let cache = CACHE.lock().unwrap();
+            if let Some((_, _, v)) = cache
+                .iter()
+                .find(|(u, at, _)| *u == url && at.elapsed() < CACHE_TTL)
+            {
+                return Ok(v.clone());
+            }
+        }
+        let file = std::env::temp_dir().join(format!(
+            "lgtm-hdr-{}-{}",
+            std::process::id(),
+            BODY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        {
+            use std::io::Write;
+            let mut o = std::fs::OpenOptions::new();
+            o.write(true).create_new(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+            writeln!(o.open(&file)?, "Authorization: Bearer {}", self.token()?)?;
+        }
+        let hdr = format!("@{}", file.display());
+        let out = self
+            .runner
+            .run("curl", &["-sS", "--fail", "-H", &hdr, &url]);
+        let _ = std::fs::remove_file(&file);
+        let v: Value =
+            serde_json::from_str(&out?).context("unexpected Azure DevOps REST response")?;
+        if self.shared {
+            let mut cache = CACHE.lock().unwrap();
+            cache.retain(|(u, at, _)| *u != url && at.elapsed() < CACHE_TTL);
+            cache.push((url, std::time::Instant::now(), v.clone()));
+        }
+        Ok(v)
+    }
+
+    fn invalidate(&self) {
+        if self.shared {
+            CACHE.lock().unwrap().clear();
+        }
+    }
+
+    /// Policy evaluations need the project GUID, which comes from the PR itself.
+    fn policies_rest(&self, pr: u64) -> Result<Value> {
+        let p = self.rest("repo", &format!("pullRequests/{pr}?api-version=7.1"))?;
+        let project = p
+            .pointer("/repository/project/id")
+            .and_then(Value::as_str)
+            .context("PR has no project id")?;
+        let artifact = format!("vstfs:///CodeReview/CodeReviewId/{project}/{pr}");
+        let v = self.rest(
+            "project",
+            &format!("policy/evaluations?artifactId={artifact}&api-version=7.1-preview.1"),
+        )?;
+        Ok(v["value"].clone())
     }
 
     fn az_json(&self, args: &[&str]) -> Result<Value> {
@@ -146,6 +263,9 @@ impl AzureForge {
             }
             None => None,
         };
+        if method != "get" {
+            self.invalidate();
+        }
         let mut args = vec![
             "devops",
             "invoke",
@@ -285,13 +405,37 @@ pub fn parse_policies(v: &Value) -> Vec<Check> {
 
 impl Forge for AzureForge {
     fn list_prs(&self) -> Result<Vec<PullRequestSummary>> {
+        if let Ok(v) = self.rest(
+            "repo",
+            "pullrequests?searchCriteria.status=active&api-version=7.1",
+        ) {
+            return Ok(parse_prs(&v["value"]));
+        }
         Ok(parse_prs(
             &self.az_json(&["repos", "pr", "list", "--status", "active"])?,
         ))
     }
 
-    /// Fetches both branches into private refs, then diffs `target...source` locally.
+    /// Fast path: one `git fetch` of `refs/pull/<n>/merge` (parents are target, source), no `az`
+    /// call (each costs seconds). Falls back to fetching both branches when that ref is missing.
     fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
+        let merge = format!("refs/lgtm/pr/{pr}/merge");
+        let fetched = self.runner.run(
+            "git",
+            &[
+                "fetch",
+                "--quiet",
+                "origin",
+                &format!("+refs/pull/{pr}/merge:{merge}"),
+            ],
+        );
+        if fetched.is_ok() {
+            if let Ok(snap) =
+                GitEngine::new(&self.repo).compute_revision_diff(&format!("{merge}^1...{merge}^2"))
+            {
+                return Ok(snap);
+            }
+        }
         let id = pr.to_string();
         let v = self.az_json(&["repos", "pr", "show", "--id", &id])?;
         let (Some(src), Some(tgt)) = (v["sourceRefName"].as_str(), v["targetRefName"].as_str())
@@ -334,6 +478,7 @@ impl Forge for AzureForge {
                 "--vote",
                 v,
             ])?;
+            self.invalidate();
         }
         Ok(())
     }
@@ -341,6 +486,9 @@ impl Forge for AzureForge {
 
 impl GithubClient for AzureForge {
     fn checks(&self, pr: u64) -> Result<Vec<Check>> {
+        if let Ok(v) = self.policies_rest(pr) {
+            return Ok(parse_policies(&v));
+        }
         Ok(parse_policies(&self.az_json(&[
             "repos",
             "pr",
@@ -351,6 +499,12 @@ impl GithubClient for AzureForge {
         ])?))
     }
     fn threads(&self, pr: u64) -> Result<Vec<Thread>> {
+        if let Ok(v) = self.rest(
+            "repo",
+            &format!("pullRequests/{pr}/threads?api-version=7.1"),
+        ) {
+            return Ok(parse_threads(&v));
+        }
         Ok(parse_threads(&self.invoke("pullRequestThreads", pr)?))
     }
     fn head_sha(&self, pr: u64) -> Result<String> {
@@ -418,6 +572,7 @@ mod tests {
             repo: repo.into(),
             remote: parse_remote("https://dev.azure.com/org/My%20Proj/_git/repo"),
             runner: Box::new(Fake(RefCell::new(vec![]), fakes)),
+            shared: false,
         }
     }
 
@@ -498,6 +653,40 @@ mod tests {
         let snap = f.pr_diff(7).unwrap();
         assert_eq!(snap.files.len(), 1);
         assert_eq!(snap.total_additions, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn diff_uses_the_merge_ref_without_calling_az() {
+        let dir = std::env::temp_dir().join(format!("lgtm-az-merge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |a: &[&str]| {
+            let ok = Command::new("git")
+                .args(["-c", "user.email=a@b", "-c", "user.name=a"])
+                .args(a)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {a:?}");
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join("a.txt"), "1\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        git(&["tag", "t-base"]);
+        std::fs::write(dir.join("a.txt"), "1\n2\n").unwrap();
+        git(&["commit", "-qam", "head"]);
+        git(&["tag", "t-tip"]);
+        git(&["checkout", "-q", "t-base"]);
+        git(&["merge", "--no-ff", "-qm", "m", "t-tip"]);
+        git(&["update-ref", "refs/lgtm/pr/8/merge", "HEAD"]);
+        // only "git fetch" is faked: any `az` call would error
+        let f = forge(dir.to_str().unwrap(), vec![("git fetch", "")]);
+        let snap = f.pr_diff(8).unwrap();
+        assert_eq!((snap.files.len(), snap.total_additions), (1, 1));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -592,6 +781,45 @@ mod tests {
         f.post_review(2, "APPROVE", "lgtm").unwrap();
         f.post_review(2, "REQUEST_CHANGES", "").unwrap();
         assert!(f.post_review(2, "NOPE", "").is_err());
+    }
+
+    #[test]
+    fn reads_go_through_curl_when_a_token_is_available() {
+        let f = forge(
+            ".",
+            vec![
+                ("get-access-token", "tok\n"),
+                (
+                    "pullrequests?searchCriteria",
+                    r#"{"value":[{"pullRequestId":4,"title":"t","createdBy":{"displayName":"A"},"sourceRefName":"refs/heads/f","status":"active"}]}"#,
+                ),
+                (
+                    "pullRequests/4/threads",
+                    r#"{"value":[{"id":1,"status":"active","threadContext":{"filePath":"/a.rs","rightFileStart":{"line":2}},"comments":[{"id":1,"content":"x","commentType":"text"}]}]}"#,
+                ),
+                (
+                    "pullRequests/4?api",
+                    r#"{"repository":{"project":{"id":"guid"}}}"#,
+                ),
+                (
+                    "policy/evaluations?artifactId=vstfs:///CodeReview/CodeReviewId/guid/4",
+                    r#"{"value":[{"status":"approved","configuration":{"type":{"displayName":"Build"}}}]}"#,
+                ),
+            ],
+        );
+        assert_eq!(f.list_prs().unwrap()[0].number, 4);
+        assert_eq!(f.threads(4).unwrap()[0].line, Some(2));
+        let c = f.checks(4).unwrap();
+        assert_eq!((c[0].name.as_str(), &c[0].bucket), ("Build", &Bucket::Pass));
+    }
+
+    #[test]
+    fn reads_fall_back_to_az_when_rest_fails() {
+        let f = forge(
+            ".",
+            vec![("pr list", r#"[{"pullRequestId":9,"title":"t"}]"#)],
+        );
+        assert_eq!(f.list_prs().unwrap()[0].number, 9);
     }
 
     #[test]

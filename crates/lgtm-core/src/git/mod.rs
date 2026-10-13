@@ -47,6 +47,21 @@ impl GitEngine {
         self.parse_diff(&diff)
     }
 
+    /// A bare local or remote-tracking branch name becomes `<branch>...HEAD` (what the current
+    /// branch changed since it diverged); commits and explicit ranges are returned as given.
+    pub fn expand_branch_spec(&self, spec: &str) -> String {
+        let is_branch = !spec.contains("..")
+            && self.open_repo().is_ok_and(|r| {
+                r.find_branch(spec, git2::BranchType::Local).is_ok()
+                    || r.find_branch(spec, git2::BranchType::Remote).is_ok()
+            });
+        if is_branch {
+            format!("{spec}...HEAD")
+        } else {
+            spec.to_string()
+        }
+    }
+
     pub fn compute_revision_diff(&self, rev_spec: &str) -> Result<DiffSnapshot> {
         let repo = self.open_repo()?;
         let mut diff_opts = DiffOptions::new();
@@ -460,6 +475,30 @@ mod tests {
         if engine.is_git_repo() {
             println!("Discovered {} files in snapshot", snapshot.files.len());
         }
+    }
+
+    #[test]
+    fn bare_branch_names_expand_to_a_merge_base_range() {
+        let tmp = test_dir("branchspec");
+        let repo = Repository::init(&tmp).unwrap();
+        let sig = git2::Signature::now("t", "t@t").unwrap();
+        let commit = |msg: &str, parent: Option<&git2::Commit>| {
+            let mut idx = repo.index().unwrap();
+            let tree = repo.find_tree(idx.write_tree().unwrap()).unwrap();
+            let parents: Vec<&git2::Commit> = parent.into_iter().collect();
+            let oid = repo
+                .commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents)
+                .unwrap();
+            repo.find_commit(oid).unwrap()
+        };
+        let first = commit("one", None);
+        let base = repo.head().unwrap().shorthand().unwrap().to_string();
+        commit("two", Some(&first));
+        let engine = GitEngine::new(&tmp);
+        assert_eq!(engine.expand_branch_spec(&base), format!("{base}...HEAD"));
+        assert_eq!(engine.expand_branch_spec("HEAD~1"), "HEAD~1");
+        assert_eq!(engine.expand_branch_spec("a..b"), "a..b");
+        assert_eq!(engine.expand_branch_spec("nope"), "nope");
     }
 
     #[test]

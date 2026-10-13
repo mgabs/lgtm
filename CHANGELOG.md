@@ -8,10 +8,17 @@
 - CI recipes for GitLab CI, Azure Pipelines and a pre-commit hook (WIKI, section 7).
 - Azure DevOps pull requests via the `az` CLI: `:prs`, `:pr <n>`, and `:checks` (branch policies) and `:threads`. Provider chosen from the `origin` URL. Posting inline and general comments, replies, resolve/unresolve and votes (approve, wait-for-author) work too.
 - `lgtm ci` emits Azure Pipelines `##vso[task.logissue]` annotations (auto on `TF_BUILD`, or `-f azure`); WIKI has an Azure Pipelines recipe.
+- `:diff <branch>` compares the current branch with `<branch>` (merge-base, like a PR) and audits the result.
 - `]t` / `[t` jump between thread lines in the file.
 - `:directives orphans` lists orphaned comments; `repin <n>` moves one to the cursor line, `drop --yes` deletes them.
 - Inline thread markers: after `:threads`, lines with remote discussion show `◆` (open) or `◇` (resolved) in the diff gutter, on GitHub and Azure DevOps.
 - Orphaned comments: comments are re-pinned after every diff reload and flagged `⚠ Orphaned` when their code is gone (never deleted).
+
+### Fixed
+- Azure DevOps `:prs`, `:checks` and `:threads` are fast: REST calls via `curl` with a per-session `az` token (falls back to `az` commands), results cached for 5 minutes (cleared by writes), and all three run in the background so the UI never freezes.
+- Azure DevOps `:pr <n>` is faster: it fetches `refs/pull/<n>/merge` with one `git fetch` and skips the slow `az` call; it falls back to the branch fetch when that ref is missing. `az` runs with telemetry off.
+- File sidebar follows the active file when navigating with `]]` / `[[` instead of scrolling out of view (diff and audit views).
+- On-prem Azure DevOps Server remotes (`.../_git/...`) are detected as Azure.
 
 ### Changed
 - Exit codes for `check` / `ci`: 0 pass, 1 blocking findings, 2 tool error (was 1 for errors).

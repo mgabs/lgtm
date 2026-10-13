@@ -69,7 +69,9 @@ impl App {
                 self.open_pr_picker();
             }
             "diff" | "rev" | "range" => {
-                if let Some(rev_spec) = args.first() {
+                if let Some(spec) = args.first() {
+                    let expanded = self.git_engine.expand_branch_spec(spec);
+                    let rev_spec = &expanded.as_str();
                     match self.git_engine.compute_revision_diff(rev_spec) {
                         Ok(snap) => {
                             self.active_revision = Some(rev_spec.to_string());
@@ -295,9 +297,7 @@ impl App {
                 self.thread_action(&*forge, &args);
             }
             "checks" | "threads" => {
-                let threads = cmd_name == "threads";
-                let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
-                self.refresh_github(&*forge, threads);
+                self.refresh_github_async(cmd_name == "threads");
             }
             "hidden" => {
                 let h = self.hidden.borrow();
@@ -771,6 +771,27 @@ mod tests {
         app.thread_action(&bad, &["resolve", "1", "--yes"]);
         assert_eq!(app.status_message.as_deref(), Some("rate limited"));
         assert!(!app.threads[0].resolved);
+    }
+
+    #[test]
+    fn background_jobs_apply_on_the_ui_thread() {
+        let mut app = create_test_app();
+        app.spawn_job(
+            "Working",
+            || 41 + 1,
+            |app, n| {
+                app.status_message = Some(format!("got {n}"));
+            },
+        );
+        assert_eq!(app.status_message.as_deref(), Some("Working..."));
+        for _ in 0..100 {
+            app.handle_background_events();
+            if app.status_message.as_deref() == Some("got 42") {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("job result never applied");
     }
 
     #[test]
