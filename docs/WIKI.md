@@ -479,10 +479,22 @@ steps:
 
 Inputs: `version` (required), `base`, `strict`, `upload-sarif`. Outputs: `exit-code`, `new-findings`.
 
-**GitLab CI / Azure DevOps** (any runner: install the release tarball, then run):
+**GitLab CI** (any runner: install the release tarball, then run):
 
 ```bash
 lgtm ci --rev "origin/${TARGET_BRANCH}...HEAD" -f markdown
+```
+
+**Azure Pipelines** (needs `fetchDepth: 0`; findings appear as `##vso[task.logissue]` annotations, auto-selected when `TF_BUILD` is set or with `-f azure`):
+
+```yaml
+steps:
+  - checkout: self
+    fetchDepth: 0
+  - script: |
+      # install the lgtm release tarball, then:
+      lgtm ci --rev "origin/$(System.PullRequest.TargetBranch)...HEAD" -f azure
+    displayName: lgtm
 ```
 
 **pre-commit hook** (`.git/hooks/pre-commit`, checks the working tree):
@@ -500,7 +512,7 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 |---|---|
 | `:prs`, `lgtm prs`: active PRs | `]t` / `[t` jump between threads |
 | `:pr <n>`, `lgtm pr <n>`: fetches the PR's source and target branches into `refs/lgtm/pr/<n>/head` and `base`, then diffs them locally | posting comments, replies, resolve, votes |
-| `:checks`: branch policies as pass / fail / pending | `lgtm ci` `##vso` annotations |
+| `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
 
 After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line.
