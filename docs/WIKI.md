@@ -511,7 +511,7 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 
 | Works | Not yet (planned) |
 |---|---|
-| `:prs`, `lgtm prs`: active PRs reply / resolve from the marker |
+| `:prs`, `lgtm prs`: active PRs | |
 | `:pr <n>`, `lgtm pr <n>`: fetches the PR's source and target branches into `refs/lgtm/pr/<n>/head` and `base`, then diffs them locally | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
