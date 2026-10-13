@@ -119,7 +119,13 @@ pub struct App {
 
     // Watcher receiver
     pub watcher_rx: Receiver<WatcherMessage>,
+
+    // Results of slow remote calls, applied on the UI thread by `handle_background_events`
+    jobs_tx: crossbeam_channel::Sender<Job>,
+    jobs_rx: Receiver<Job>,
 }
+
+pub type Job = Box<dyn FnOnce(&mut App) + Send>;
 
 #[derive(Debug, Default, Clone)]
 pub struct Hidden {
@@ -155,6 +161,7 @@ impl App {
         explicit_pr: Option<u64>,
         explicit_rev: Option<String>,
     ) -> Self {
+        let (jobs_tx, jobs_rx) = crossbeam_channel::unbounded();
         let git_engine = GitEngine::new(&repo_path);
         let comment_store = CommentStore::new(&repo_path);
         let turn_manager = TurnManager::new(&repo_path);
@@ -259,6 +266,8 @@ impl App {
             visual_mode: false,
             visual_anchor_idx: None,
             watcher_rx,
+            jobs_tx,
+            jobs_rx,
         };
 
         app.load_marks();
@@ -277,6 +286,10 @@ impl App {
                     self.status_message = Some(format!("Watcher error: {}", err));
                 }
             }
+        }
+
+        while let Ok(job) = self.jobs_rx.try_recv() {
+            job(self);
         }
 
         if reload_needed {

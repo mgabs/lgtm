@@ -124,45 +124,76 @@ impl App {
         }
     }
 
-    /// Fetch CI checks or review threads for the open PR; failures only set the status message.
+    /// Synchronous variant of `refresh_github_async`, used with fake clients in tests.
+    #[cfg(test)]
     pub fn refresh_github(&mut self, client: &dyn lgtm_core::github::GithubClient, threads: bool) {
         let Some(pr) = self.pr.current_number else {
             self.status_message = Some("Open a PR first (:pr <n>)".to_string());
             return;
         };
-        self.status_message = Some(if threads {
-            match client.threads(pr) {
-                Ok(t) => {
-                    let open: Vec<String> = t
-                        .iter()
-                        .filter(|t| !t.resolved)
-                        .take(5)
-                        .map(|t| format!("{}:{}", t.path, t.line.unwrap_or(0)))
-                        .collect();
-                    let msg = format!(
-                        "{} threads, {} open: {}",
-                        t.len(),
-                        open.len(),
-                        open.join(", ")
-                    );
-                    self.threads = t;
-                    msg
-                }
-                Err(e) => e.to_string(),
-            }
+        if threads {
+            self.apply_threads(client.threads(pr));
         } else {
-            match client.checks(pr) {
-                Ok(c) => {
-                    let s = lgtm_core::github::CiSummary::of(&c);
-                    let msg = format!(
-                        "CI: {} passed, {} failed, {} pending",
-                        s.passed, s.failed, s.pending
-                    );
-                    self.ci = Some(s);
-                    msg
-                }
-                Err(e) => e.to_string(),
+            self.apply_checks(client.checks(pr));
+        }
+    }
+
+    /// Same as `refresh_github` but off the UI thread, for providers that shell out.
+    pub fn refresh_github_async(&mut self, threads: bool) {
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return;
+        };
+        let repo = self.git_engine.repo_path.clone();
+        if threads {
+            self.spawn_job(
+                "Loading threads",
+                move || lgtm_core::forge::open(&repo).threads(pr),
+                |app, r| app.apply_threads(r),
+            );
+        } else {
+            self.spawn_job(
+                "Loading checks",
+                move || lgtm_core::forge::open(&repo).checks(pr),
+                |app, r| app.apply_checks(r),
+            );
+        }
+    }
+
+    fn apply_threads(&mut self, res: anyhow::Result<Vec<lgtm_core::github::Thread>>) {
+        self.status_message = Some(match res {
+            Ok(t) => {
+                let open: Vec<String> = t
+                    .iter()
+                    .filter(|t| !t.resolved)
+                    .take(5)
+                    .map(|t| format!("{}:{}", t.path, t.line.unwrap_or(0)))
+                    .collect();
+                let msg = format!(
+                    "{} threads, {} open: {}",
+                    t.len(),
+                    open.len(),
+                    open.join(", ")
+                );
+                self.threads = t;
+                msg
             }
+            Err(e) => e.to_string(),
+        });
+    }
+
+    fn apply_checks(&mut self, res: anyhow::Result<Vec<lgtm_core::github::Check>>) {
+        self.status_message = Some(match res {
+            Ok(c) => {
+                let s = lgtm_core::github::CiSummary::of(&c);
+                let msg = format!(
+                    "CI: {} passed, {} failed, {} pending",
+                    s.passed, s.failed, s.pending
+                );
+                self.ci = Some(s);
+                msg
+            }
+            Err(e) => e.to_string(),
         });
     }
 
