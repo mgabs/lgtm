@@ -1,0 +1,87 @@
+name: "lgtm check"
+description: "Run lgtm guards on a pull request diff: verified install, SARIF upload, job summary, pass/fail gate."
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  version:
+    description: "lgtm release version without the leading v (for example 0.8.1)."
+    required: true
+  base:
+    description: "Base ref to diff against. Defaults to the pull request base branch."
+    required: false
+    default: ""
+  strict:
+    description: "Also fail on warning severity."
+    required: false
+    default: "false"
+  upload-sarif:
+    description: "Upload SARIF to GitHub code scanning (needs security-events: write)."
+    required: false
+    default: "true"
+
+outputs:
+  exit-code:
+    description: "0 pass, 1 blocking findings, 2 tool error."
+    value: ${{ steps.check.outputs.exit-code }}
+  new-findings:
+    description: "Number of findings reported for the diff."
+    value: ${{ steps.check.outputs.new-findings }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install lgtm (checksum verified)
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "$(uname -s)" in Darwin) os=darwin;; Linux) os=linux;; *) echo "unsupported OS" >&2; exit 2;; esac
+        case "$(uname -m)" in arm64|aarch64) arch=arm64;; x86_64) arch=x86_64;; *) echo "unsupported arch" >&2; exit 2;; esac
+        name="lgtm-v${VERSION}-${os}-${arch}.tar.gz"
+        url="https://github.com/mgabs/lgtm/releases/download/v${VERSION}"
+        dir="${RUNNER_TEMP}/lgtm-bin"
+        mkdir -p "$dir" && cd "$dir"
+        curl -fsSL -O "${url}/${name}" -O "${url}/${name}.sha256"
+        expected="$(awk '{print $1}' "${name}.sha256")"
+        actual="$(shasum -a 256 "$name" | awk '{print $1}')"
+        [ "$expected" = "$actual" ] || { echo "checksum mismatch for ${name}" >&2; exit 2; }
+        tar -xzf "$name"
+        echo "$dir" >> "$GITHUB_PATH"
+
+    - name: Run lgtm
+      id: check
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+        STRICT: ${{ inputs.strict }}
+        PR_BASE: ${{ github.base_ref }}
+      run: |
+        set -uo pipefail
+        base="${BASE:-$PR_BASE}"
+        if [ -z "$base" ]; then echo "no base ref: set the 'base' input outside pull_request events" >&2; echo "exit-code=2" >> "$GITHUB_OUTPUT"; exit 2; fi
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          echo "shallow clone: use actions/checkout with fetch-depth: 0" >&2
+          echo "exit-code=2" >> "$GITHUB_OUTPUT"; exit 2
+        fi
+        flags=""; [ "$STRICT" = "true" ] && flags="--strict"
+        rev="origin/${base}...HEAD"
+        lgtm ci --rev "$rev" $flags -f sarif -o lgtm.sarif
+        code=$?
+        if [ "$code" -ne 2 ]; then
+          lgtm ci --rev "$rev" $flags -f markdown -o lgtm-summary.md >/dev/null
+          cat lgtm-summary.md >> "$GITHUB_STEP_SUMMARY"
+        fi
+        count="$(grep -c '"ruleId"' lgtm.sarif 2>/dev/null || true)"
+        echo "exit-code=${code}" >> "$GITHUB_OUTPUT"
+        echo "new-findings=${count:-0}" >> "$GITHUB_OUTPUT"
+        exit "$code"
+
+    - name: Upload SARIF
+      if: ${{ always() && inputs.upload-sarif == 'true' && hashFiles('lgtm.sarif') != '' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: lgtm.sarif
+        category: lgtm

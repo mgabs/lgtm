@@ -457,6 +457,36 @@ jobs:
 
 ---
 
+### CI recipes
+
+Gate a pull request on the committed range (needs full history: `fetch-depth: 0`). Exit codes: 0 pass, 1 blocking findings, 2 tool error.
+
+**GitHub Action** (verified install, SARIF upload, job summary):
+
+```yaml
+permissions: { contents: read, security-events: write }
+steps:
+  - uses: actions/checkout@v4
+    with: { fetch-depth: 0 }
+  - uses: mgabs/lgtm@v0.8.1
+    with: { version: "0.8.1" }
+```
+
+Inputs: `version` (required), `base`, `strict`, `upload-sarif`. Outputs: `exit-code`, `new-findings`.
+
+**GitLab CI / Azure DevOps** (any runner: install the release tarball, then run):
+
+```bash
+lgtm ci --rev "origin/${TARGET_BRANCH}...HEAD" -f markdown
+```
+
+**pre-commit hook** (`.git/hooks/pre-commit`, checks the working tree):
+
+```bash
+#!/bin/sh
+exec lgtm check
+```
+
 ## 8. Ex-Commands Dictionary (`:cmds`)
 
 Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmenu auto-completion:

@@ -2,11 +2,12 @@
 
 Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. Pending: A4–A6, D1–D4.
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 done; R6 and E5 dropped. D1–D3 done on `rel.0.8.1`. Pending: A4–A6, D4, E6–E8, E5′, F1–F3.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
-| `rel.0.8` | R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 | v0.8.0 | all work merged here; version 0.8.0; pushed; PR to `main` not opened yet (`gh` unauthenticated) |
+| `rel.0.8.1` | D1–D3 | v0.8.1 | `--rev`, Action, CI recipes; cut from `main` after v0.8.0, plus the roadmap commit |
+| `rel.0.8` | R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 | v0.8.0 | merged to `main` via PR #10, released as v0.8.0 |
 
 All waves land in v0.8.0 (decision: one release). `rel.0.10`, `rel.0.11` and `rel.0.12` are superseded by `rel.0.8`. A4–A6 and D1–D4 are open and will follow in later releases.
 
@@ -58,8 +59,8 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
 | D1 ✅ | `--rev` on `check`/`ci` (reuses `compute_revision_diff`); exit codes 0 pass / 1 blocking findings / 2 tool error | S | B |
-| D2 | Composite GitHub Action: verified install, gate, SARIF upload, job summary | M | D1 |
-| D3 | CI recipes (GitLab, Azure DevOps), pre-commit hook, WIKI section | S | D1 |
+| D2 ✅ | Composite GitHub Action: verified install, gate, SARIF upload, job summary | M | D1 |
+| D3 ✅ | CI recipes (GitLab, Azure DevOps), pre-commit hook, WIKI section | S | D1 |
 | D4 | Self-test workflow against fixture PR branches | S | D2 |
 
 ### E — AST layer, web (React/Next.js) and Swift packs (spec: `specs/2026-10-12-ast-web-swift-design.md`, draft)
@@ -117,7 +118,7 @@ Open: none. Prioritization complete; next step is implementation plans (writing-
 | 3 C | v0.8.0 | Re-anchoring property tests pass (insert above, move, rename); migration from old files tested; posting resumable against the fake client; manual smoke test against a real PR |
 | 4 A | v0.8.0 for A1–A3; A4–A6 later | Claim-vs-diff matrix tested; one real MCP client smoke-tested; sinks smoke-checklist completed; existing MCP tools backward compatible |
 | 5 E | v0.8.0 | E1–E4 done: web and Swift rules have positive/negative fixtures; complexity/typo guards on AST; non-AST languages unchanged. Open: whole-file parse for `"use client"` and server-action rules |
-| 6 D | later | Pending: `--rev` on `check`/`ci`, exit codes 0/1/2, composite Action |
+| 6 D | v0.8.1 | D1–D3 done (`--rev`, exit codes, `action.yml`, WIKI recipes; the Action is untested against a real release until v0.8.1 ships). Pending: `--rev` on `check`/`ci`, exit codes 0/1/2, composite Action |
 
 Unverified in the field (manual checks before release): `gh` calls (`checks`, GraphQL threads, REST post/reply/resolve), TUI parts (`M`, `✓n/m`, CI header, verdict tags), Homebrew tap and `cargo install --git`.
 
