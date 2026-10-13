@@ -305,6 +305,7 @@ lgtm pr 42
 ### In-App Revision Switching
 Type `:` in diff view to change comparison targets dynamically:
 - `:diff main..feature`
+- `:diff main` (a branch name): what the current branch changed since it diverged from `main` (same as `main...HEAD`); the diff is audited and the alert count shown. Uncommitted changes are not included.
 - `:rev HEAD~2..HEAD`
 - `:pr 104`
 - `:reload` (or `:e`) to re-scan current target from disk
@@ -532,7 +533,7 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:scan [repo]` | — | Scan changed files; `:scan repo` audits the whole codebase |
 | `:export [path]` | — | Export audit scorecard report to Markdown (default: `lgtm-report.md`) |
 | `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/comments.jsonl` |
-| `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load revision range diff e.g. `:diff main..feat`) |
+| `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load a range, e.g. `:diff main..feat`; a bare branch name means `<branch>...HEAD`, audited on load) |
 | `:q` | `:quit`, `:exit` | Quit `lgtm` (`:q!` force quit without saving) |
 | `:wq` | `:x` | Save directives and quit |
 | `:commit [msg]` | `:ci` | Open Commit Forge modal or commit staged changes with message |

@@ -12,7 +12,7 @@ pub fn command_description(cmd: &str) -> &'static str {
         "f" | "files" | "find" => "Open fuzzy file picker",
         "tree" | "drawer" | "sidebar" => "Toggle file tree sidebar",
         "sp" | "split" | "vsp" | "vsplit" => "Toggle split / unified view",
-        "diff" => "Return to diff view",
+        "diff" => "Return to diff view, or `:diff <branch>` to review and audit this branch against <branch>",
         "commit" | "ci" => "Open Commit Forge to commit staged changes",
         "c" | "comments" | "directives" | "todo" => {
             "Open review directives list (`:directives recheck` reclassifies outcomes; `:directives orphans` lists, re-pins or drops orphaned ones)"

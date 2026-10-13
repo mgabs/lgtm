@@ -69,7 +69,9 @@ impl App {
                 self.open_pr_picker();
             }
             "diff" | "rev" | "range" => {
-                if let Some(rev_spec) = args.first() {
+                if let Some(spec) = args.first() {
+                    let expanded = self.git_engine.expand_branch_spec(spec);
+                    let rev_spec = &expanded.as_str();
                     match self.git_engine.compute_revision_diff(rev_spec) {
                         Ok(snap) => {
                             self.active_revision = Some(rev_spec.to_string());
