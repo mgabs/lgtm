@@ -19,6 +19,7 @@ impl Runner for SystemRunner {
     fn run(&self, program: &str, args: &[&str]) -> Result<String> {
         let out = Command::new(program)
             .args(args)
+            .env("AZURE_CORE_COLLECT_TELEMETRY", "false")
             .current_dir(&self.0)
             .output()
             .with_context(|| format!("`{program}` is not installed or not on PATH"))?;
@@ -290,8 +291,26 @@ impl Forge for AzureForge {
         ))
     }
 
-    /// Fetches both branches into private refs, then diffs `target...source` locally.
+    /// Fast path: one `git fetch` of `refs/pull/<n>/merge` (parents are target, source), no `az`
+    /// call (each costs seconds). Falls back to fetching both branches when that ref is missing.
     fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
+        let merge = format!("refs/lgtm/pr/{pr}/merge");
+        let fetched = self.runner.run(
+            "git",
+            &[
+                "fetch",
+                "--quiet",
+                "origin",
+                &format!("+refs/pull/{pr}/merge:{merge}"),
+            ],
+        );
+        if fetched.is_ok() {
+            if let Ok(snap) =
+                GitEngine::new(&self.repo).compute_revision_diff(&format!("{merge}^1...{merge}^2"))
+            {
+                return Ok(snap);
+            }
+        }
         let id = pr.to_string();
         let v = self.az_json(&["repos", "pr", "show", "--id", &id])?;
         let (Some(src), Some(tgt)) = (v["sourceRefName"].as_str(), v["targetRefName"].as_str())
@@ -498,6 +517,40 @@ mod tests {
         let snap = f.pr_diff(7).unwrap();
         assert_eq!(snap.files.len(), 1);
         assert_eq!(snap.total_additions, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn diff_uses_the_merge_ref_without_calling_az() {
+        let dir = std::env::temp_dir().join(format!("lgtm-az-merge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |a: &[&str]| {
+            let ok = Command::new("git")
+                .args(["-c", "user.email=a@b", "-c", "user.name=a"])
+                .args(a)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {a:?}");
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join("a.txt"), "1\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        git(&["tag", "t-base"]);
+        std::fs::write(dir.join("a.txt"), "1\n2\n").unwrap();
+        git(&["commit", "-qam", "head"]);
+        git(&["tag", "t-tip"]);
+        git(&["checkout", "-q", "t-base"]);
+        git(&["merge", "--no-ff", "-qm", "m", "t-tip"]);
+        git(&["update-ref", "refs/lgtm/pr/8/merge", "HEAD"]);
+        // only "git fetch" is faked: any `az` call would error
+        let f = forge(dir.to_str().unwrap(), vec![("git fetch", "")]);
+        let snap = f.pr_diff(8).unwrap();
+        assert_eq!((snap.files.len(), snap.total_additions), (1, 1));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

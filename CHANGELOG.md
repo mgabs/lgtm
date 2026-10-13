@@ -15,6 +15,7 @@
 - Orphaned comments: comments are re-pinned after every diff reload and flagged `⚠ Orphaned` when their code is gone (never deleted).
 
 ### Fixed
+- Azure DevOps `:pr <n>` is faster: it fetches `refs/pull/<n>/merge` with one `git fetch` and skips the slow `az` call; it falls back to the branch fetch when that ref is missing. `az` runs with telemetry off.
 - File sidebar follows the active file when navigating with `]]` / `[[` instead of scrolling out of view (diff and audit views).
 - On-prem Azure DevOps Server remotes (`.../_git/...`) are detected as Azure.
 
