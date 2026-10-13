@@ -533,7 +533,7 @@ debounce_ms = 300
 | `lgtm prs` | List and pick open PRs |
 | `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
 | `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
-| `lgtm ci [--strict] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF |
+| `lgtm ci [--strict] [--rev <spec>] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF. `--rev origin/main...HEAD` checks a committed range. Exit 0 pass, 1 blocking findings, 2 tool error (also on `check`) |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
 | `lgtm audit` | Interactive repository audit TUI |
 | `lgtm coverage [--min 90] [--delta] [--lcov file]` | Coverage gate; `--delta` checks only added lines |

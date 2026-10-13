@@ -35,6 +35,7 @@ fn run_check(
     strict: bool,
     show_suppressed: bool,
     no_user_config: bool,
+    rev: Option<&str>,
 ) -> ExitCode {
     let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
     match run_ci_audit(
@@ -44,11 +45,12 @@ fn run_check(
         strict,
         show_suppressed,
         no_user_config,
+        rev,
     ) {
         Ok(code) => ExitCode::from(code as u8),
         Err(e) => {
             eprintln!("Error running check audit: {}", e);
-            ExitCode::from(1)
+            ExitCode::from(2)
         }
     }
 }
@@ -229,6 +231,7 @@ fn main() -> ExitCode {
             strict,
             show_suppressed,
             no_user_config,
+            rev,
         }) => run_check(
             repo.unwrap_or(cli.repo),
             &format,
@@ -236,6 +239,7 @@ fn main() -> ExitCode {
             strict,
             show_suppressed,
             no_user_config,
+            rev.as_deref(),
         ),
         // CI ignores the user-level config so results match across machines
         Some(Commands::Ci {
@@ -244,6 +248,7 @@ fn main() -> ExitCode {
             output,
             strict,
             show_suppressed,
+            rev,
             ..
         }) => run_check(
             repo.unwrap_or(cli.repo),
@@ -252,6 +257,7 @@ fn main() -> ExitCode {
             strict,
             show_suppressed,
             true,
+            rev.as_deref(),
         ),
         Some(Commands::Baseline { prune, repo, .. }) => {
             let target = repo.unwrap_or(cli.repo);

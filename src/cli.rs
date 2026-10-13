@@ -94,6 +94,9 @@ pub enum Commands {
         /// Ignore ~/.config/lgtm/config.toml
         #[arg(long)]
         no_user_config: bool,
+        /// Check a revision diff instead of the working tree (e.g. origin/main...HEAD)
+        #[arg(long)]
+        rev: Option<String>,
     },
     /// Run full repository security and architecture scan with markdown report
     Scan {
@@ -139,6 +142,9 @@ pub enum Commands {
         /// Ignore ~/.config/lgtm/config.toml
         #[arg(long)]
         no_user_config: bool,
+        /// Check a revision diff instead of the working tree (e.g. origin/main...HEAD)
+        #[arg(long)]
+        rev: Option<String>,
     },
     /// Manage the findings baseline (`.lgtm-baseline.json`)
     Baseline {

@@ -48,11 +48,15 @@ pub(crate) fn run_ci_audit(
     strict: bool,
     show_suppressed: bool,
     no_user_config: bool,
+    rev: Option<&str>,
 ) -> Result<i32> {
     let cfg = load_config(repo_path, no_user_config)?;
     let git_engine = git::GitEngine::new(repo_path);
     let snapshot = if git_engine.is_git_repo() {
-        git_engine.compute_diff_snapshot()?
+        match rev {
+            Some(spec) => git_engine.compute_revision_diff(spec)?,
+            None => git_engine.compute_diff_snapshot()?,
+        }
     } else {
         model::DiffSnapshot::default()
     };
@@ -554,6 +558,45 @@ mod tests {
         let path = std::env::temp_dir().join(format!("lgtm-test-{}-{}", name, unique));
         let _ = std::fs::create_dir_all(&path);
         path
+    }
+
+    #[test]
+    fn ci_rev_checks_committed_diff_and_errors_on_bad_rev() {
+        let dir = test_dir("ci-rev");
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(["-c", "user.email=a@b", "-c", "user.name=a"])
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join("a.py"), "a = 1\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "i"]);
+        std::fs::write(dir.join("b.py"), "key = \"AKIAABCDEFGHIJKLMNOP\"\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "x"]);
+        let out = dir.join("r.json");
+        let code = run_ci_audit(
+            &dir,
+            "json",
+            Some(&out),
+            false,
+            false,
+            true,
+            Some("HEAD~1..HEAD"),
+        )
+        .unwrap();
+        assert_eq!(code, 1);
+        assert!(std::fs::read_to_string(&out).unwrap().contains("rule_id"));
+        let clean = run_ci_audit(&dir, "json", Some(&out), false, false, true, None).unwrap();
+        assert_eq!(clean, 0);
+        assert!(run_ci_audit(&dir, "json", None, false, false, true, Some("nope..bad")).is_err());
     }
 
     #[test]
