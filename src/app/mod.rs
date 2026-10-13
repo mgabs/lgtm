@@ -161,9 +161,10 @@ impl App {
 
         let is_git = git_engine.is_git_repo();
         let (snapshot, initial_status) = if let Some(pr_num) = explicit_pr {
-            match crate::diff_source::DiffSource::snapshot(&crate::diff_source::PullRequestSource(
-                pr_num,
-            )) {
+            match crate::diff_source::DiffSource::snapshot(&crate::diff_source::PullRequestSource {
+                pr: pr_num,
+                repo: repo_path.clone(),
+            }) {
                 Ok(snap) => {
                     let msg = format!("Loaded PR #{} ({} files changed)", pr_num, snap.files.len());
                     (snap, Some(msg))
@@ -286,7 +287,10 @@ impl App {
     pub fn diff_source(&self) -> Box<dyn crate::diff_source::DiffSource + '_> {
         use crate::diff_source::*;
         if let Some(n) = self.pr.current_number {
-            Box::new(PullRequestSource(n))
+            Box::new(PullRequestSource {
+                pr: n,
+                repo: self.git_engine.repo_path.clone(),
+            })
         } else if let Some(rev) = self.active_revision.as_deref() {
             Box::new(RevisionSource {
                 engine: &self.git_engine,

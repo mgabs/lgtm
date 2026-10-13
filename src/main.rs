@@ -207,7 +207,11 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Some(Commands::Prs) => match pr::PrEngine::list_pull_requests() {
+        Some(Commands::Prs) => match lgtm_core::forge::open(
+            &std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo.clone()),
+        )
+        .list_prs()
+        {
             Ok(prs) => {
                 println!("📋 Open Pull Requests ({} total):\n", prs.len());
                 for pr in prs {

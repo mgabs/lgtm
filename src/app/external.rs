@@ -10,10 +10,11 @@ impl App {
 
             let mut notes = vec![format!("Saved to {}", file_path.display())];
 
-            if crate::pr::PrEngine::is_gh_installed() {
-                match crate::pr::PrEngine::post_review(pr_num, "COMMENT", &prompt) {
+            let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+            if forge.available() {
+                match forge.post_review(pr_num, "COMMENT", &prompt) {
                     Ok(_) => notes.push("Posted review to PR".to_string()),
-                    Err(e) => notes.push(format!("gh: {}", e)),
+                    Err(e) => notes.push(format!("review not posted: {}", e)),
                 }
             }
 

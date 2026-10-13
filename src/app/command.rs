@@ -98,13 +98,17 @@ impl App {
             "pr" => {
                 if args.first() == Some(&"post") {
                     let confirmed = args.contains(&"--yes");
-                    self.post_pr_comments(&lgtm_core::github::GhClient, confirmed);
+                    let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+                    self.post_pr_comments(&*forge, confirmed);
                     return;
                 }
                 if let Some(arg) = args.first() {
                     if let Ok(pr_num) = arg.parse::<u64>() {
                         match crate::diff_source::DiffSource::snapshot(
-                            &crate::diff_source::PullRequestSource(pr_num),
+                            &crate::diff_source::PullRequestSource {
+                                pr: pr_num,
+                                repo: self.git_engine.repo_path.clone(),
+                            },
                         ) {
                             Ok(snap) => {
                                 self.pr.current_number = Some(pr_num);
@@ -284,11 +288,13 @@ impl App {
                 self.trigger_repo_scan();
             }
             "thread" => {
-                self.thread_action(&lgtm_core::github::GhClient, &args);
+                let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+                self.thread_action(&*forge, &args);
             }
             "checks" | "threads" => {
                 let threads = cmd_name == "threads";
-                self.refresh_github(&lgtm_core::github::GhClient, threads);
+                let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+                self.refresh_github(&*forge, threads);
             }
             "hidden" => {
                 let h = self.hidden.borrow();
@@ -338,7 +344,10 @@ impl App {
             "reload" | "e" | "edit" => {
                 if let Some(pr_num) = self.pr.current_number {
                     if let Ok(snap) = crate::diff_source::DiffSource::snapshot(
-                        &crate::diff_source::PullRequestSource(pr_num),
+                        &crate::diff_source::PullRequestSource {
+                            pr: pr_num,
+                            repo: self.git_engine.repo_path.clone(),
+                        },
                     ) {
                         self.snapshot = snap;
                         self.alerts = self.scan(&self.snapshot.files);

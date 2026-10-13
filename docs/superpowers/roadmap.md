@@ -79,7 +79,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 ### G — Azure DevOps pull requests (spec: `specs/2026-10-13-azure-devops-design.md`, draft)
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
-| G1 | `Forge` trait + remote detection; GitHub moved onto it unchanged | M | C4 |
+| G1 ✅ | `forge` module: `Forge` trait, `origin` URL detection, GitHub moved onto it unchanged; Azure remotes get a clear "not supported yet" instead of a `gh` failure | M | C4 |
 | G2 | Azure read path: `:prs`, `:pr <n>` (diff from git ref), policies as checks | M | G1 |
 | G3 | Azure threads read + inline markers | M | G1, F3 |
 | G4 | Azure post, reply, resolve, vote | M | G2 |
