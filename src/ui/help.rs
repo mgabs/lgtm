@@ -216,6 +216,10 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Jump to Next / Previous remote PR thread (after :threads)"),
                 ]),
                 Line::from(vec![
+                    Span::styled("  t / <Space>t     ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open remote PR thread inspector (view full conversation & comments)"),
+                ]),
+                Line::from(vec![
                     Span::styled("  ]w / [w (or w/W) ", Style::default().fg(Color::Cyan)),
                     Span::raw("Jump to Next / Previous security alert or guard warning"),
                 ]),
