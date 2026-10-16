@@ -628,7 +628,8 @@ impl App {
                         let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
                         match forge.set_resolved(pr, &thread_id, next_resolved) {
                             Ok(()) => {
-                                if let Some(t_mut) = self.threads.get_mut(self.thread_selected_idx) {
+                                if let Some(t_mut) = self.threads.get_mut(self.thread_selected_idx)
+                                {
                                     t_mut.resolved = next_resolved;
                                 }
                                 self.status_message = Some(if next_resolved {
@@ -1381,26 +1382,22 @@ mod tests {
                 path: "src/main.rs".into(),
                 line: Some(10),
                 resolved: false,
-                comments: vec![
-                    lgtm_core::github::ThreadComment {
-                        id: 101,
-                        author: "alice".into(),
-                        body: "Please fix this logic".into(),
-                    },
-                ],
+                comments: vec![lgtm_core::github::ThreadComment {
+                    id: 101,
+                    author: "alice".into(),
+                    body: "Please fix this logic".into(),
+                }],
             },
             lgtm_core::github::Thread {
                 id: "t2".into(),
                 path: "src/lib.rs".into(),
                 line: Some(20),
                 resolved: true,
-                comments: vec![
-                    lgtm_core::github::ThreadComment {
-                        id: 102,
-                        author: "bob".into(),
-                        body: "LGTM".into(),
-                    },
-                ],
+                comments: vec![lgtm_core::github::ThreadComment {
+                    id: 102,
+                    author: "bob".into(),
+                    body: "LGTM".into(),
+                }],
             },
         ];
         app.pr.current_number = Some(42);
