@@ -164,7 +164,14 @@ impl GitHubForge {
                 serde_json::to_writer(o.open(&body_file)?, b)?;
             }
             body_arg = format!("@{}", body_file.display());
-            args.extend(["-H", "Content-Type: application/json", "-X", method, "-d", &body_arg]);
+            args.extend([
+                "-H",
+                "Content-Type: application/json",
+                "-X",
+                method,
+                "-d",
+                &body_arg,
+            ]);
         }
 
         args.push(url);
@@ -402,7 +409,10 @@ impl GithubClient for GitHubForge {
                 "query": q,
                 "variables": { "id": thread_id }
             });
-            if self.curl("https://api.github.com/graphql", "POST", Some(&payload)).is_ok() {
+            if self
+                .curl("https://api.github.com/graphql", "POST", Some(&payload))
+                .is_ok()
+            {
                 return Ok(());
             }
         }
@@ -573,13 +583,11 @@ mod tests {
     #[test]
     fn reads_checks_through_rest() {
         let json_commit = r#"{"head":{"sha":"commit123"}}"#;
-        let json_checks = r#"{"check_runs":[{"name":"ci/test","status":"completed","conclusion":"success"}]}"#;
+        let json_checks =
+            r#"{"check_runs":[{"name":"ci/test","status":"completed","conclusion":"success"}]}"#;
         let f = test_forge(
             ".",
-            vec![
-                ("pulls/12", json_commit),
-                ("check-runs", json_checks),
-            ],
+            vec![("pulls/12", json_commit), ("check-runs", json_checks)],
         );
         std::env::set_var("GITHUB_TOKEN", "mock-token-for-test");
         let checks = f.checks(12).unwrap();

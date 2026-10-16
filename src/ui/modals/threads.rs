@@ -83,7 +83,9 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
                 Span::styled(
                     format!("{line_str} "),
                     if is_selected {
-                        Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Color::White)
                     },
@@ -126,7 +128,12 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
             Some(l) => format!("{}:{}", t.path, l),
             None => t.path.clone(),
         };
-        let detail_title = format!(" #{}: {} • {} ", app.thread_selected_idx + 1, loc, status_text);
+        let detail_title = format!(
+            " #{}: {} • {} ",
+            app.thread_selected_idx + 1,
+            loc,
+            status_text
+        );
 
         let mut lines = Vec::new();
         if t.comments.is_empty() {
@@ -180,27 +187,37 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
     let footer = Paragraph::new(Line::from(vec![
         Span::styled(
             " [j/k]",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Nav Threads  "),
         Span::styled(
             "[J/K]",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Scroll  "),
         Span::styled(
             "[Enter]",
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Jump to line  "),
         Span::styled(
             "[v/R]",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Toggle resolve  "),
         Span::styled(
             "[r]",
-            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Reply  "),
         Span::styled("[Esc/q]", Style::default().fg(Color::DarkGray)),
