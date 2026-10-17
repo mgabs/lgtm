@@ -1,6 +1,48 @@
 use super::*;
 
 impl App {
+    pub fn current_line_number(&self) -> Option<u32> {
+        let file = self.snapshot.files.get(self.selected_file_idx)?;
+        let mut line_counter = 0;
+        for hunk in &file.hunks {
+            for line in &hunk.lines {
+                if line_counter == self.cursor_line_idx {
+                    return line.new_line_num.or(line.old_line_num);
+                }
+                line_counter += 1;
+            }
+        }
+        None
+    }
+
+    pub fn open_threads_modal(&mut self) {
+        if self.pr.current_number.is_none() {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return;
+        }
+        if self.threads.is_empty() {
+            self.active_view = ActiveView::ThreadView;
+            return;
+        }
+        if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
+            let path = file.display_name();
+            if let Some(lno) = self.current_line_number() {
+                if let Some(pos) = self
+                    .threads
+                    .iter()
+                    .position(|t| t.path == path && t.line == Some(lno))
+                {
+                    self.thread_selected_idx = pos;
+                }
+            }
+        }
+        self.thread_selected_idx = self
+            .thread_selected_idx
+            .min(self.threads.len().saturating_sub(1));
+        self.thread_scroll_offset = 0;
+        self.active_view = ActiveView::ThreadView;
+    }
+
     pub fn has_comment_on_cursor(&self) -> bool {
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path_str = file.display_name();

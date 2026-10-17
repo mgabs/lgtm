@@ -162,7 +162,7 @@ fn gh(args: &[&str]) -> Result<std::process::Output> {
         .context("`gh` is not installed or not on PATH; GitHub features are unavailable")
 }
 
-const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{databaseId author{login} body}}}}}}}";
+pub const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{databaseId author{login} body}}}}}}}";
 
 impl GithubClient for GhClient {
     fn checks(&self, pr: u64) -> Result<Vec<Check>> {

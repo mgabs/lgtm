@@ -24,6 +24,7 @@ use self::help::render_help_modal;
 use self::modals::comments::{render_comment_input, render_comment_list, render_comment_reply};
 use self::modals::commit::render_commit_modal;
 use self::modals::pickers::{render_file_picker, render_pane_picker, render_pr_picker};
+use self::modals::threads::render_threads_modal;
 use self::status::{render_search_input, render_status_bar};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
@@ -50,6 +51,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         ActiveView::CommentInput => render_comment_input(frame, size, app),
         ActiveView::CommentReply => render_comment_reply(frame, size, app),
         ActiveView::CommentList => render_comment_list(frame, size, app),
+        ActiveView::ThreadView => render_threads_modal(frame, size, app),
         ActiveView::PrPicker => render_pr_picker(frame, size, app),
         ActiveView::Help => render_help_modal(frame, size, app),
         ActiveView::Search => render_search_input(frame, size, app),
@@ -144,6 +146,30 @@ mod tests {
 
         // Test rendering CommentList
         app.active_view = ActiveView::CommentList;
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+
+        // Test rendering ThreadView (empty and populated)
+        app.active_view = ActiveView::ThreadView;
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+
+        app.threads = vec![lgtm_core::github::Thread {
+            id: "1".into(),
+            path: "test.rs".into(),
+            line: Some(5),
+            resolved: false,
+            comments: vec![
+                lgtm_core::github::ThreadComment {
+                    id: 1,
+                    author: "alice".into(),
+                    body: "Comment 1".into(),
+                },
+                lgtm_core::github::ThreadComment {
+                    id: 2,
+                    author: "bob".into(),
+                    body: "Reply 1".into(),
+                },
+            ],
+        }];
         terminal.draw(|f| render(f, &mut app)).unwrap();
 
         // Test rendering Search

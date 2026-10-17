@@ -30,7 +30,7 @@ authors.workspace = true
 [dependencies]
 lgtm-core.workspace = true
 lgtm-mcp.workspace = true
-ratatui = "0.29.0"
+ratatui = "0.30.2"
 crossterm = { version = "0.28.1", features = ["event-stream"] }
 similar = { version = "2.6.0", features = ["inline"] }
 fuzzy-matcher.workspace = true

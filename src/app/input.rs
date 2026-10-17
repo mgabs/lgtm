@@ -9,6 +9,7 @@ impl App {
             ActiveView::CommentInput => self.handle_comment_input_key(key),
             ActiveView::CommentReply => self.handle_comment_reply_key(key),
             ActiveView::CommentList => self.handle_comment_list_key(key),
+            ActiveView::ThreadView => self.handle_thread_view_key(key),
             ActiveView::PrPicker => self.handle_pr_picker_key(key),
             ActiveView::Help => self.handle_help_key(key),
             ActiveView::Search => self.handle_search_key(key),
@@ -163,6 +164,10 @@ impl App {
                 (' ', KeyCode::Char('l')) => {
                     self.comment_list_selected_idx = 0;
                     self.active_view = ActiveView::CommentList;
+                    return;
+                }
+                (' ', KeyCode::Char('t')) => {
+                    self.open_threads_modal();
                     return;
                 }
                 (' ', KeyCode::Char('P')) => {
@@ -384,6 +389,9 @@ impl App {
                 self.command.history_idx = None;
                 self.active_view = ActiveView::CommandLine;
             }
+            (_, KeyCode::Char('t')) => {
+                self.open_threads_modal();
+            }
             (_, KeyCode::Enter) => {
                 self.inject_reference_to_agent();
             }
@@ -577,6 +585,75 @@ impl App {
         }
     }
 
+    pub(crate) fn handle_thread_view_key(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+                self.active_view = ActiveView::Diff;
+            }
+            (_, KeyCode::Enter) => {
+                if let Some(t) = self.threads.get(self.thread_selected_idx) {
+                    let path = t.path.clone();
+                    let line = t.line.unwrap_or(1);
+                    self.jump_to_file_and_line(&path, line);
+                }
+                self.active_view = ActiveView::Diff;
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if self.thread_selected_idx > 0 {
+                    self.thread_selected_idx -= 1;
+                    self.thread_scroll_offset = 0;
+                }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if !self.threads.is_empty() && self.thread_selected_idx < self.threads.len() - 1 {
+                    self.thread_selected_idx += 1;
+                    self.thread_scroll_offset = 0;
+                }
+            }
+            (_, KeyCode::PageDown)
+            | (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (_, KeyCode::Char('J')) => {
+                self.thread_scroll_offset += 3;
+            }
+            (_, KeyCode::PageUp)
+            | (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (_, KeyCode::Char('K')) => {
+                self.thread_scroll_offset = self.thread_scroll_offset.saturating_sub(3);
+            }
+            (_, KeyCode::Char('v')) | (_, KeyCode::Char('R')) | (_, KeyCode::Char(' ')) => {
+                if let Some(t) = self.threads.get(self.thread_selected_idx) {
+                    let thread_id = t.id.clone();
+                    let next_resolved = !t.resolved;
+                    if let Some(pr) = self.pr.current_number {
+                        let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+                        match forge.set_resolved(pr, &thread_id, next_resolved) {
+                            Ok(()) => {
+                                if let Some(t_mut) = self.threads.get_mut(self.thread_selected_idx)
+                                {
+                                    t_mut.resolved = next_resolved;
+                                }
+                                self.status_message = Some(if next_resolved {
+                                    "✅ Thread marked resolved".into()
+                                } else {
+                                    "💬 Thread marked active".into()
+                                });
+                            }
+                            Err(e) => {
+                                self.status_message = Some(format!("Failed to update thread: {e}"));
+                            }
+                        }
+                    }
+                }
+            }
+            (_, KeyCode::Char('r')) if !self.threads.is_empty() => {
+                self.command.input = format!("thread reply {} ", self.thread_selected_idx + 1);
+                self.command.history_idx = None;
+                self.active_view = ActiveView::CommandLine;
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn handle_pr_picker_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
@@ -621,6 +698,7 @@ impl App {
                             self.cursor_line_idx = 0;
                             self.status_message =
                                 Some(format!("Loaded PR #{}: {}", pr_num, pr.title));
+                            self.refresh_github_async(true);
                         }
                         Err(e) => {
                             self.status_message =
@@ -1293,5 +1371,62 @@ mod tests {
         assert_eq!(app.pending_leader, Some(' '));
         app.handle_key(make_key(KeyCode::Char('q')));
         assert!(app.should_quit);
+
+        // Thread View Key Events
+        app.active_view = ActiveView::Diff;
+        app.threads = vec![
+            lgtm_core::github::Thread {
+                id: "t1".into(),
+                path: "src/main.rs".into(),
+                line: Some(10),
+                resolved: false,
+                comments: vec![lgtm_core::github::ThreadComment {
+                    id: 101,
+                    author: "alice".into(),
+                    body: "Please fix this logic".into(),
+                }],
+            },
+            lgtm_core::github::Thread {
+                id: "t2".into(),
+                path: "src/lib.rs".into(),
+                line: Some(20),
+                resolved: true,
+                comments: vec![lgtm_core::github::ThreadComment {
+                    id: 102,
+                    author: "bob".into(),
+                    body: "LGTM".into(),
+                }],
+            },
+        ];
+        app.pr.current_number = Some(42);
+
+        // Open thread view via 't' key
+        app.handle_key(make_key(KeyCode::Char('t')));
+        assert_eq!(app.active_view, ActiveView::ThreadView);
+        assert_eq!(app.thread_selected_idx, 0);
+
+        // Down / 'j' selects next thread
+        app.handle_key(make_key(KeyCode::Char('j')));
+        assert_eq!(app.thread_selected_idx, 1);
+
+        // Up / 'k' selects previous thread
+        app.handle_key(make_key(KeyCode::Char('k')));
+        assert_eq!(app.thread_selected_idx, 0);
+
+        // 'J' / 'K' scroll offset
+        app.handle_key(make_key(KeyCode::Char('J')));
+        assert_eq!(app.thread_scroll_offset, 3);
+        app.handle_key(make_key(KeyCode::Char('K')));
+        assert_eq!(app.thread_scroll_offset, 0);
+
+        // 'r' switches to command line prefilled with reply
+        app.handle_key(make_key(KeyCode::Char('r')));
+        assert_eq!(app.active_view, ActiveView::CommandLine);
+        assert_eq!(app.command.input, "thread reply 1 ");
+
+        // Esc closes modal
+        app.active_view = ActiveView::ThreadView;
+        app.handle_key(make_key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
     }
 }

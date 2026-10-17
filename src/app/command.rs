@@ -128,6 +128,7 @@ impl App {
                                     self.snapshot.files.len(),
                                     self.alerts.len()
                                 ));
+                                self.refresh_github_async(true);
                             }
                             Err(e) => {
                                 self.status_message =
@@ -293,11 +294,19 @@ impl App {
                 self.trigger_repo_scan();
             }
             "thread" => {
-                let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
-                self.thread_action(&*forge, &args);
+                if args.is_empty() || args.first() == Some(&"view") {
+                    self.open_threads_modal();
+                } else {
+                    let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+                    self.thread_action(&*forge, &args);
+                }
             }
-            "checks" | "threads" => {
-                self.refresh_github_async(cmd_name == "threads");
+            "threads" => {
+                self.refresh_github_async(true);
+                self.open_threads_modal();
+            }
+            "checks" => {
+                self.refresh_github_async(false);
             }
             "hidden" => {
                 let h = self.hidden.borrow();
@@ -964,5 +973,24 @@ mod tests {
         app.execute_command(&format!("w {}", report_file.display()));
         assert!(report_file.exists());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_thread_modal_command() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(7);
+        app.threads = vec![lgtm_core::github::Thread {
+            id: "1".into(),
+            path: "a.rs".into(),
+            line: Some(4),
+            resolved: false,
+            comments: vec![],
+        }];
+        app.execute_command(":thread");
+        assert_eq!(app.active_view, ActiveView::ThreadView);
+
+        app.active_view = ActiveView::Diff;
+        app.execute_command(":thread view");
+        assert_eq!(app.active_view, ActiveView::ThreadView);
     }
 }

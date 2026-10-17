@@ -33,6 +33,7 @@ pub enum ActiveView {
     CommentInput,
     CommentReply,
     CommentList,
+    ThreadView,
     PrPicker,
     Help,
     Search,
@@ -91,6 +92,10 @@ pub struct App {
     pub comment_reply_input: String,
     pub comment_reply_target_idx: Option<usize>,
     pub comment_list_selected_idx: usize,
+
+    // PR Thread inspection state
+    pub thread_selected_idx: usize,
+    pub thread_scroll_offset: usize,
 
     // Commit Forge modal state
     pub commit_message_input: String,
@@ -255,6 +260,8 @@ impl App {
             comment_reply_input: String::new(),
             comment_reply_target_idx: None,
             comment_list_selected_idx: 0,
+            thread_selected_idx: 0,
+            thread_scroll_offset: 0,
             commit_message_input: String::new(),
             help_selected_tab: 0,
             command: CommandLine::default(),
@@ -272,6 +279,9 @@ impl App {
 
         app.load_marks();
         app.update_file_picker_filter();
+        if explicit_pr.is_some() {
+            app.refresh_github_async(true);
+        }
         app
     }
 

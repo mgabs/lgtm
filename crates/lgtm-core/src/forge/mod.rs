@@ -1,11 +1,14 @@
 //! Which code host a repository lives on, and the PR operations lgtm needs from it.
-use crate::github::{Check, GhClient, GithubClient, Thread};
+use crate::github::{Check, GithubClient, Thread};
 use crate::model::DiffSnapshot;
-use crate::pr::{PrEngine, PullRequestSummary};
+use crate::pr::PullRequestSummary;
 use anyhow::{bail, Result};
 use std::path::Path;
 
 pub mod azure;
+pub mod github;
+
+pub use github::GitHubForge;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForgeKind {
@@ -40,47 +43,6 @@ pub trait Forge: GithubClient {
     fn list_prs(&self) -> Result<Vec<PullRequestSummary>>;
     fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot>;
     fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()>;
-}
-
-pub struct GitHubForge;
-
-impl GithubClient for GitHubForge {
-    fn checks(&self, pr: u64) -> Result<Vec<Check>> {
-        GhClient.checks(pr)
-    }
-    fn threads(&self, pr: u64) -> Result<Vec<Thread>> {
-        GhClient.threads(pr)
-    }
-    fn head_sha(&self, pr: u64) -> Result<String> {
-        GhClient.head_sha(pr)
-    }
-    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
-        GhClient.post_inline(pr, sha, path, line, body)
-    }
-    fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
-        GhClient.post_general(pr, body)
-    }
-    fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
-        GhClient.reply(pr, thread_id, comment_id, body)
-    }
-    fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
-        GhClient.set_resolved(pr, thread_id, resolved)
-    }
-}
-
-impl Forge for GitHubForge {
-    fn available(&self) -> bool {
-        PrEngine::is_gh_installed()
-    }
-    fn list_prs(&self) -> Result<Vec<PullRequestSummary>> {
-        PrEngine::list_pull_requests()
-    }
-    fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
-        PrEngine::fetch_pr_diff(pr)
-    }
-    fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()> {
-        PrEngine::post_review(pr, event, body)
-    }
 }
 
 /// Placeholder for operations a provider has not implemented yet; every call explains why.
@@ -135,7 +97,7 @@ impl Forge for Unsupported {
 pub fn open(repo: &Path) -> Box<dyn Forge> {
     match kind_of(repo) {
         ForgeKind::Azure => Box::new(azure::AzureForge::new(repo.to_path_buf())),
-        _ => Box::new(GitHubForge),
+        _ => Box::new(GitHubForge::new(repo.to_path_buf())),
     }
 }
 
