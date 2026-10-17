@@ -1,4 +1,4 @@
-.PHONY: all build release test coverage mutate lint fmt check risk ci install clean help
+.PHONY: all build release test coverage mutate lint fmt check risk ci install install-hooks clean help
 
 SHELL := /bin/bash
 TARGET_BIN := target/release/lgtm
@@ -62,6 +62,12 @@ ci: check
 	-cargo run -- ci --format sarif --output lgtm-results.sarif
 	@echo "✨ Generated SARIF report at lgtm-results.sarif"
 
+## Install git pre-commit hooks
+install-hooks:
+	git config core.hooksPath .githooks
+	chmod +x .githooks/pre-commit
+	@echo "✨ Git hooks installed (.githooks/pre-commit)"
+
 ## Install release binary to ~/.cargo/bin
 install: release
 	cargo install --path . --force
@@ -89,6 +95,7 @@ help:
 	@echo "  make risk        - Run security & test guard audit"
 	@echo "  make ci          - Run CI pipeline with SARIF report"
 	@echo "  make tap         - Update local Homebrew tap formula"
+	@echo "  make install-hooks - Install git pre-commit hooks"
 	@echo "  make install     - Install binary to cargo path"
 	@echo "  make clean       - Remove target/ and artifacts"
 

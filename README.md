@@ -295,6 +295,23 @@ For full detailed guides on human-in-the-loop steering, MCP server configuration
 
 ---
 
+## Donating & Sponsorship
+
+LGTM is free and always will be. If you want to show appreciation for this project, please give instead to humanitarian relief for Gaza and Palestine. These organisations deliver food, water, shelter, and medical care on the ground:
+
+- **[UNRWA](https://www.unrwa.org)** — UN Relief and Works Agency for Palestine Refugees
+- **[Palestine Children's Relief Fund (PCRF)](https://www.pcrf.net)**
+- **[Palestine Red Crescent Society](https://www.palestinercs.org)**
+- **[Medical Aid for Palestinians (MAP)](https://www.map.org.uk)**
+- **[Anera](https://www.anera.org)**
+- **[Médecins Sans Frontières (MSF)](https://www.msf.org)**
+- **[International Committee of the Red Cross (ICRC)](https://www.icrc.org)**
+- **[UNICEF](https://www.unicef.org)**
+- **[World Food Programme (WFP)](https://www.wfp.org)**
+
+---
+
 ## License
 
 MIT
+

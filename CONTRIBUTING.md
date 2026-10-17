@@ -25,6 +25,11 @@ cd lgtm
 # Build debug binary
 make build
 
+# Install pre-commit hooks (checks fmt, clippy, and tests)
+make install-hooks
+# or with python pre-commit:
+# pre-commit install
+
 # Run interactive TUI against local git diff
 ./target/debug/lgtm
 ```

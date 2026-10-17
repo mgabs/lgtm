@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+echo "🔍 Running pre-commit checks..."
+
+# Check rust formatting
+echo "Checking formatting..."
+cargo fmt --all -- --check
+
+# Check clippy warnings & compiler errors
+echo "Running clippy..."
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Run tests
+echo "Running tests..."
+cargo test --all-targets --all-features -- --nocapture
+
+echo "✅ All pre-commit checks passed."
