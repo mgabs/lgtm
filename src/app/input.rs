@@ -163,8 +163,7 @@ impl App {
                     return;
                 }
                 (' ', KeyCode::Char('l')) => {
-                    self.comment_list_selected_idx = 0;
-                    self.active_view = ActiveView::CommentList;
+                    self.open_comment_list();
                     return;
                 }
                 (' ', KeyCode::Char('t')) => {

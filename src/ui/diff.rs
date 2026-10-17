@@ -890,6 +890,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                 .title(title)
                 .border_style(Style::default().fg(Color::Cyan)),
         )
+        .scroll((app.diff_scroll_offset as u16, 0))
         .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);

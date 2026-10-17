@@ -43,6 +43,30 @@ impl App {
         self.active_view = ActiveView::ThreadView;
     }
 
+    pub fn open_comment_list(&mut self) {
+        self.comments = self.comment_store.load_comments();
+        if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
+            let path_str = file.display_name();
+            if let Some(lno) = self.current_line_number() {
+                if let Some(pos) = self.comments.iter().position(|c| {
+                    (c.file_path == path_str
+                        || c.file_path.ends_with(&path_str)
+                        || path_str.ends_with(&c.file_path))
+                        && c.target_line_no == lno
+                }) {
+                    self.comment_list_selected_idx = pos;
+                } else {
+                    self.comment_list_selected_idx = 0;
+                }
+            } else {
+                self.comment_list_selected_idx = 0;
+            }
+        } else {
+            self.comment_list_selected_idx = 0;
+        }
+        self.active_view = ActiveView::CommentList;
+    }
+
     pub fn has_comment_on_cursor(&self) -> bool {
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path_str = file.display_name();
@@ -699,5 +723,32 @@ mod tests {
         // Test :clear-resolved
         app.execute_command(":clear-resolved");
         assert!(app.comments.is_empty());
+
+        // Test open_comment_list and Enter key navigation
+        let anchor2 = CommentAnchor {
+            file_path: "src/lib.rs".into(),
+            target_line_no: 5,
+            target_code: "line 5".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "Line 5 comment".into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            orphaned: false,
+            track: Default::default(),
+        };
+        let _ = app.comment_store.add_comment(&anchor2);
+        app.cursor_line_idx = 4;
+        app.open_comment_list();
+        assert_eq!(app.active_view, ActiveView::CommentList);
+        assert_eq!(app.comment_list_selected_idx, 0);
+
+        // Press Enter to jump
+        app.handle_comment_list_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.cursor_line_idx, 4);
     }
 }

@@ -74,8 +74,7 @@ impl App {
                 self.orphans_command(&args[1..]);
             }
             "c" | "comments" | "directives" | "todo" => {
-                self.comment_list_selected_idx = 0;
-                self.active_view = ActiveView::CommentList;
+                self.open_comment_list();
             }
             "prs" => {
                 self.open_pr_picker();

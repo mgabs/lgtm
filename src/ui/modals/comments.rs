@@ -214,5 +214,7 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
             .border_style(Style::default().fg(Color::Magenta)),
     );
 
-    frame.render_widget(list, popup_area);
+    let mut state =
+        ratatui::widgets::ListState::default().with_selected(Some(app.comment_list_selected_idx));
+    frame.render_stateful_widget(list, popup_area, &mut state);
 }
