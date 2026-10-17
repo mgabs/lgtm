@@ -9,6 +9,21 @@ impl SymbolGuard {
         let mut alerts = Vec::new();
         let path_str = file.display_name();
 
+        let ext = file
+            .new_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if ext == "md"
+            || ext == "txt"
+            || ext == "json"
+            || ext == "toml"
+            || ext == "yaml"
+            || ext == "yml"
+        {
+            return alerts;
+        }
+
         let mut existing_tokens: HashSet<String> = HashSet::new();
         let mut added_tokens: Vec<(String, Option<u32>)> = Vec::new();
 
@@ -53,17 +68,16 @@ impl SymbolGuard {
                     continue;
                 }
 
-                if added.eq_ignore_ascii_case(existing) {
+                if added.eq_ignore_ascii_case(existing)
+                    || is_naming_convention_variant(&added, existing)
+                {
                     continue;
                 }
 
                 // Check distance
                 let dist = levenshtein_distance(&added.to_lowercase(), &existing.to_lowercase());
-                let normalized_match = added.len() >= 8
-                    && added.replace('_', "").to_lowercase()
-                        == existing.replace('_', "").to_lowercase();
 
-                if dist == 1 || normalized_match {
+                if dist == 1 {
                     alerts.push(GuardAlert {
                         severity: Severity::Warn,
                         rule_id: "typo/identifier".to_string(),
@@ -114,6 +128,25 @@ pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     }
 
     prev_row[len2]
+}
+
+pub fn is_naming_convention_variant(added: &str, existing: &str) -> bool {
+    let norm_added = added.replace('_', "").to_lowercase();
+    let norm_existing = existing.replace('_', "").to_lowercase();
+    if norm_added == norm_existing {
+        return true;
+    }
+
+    // Stem-safe pluralization check: require length >= 5 and avoid words ending with 'ss' (e.g. process, class, address)
+    let is_valid_stem = |w: &str| w.len() >= 5 && !w.ends_with("ss");
+    if is_valid_stem(&norm_added) && norm_added.strip_suffix('s') == Some(&norm_existing) {
+        return true;
+    }
+    if is_valid_stem(&norm_existing) && norm_existing.strip_suffix('s') == Some(&norm_added) {
+        return true;
+    }
+
+    false
 }
 
 /// Identifiers from parsed hunk fragments: old side feeds `existing`, additions feed `added`.
@@ -251,7 +284,7 @@ mod tests {
                     },
                     DiffLine {
                         line_type: LineType::Addition,
-                        content: "validate(usertoken);".into(),
+                        content: "validate(user_tokn);".into(),
                         old_line_num: None,
                         new_line_num: Some(2),
                     },
@@ -303,5 +336,29 @@ mod tests {
         let hit = SymbolGuard::scan_file(&mk("validate(userTokn);"));
         assert_eq!((hit.len(), hit[0].line_no), (1, Some(2)));
         assert!(SymbolGuard::scan_file(&mk("log(\"userTokn\"); // userTokn")).is_empty());
+    }
+
+    #[test]
+    fn test_naming_convention_variant() {
+        // Casing normalization
+        assert!(is_naming_convention_variant(
+            "CommentInput",
+            "comment_input"
+        ));
+        assert!(is_naming_convention_variant("active_view", "ActiveView"));
+        assert!(is_naming_convention_variant("userName", "user_name"));
+
+        // Pluralization / singular equivalence
+        assert!(is_naming_convention_variant("directives", "directive"));
+        assert!(is_naming_convention_variant("directive", "directives"));
+        assert!(is_naming_convention_variant("comments", "comment"));
+
+        // Stem safeguards on words ending in 'ss' (must NOT be treated as plural variant)
+        assert!(!is_naming_convention_variant("proces", "process"));
+        assert!(!is_naming_convention_variant("clas", "class"));
+        assert!(!is_naming_convention_variant("addres", "address"));
+
+        // Real typos
+        assert!(!is_naming_convention_variant("token", "tokn"));
     }
 }

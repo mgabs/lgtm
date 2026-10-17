@@ -114,8 +114,22 @@ impl ArchitectureGuard {
 
 fn extract_top_level_domain(path: &str) -> Option<String> {
     let normalized = path.trim_start_matches("./");
+    let lower = normalized.to_lowercase();
+    if lower.ends_with(".md")
+        || lower.ends_with(".txt")
+        || lower.ends_with(".lock")
+        || lower == "cargo.toml"
+        || lower == "package.json"
+        || lower.starts_with("docs/")
+        || lower.starts_with(".github/")
+    {
+        return None;
+    }
+
     let parts: Vec<&str> = normalized.split('/').collect();
-    if parts.len() >= 2
+    if parts.len() >= 3 && parts[0] == "crates" {
+        Some(format!("{}/{}", parts[0], parts[1]))
+    } else if parts.len() >= 2
         && (parts[0] == "src" || parts[0] == "lib" || parts[0] == "pkg" || parts[0] == "packages")
     {
         Some(parts[1].to_string())

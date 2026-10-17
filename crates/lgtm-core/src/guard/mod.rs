@@ -4,6 +4,7 @@ pub mod complexity;
 pub mod dead_code;
 pub mod deps;
 pub mod duplicate;
+pub mod fragility;
 pub mod security;
 pub mod swift;
 pub mod symbols;
@@ -67,6 +68,7 @@ pub fn registry() -> &'static [&'static dyn Guard] {
         &security::AdvancedSecurityGuard,
         &arch::ArchitectureGuard,
         &complexity::ComplexityGuard,
+        &fragility::FragilityGuard,
         &symbols::SymbolGuard,
         &api_drift::ApiDriftGuard,
         &dead_code::DeadCodeGuard,
@@ -265,30 +267,9 @@ impl SecurityAndTestGuard {
             let alerts = Self::scan_file(file);
             all_alerts.extend(alerts);
 
-            let path_str = file.display_name();
-            let is_test = is_test_path(&path_str);
-
-            for hunk in &file.hunks {
-                for line in &hunk.lines {
-                    if line.line_type == LineType::Addition {
-                        let text = line.content.trim();
-                        if !text.is_empty()
-                            && !text.starts_with("//")
-                            && !text.starts_with('#')
-                            && text != "{"
-                            && text != "}"
-                        {
-                            if is_test {
-                                if is_assertion_line(text) {
-                                    total_assert_additions += 1;
-                                }
-                            } else {
-                                total_logic_lines += 1;
-                            }
-                        }
-                    }
-                }
-            }
+            let (logic, asserts) = count_file_metrics(file);
+            total_logic_lines += logic;
+            total_assert_additions += asserts;
         }
 
         // Assertion Density Gate: alert if substantial new logic is added without any assertions
@@ -315,6 +296,78 @@ impl SecurityAndTestGuard {
         assign_fingerprints(&mut all_alerts, files);
         all_alerts
     }
+}
+
+fn count_file_metrics(file: &FileDiff) -> (usize, usize) {
+    let path_str = file.display_name();
+    let lower = path_str.to_lowercase();
+    let is_doc = lower.ends_with(".md") || lower.ends_with(".txt") || lower.starts_with("docs/");
+    let is_test = is_test_path(&path_str);
+
+    let mut in_test_mod = false;
+    let mut logic = 0;
+    let mut asserts = 0;
+
+    for hunk in &file.hunks {
+        let (h_l, h_a) = count_hunk_metrics(hunk, &mut in_test_mod, is_test, is_doc);
+        logic += h_l;
+        asserts += h_a;
+    }
+
+    (logic, asserts)
+}
+
+fn count_hunk_metrics(
+    hunk: &crate::model::DiffHunk,
+    in_test_mod: &mut bool,
+    is_test: bool,
+    is_doc: bool,
+) -> (usize, usize) {
+    let lower_hdr = hunk.header.to_lowercase();
+    if lower_hdr.contains("test") {
+        *in_test_mod = true;
+    }
+    let mut l_sum = 0;
+    let mut a_sum = 0;
+    for line in &hunk.lines {
+        let (is_test_ctx, l, a) = process_metric_line(line, in_test_mod, is_test, is_doc);
+        if is_test_ctx {
+            a_sum += a;
+        } else {
+            l_sum += l;
+        }
+    }
+    (l_sum, a_sum)
+}
+
+fn process_metric_line(
+    line: &crate::model::DiffLine,
+    in_test_mod: &mut bool,
+    is_test: bool,
+    is_doc: bool,
+) -> (bool, usize, usize) {
+    let text = line.content.trim();
+    *in_test_mod |= text.starts_with("#[cfg(test)]")
+        || text.starts_with("mod tests")
+        || text.starts_with("#[test]");
+
+    let is_test_ctx = is_test || *in_test_mod;
+    if line.line_type != LineType::Addition || !is_countable_line(text) {
+        return (is_test_ctx, 0, 0);
+    }
+
+    match is_test_ctx {
+        true => (true, 0, usize::from(is_assertion_line(text))),
+        false => (false, usize::from(!is_doc), 0),
+    }
+}
+
+fn is_countable_line(text: &str) -> bool {
+    !text.is_empty()
+        && !text.starts_with("//")
+        && !text.starts_with('#')
+        && text != "{"
+        && text != "}"
 }
 
 pub fn fnv1a(s: &str) -> u64 {
@@ -567,6 +620,7 @@ mod tests {
                 "security",
                 "arch",
                 "complexity",
+                "fragility",
                 "symbols",
                 "api_drift",
                 "dead_code",
