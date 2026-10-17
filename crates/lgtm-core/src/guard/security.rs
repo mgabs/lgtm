@@ -177,6 +177,11 @@ fn detect_high_entropy_string(line: &str) -> Option<String> {
             || trimmed.contains(' ')
             || trimmed.contains('\n')
             || trimmed.contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            || trimmed.contains("${")
+            || trimmed.contains("api-version=")
+            || trimmed.ends_with(".tar.gz")
+            || trimmed.ends_with(".zip")
+            || trimmed.ends_with(".tgz")
         {
             continue;
         }
