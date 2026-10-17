@@ -4,6 +4,8 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lang {
+    Rust,
+    Python,
     Ts,
     Tsx,
     Swift,
@@ -12,6 +14,8 @@ pub enum Lang {
 /// JS/JSX parse with the TSX grammar, which is a superset.
 pub fn lang_of(path: &Path) -> Option<Lang> {
     match path.extension()?.to_str()? {
+        "rs" => Some(Lang::Rust),
+        "py" | "pyi" => Some(Lang::Python),
         "ts" | "mts" | "cts" => Some(Lang::Ts),
         "swift" => Some(Lang::Swift),
         "tsx" | "jsx" | "js" | "mjs" | "cjs" => Some(Lang::Tsx),
@@ -21,6 +25,8 @@ pub fn lang_of(path: &Path) -> Option<Lang> {
 
 fn grammar(lang: Lang) -> Language {
     match lang {
+        Lang::Rust => tree_sitter_rust::LANGUAGE.into(),
+        Lang::Python => tree_sitter_python::LANGUAGE.into(),
         Lang::Ts => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         Lang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
         Lang::Swift => tree_sitter_swift::LANGUAGE.into(),
@@ -69,12 +75,16 @@ pub fn hits_within(lang: Lang, src: &str, query: &str, inside: &[&str]) -> Resul
     Ok(rows)
 }
 
-const BRANCH_KINDS: [&str; 14] = [
+const BRANCH_KINDS: [&str; 20] = [
     "if_statement",
+    "if_expression",
     "guard_statement",
     "for_statement",
     "for_in_statement",
+    "for_expression",
     "while_statement",
+    "while_expression",
+    "loop_expression",
     "do_statement",
     "repeat_while_statement",
     "switch_statement",
@@ -83,7 +93,9 @@ const BRANCH_KINDS: [&str; 14] = [
     "ternary_expression",
     "conditional_expression",
     "switch_case",
+    "match_arm",
     "else_clause",
+    "except_clause",
 ];
 
 /// Cognitive complexity of branches that start on a row `counted` accepts:
@@ -115,12 +127,16 @@ fn walk(node: tree_sitter::Node, depth: usize, counted: &impl Fn(usize) -> bool)
     total
 }
 
-const IDENT_KINDS: [&str; 5] = [
+const IDENT_KINDS: [&str; 9] = [
     "identifier",
     "property_identifier",
     "type_identifier",
     "shorthand_property_identifier",
     "simple_identifier",
+    "field_identifier",
+    "scoped_identifier",
+    "primitive_type",
+    "dotted_name",
 ];
 
 /// Identifiers (not strings or comments) with the row each starts on.
@@ -224,6 +240,34 @@ mod tests {
         assert_eq!(lang_of(Path::new("a.js")), Some(Lang::Tsx));
         assert_eq!(lang_of(Path::new("a.ts")), Some(Lang::Ts));
         assert_eq!(lang_of(Path::new("a.swift")), Some(Lang::Swift));
-        assert_eq!(lang_of(Path::new("a.rs")), None);
+        assert_eq!(lang_of(Path::new("a.rs")), Some(Lang::Rust));
+        assert_eq!(lang_of(Path::new("a.py")), Some(Lang::Python));
+        assert_eq!(lang_of(Path::new("a.pyi")), Some(Lang::Python));
+        assert_eq!(lang_of(Path::new("a.go")), None);
+    }
+
+    #[test]
+    fn rust_identifiers_skip_strings_and_comments() {
+        let src = "// commentDirective\nlet comment_input = \"directive string\";\nActiveView::CommentInput;\n";
+        let ids = identifiers(Lang::Rust, src).unwrap();
+        let names: Vec<_> = ids.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"comment_input"));
+        assert!(names.contains(&"CommentInput"));
+        assert!(names.contains(&"ActiveView"));
+        assert!(!names
+            .iter()
+            .any(|n| n.contains("directive") || n.contains("commentDirective")));
+    }
+
+    #[test]
+    fn python_identifiers_skip_strings_and_comments() {
+        let src = "# comment_word\nuser_name = \"docstring_word\"\ndef calculate_total():\n    return user_name\n";
+        let ids = identifiers(Lang::Python, src).unwrap();
+        let names: Vec<_> = ids.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"user_name"));
+        assert!(names.contains(&"calculate_total"));
+        assert!(!names
+            .iter()
+            .any(|n| n.contains("comment_word") || n.contains("docstring_word")));
     }
 }
