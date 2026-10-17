@@ -43,10 +43,9 @@ pub fn parse_remote(url: &str) -> Option<Remote> {
         let after = &u[idx + 3..];
         let slash = after.find('/')?;
         &after[slash + 1..]
-    } else if let Some(colon) = u.find(':') {
-        &u[colon + 1..]
     } else {
-        return None;
+        let colon = u.find(':')?;
+        &u[colon + 1..]
     };
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     if parts.len() >= 2 {
@@ -156,7 +155,6 @@ impl GitHubForge {
         let body_arg;
         if let Some(b) = body {
             {
-                use std::io::Write;
                 let mut o = std::fs::OpenOptions::new();
                 o.write(true).create_new(true);
                 #[cfg(unix)]

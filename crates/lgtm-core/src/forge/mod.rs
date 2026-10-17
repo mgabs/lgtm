@@ -1,7 +1,7 @@
 //! Which code host a repository lives on, and the PR operations lgtm needs from it.
-use crate::github::{Check, GhClient, GithubClient, Thread};
+use crate::github::{Check, GithubClient, Thread};
 use crate::model::DiffSnapshot;
-use crate::pr::{PrEngine, PullRequestSummary};
+use crate::pr::PullRequestSummary;
 use anyhow::{bail, Result};
 use std::path::Path;
 
