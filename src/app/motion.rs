@@ -28,6 +28,8 @@ impl App {
                             if line_num == target_line {
                                 self.cursor_line_idx = line_counter;
                                 self.diff_scroll_offset = line_counter.saturating_sub(10);
+                                self.status_message =
+                                    Some(format!("Jumped to {}:{}", clean_path, target_line));
                                 return;
                             }
                             let diff = (line_num as i64 - target_line as i64).unsigned_abs() as u32;
@@ -45,6 +47,9 @@ impl App {
                 self.cursor_line_idx = c_idx;
                 self.diff_scroll_offset = c_idx.saturating_sub(10);
             }
+            self.status_message = Some(format!("Jumped to {}:{}", clean_path, target_line));
+        } else {
+            self.status_message = Some(format!("File '{}' is not in the active diff", clean_path));
         }
     }
 

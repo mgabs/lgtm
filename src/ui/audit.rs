@@ -308,6 +308,7 @@ pub(crate) fn render_audit_inspector(
         crate::guard::Severity::Warn => Color::Yellow,
     };
 
+    let is_focused = app.audit.focus == crate::app::AuditPaneFocus::Inspector;
     let mut lines = Vec::new();
 
     // 1. Alert header
@@ -370,15 +371,21 @@ pub(crate) fn render_audit_inspector(
                 let line_text = line_item.to_string();
 
                 if is_hit {
+                    let ptr_color = if is_focused { Color::Cyan } else { Color::Red };
+                    let bg_color = if is_focused {
+                        Color::Indexed(237)
+                    } else {
+                        Color::DarkGray
+                    };
                     lines.push(Line::from(vec![
                         Span::styled(
                             format!("  ▶ {:4} │ ", current_no),
-                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            Style::default().fg(ptr_color).add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             line_text,
                             Style::default()
-                                .bg(Color::DarkGray)
+                                .bg(bg_color)
                                 .fg(Color::White)
                                 .add_modifier(Modifier::BOLD),
                         ),
@@ -426,6 +433,13 @@ pub(crate) fn render_audit_inspector(
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Inject  "),
+        Span::styled(
+            "[c]",
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Comment  "),
         Span::styled(
             "[y]",
             Style::default()

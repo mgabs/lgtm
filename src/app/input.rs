@@ -759,13 +759,16 @@ impl App {
     pub(crate) fn handle_comment_input_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.active_view = ActiveView::Diff;
+                self.comment_target_alert = None;
+                self.active_view = self.comment_source_view;
             }
             KeyCode::Enter => {
                 if !self.comment_input.trim().is_empty() {
                     self.save_current_line_comment();
+                } else {
+                    self.comment_target_alert = None;
                 }
-                self.active_view = ActiveView::Diff;
+                self.active_view = self.comment_source_view;
             }
             KeyCode::Backspace => {
                 self.comment_input.pop();
@@ -1295,6 +1298,14 @@ impl App {
                     let file_path = alert.file_path.clone();
                     let line_no = alert.line_no.unwrap_or(1);
                     self.open_file_in_editor(&file_path, line_no);
+                }
+            }
+            (_, KeyCode::Char('c')) => {
+                if let Some(alert) = filtered.get(self.audit.selected_idx) {
+                    self.comment_target_alert = Some((*alert).clone());
+                    self.comment_source_view = ActiveView::AuditReport;
+                    self.comment_input.clear();
+                    self.active_view = ActiveView::CommentInput;
                 }
             }
             (_, KeyCode::Char(':')) => {

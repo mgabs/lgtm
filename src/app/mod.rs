@@ -93,6 +93,8 @@ pub struct App {
     pub comment_reply_input: String,
     pub comment_reply_target_idx: Option<usize>,
     pub comment_list_selected_idx: usize,
+    pub comment_source_view: ActiveView,
+    pub comment_target_alert: Option<crate::guard::GuardAlert>,
 
     // PR Thread inspection state
     pub thread_selected_idx: usize,
@@ -262,6 +264,8 @@ impl App {
             comment_reply_input: String::new(),
             comment_reply_target_idx: None,
             comment_list_selected_idx: 0,
+            comment_source_view: ActiveView::Diff,
+            comment_target_alert: None,
             thread_selected_idx: 0,
             thread_scroll_offset: 0,
             commit_message_input: String::new(),

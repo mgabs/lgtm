@@ -142,7 +142,37 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     let msg = app.status_message.as_deref().unwrap_or("Watching");
-    let status_line = Line::from(vec![
+
+    // Working directory (bottom-left)
+    let cwd_display = app
+        .git_engine
+        .repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| app.git_engine.repo_path.display().to_string());
+
+    // Context percentage (bottom-right): position within current file diff lines
+    let total_lines = app.current_file_line_count();
+    let pct_str = if total_lines == 0 {
+        "Bot".to_string()
+    } else if app.cursor_line_idx == 0 {
+        "Top".to_string()
+    } else if app.cursor_line_idx + 1 >= total_lines {
+        "Bot".to_string()
+    } else {
+        let pct = ((app.cursor_line_idx + 1) * 100) / total_lines;
+        format!("{:>3}%", pct)
+    };
+
+    let left_spans = vec![
+        Span::styled(
+            format!(" 📁 {} ", cwd_display),
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(
             format!(" {} ", msg),
             Style::default()
@@ -151,8 +181,6 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" | "),
-        Span::styled("[V]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Visual | "),
         Span::styled("[s/u/x]", Style::default().fg(Color::Cyan)),
         Span::raw(" Hunk | "),
         Span::styled("[d]", Style::default().fg(Color::Cyan)),
@@ -161,29 +189,33 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw(" Cmd | "),
         Span::styled("[/]", Style::default().fg(Color::Cyan)),
         Span::raw(" Search | "),
-        Span::styled("[n/N]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Match | "),
-        Span::styled("[gg/G]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Top/End | "),
-        Span::styled("[Ctrl-d/u]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Page | "),
-        Span::styled("[y]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Yank | "),
         Span::styled("[c]", Style::default().fg(Color::Cyan)),
         Span::raw(" Comment | "),
-        Span::styled("[Ctrl-s]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Send | "),
-        Span::styled("[w]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Alerts | "),
-        Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Ref | "),
+        Span::styled("[r]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Review | "),
         Span::styled("[?]", Style::default().fg(Color::Cyan)),
         Span::raw(" Help | "),
         Span::styled("[q]", Style::default().fg(Color::Cyan)),
         Span::raw(" Quit"),
-    ]);
+    ];
 
-    frame.render_widget(Paragraph::new(status_line), area);
+    let right_spans = vec![
+        Span::raw(" "),
+        Span::styled(
+            format!(" 📍 {} ", pct_str),
+            Style::default()
+                .bg(Color::Cyan)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ];
+
+    let right_len: usize = right_spans.iter().map(|s| s.content.chars().count()).sum();
+    let left_width = (area.width as usize).saturating_sub(right_len);
+    let mut row_spans = crate::ui::diff::pad_or_truncate_spans(left_spans, left_width);
+    row_spans.extend(right_spans);
+
+    frame.render_widget(Paragraph::new(Line::from(row_spans)), area);
 }
 
 pub(crate) fn render_search_input(frame: &mut Frame, area: Rect, app: &App) {

@@ -519,6 +519,49 @@ impl App {
     }
 
     pub fn save_current_line_comment(&mut self) {
+        if let Some(alert) = self.comment_target_alert.take() {
+            let target_line_no = alert.line_no.unwrap_or(1);
+            let path_str = alert.file_path;
+            let target_code = format!("[{}] {}", alert.severity.badge(), alert.title);
+            let turn_state = self.turn_manager.load_state();
+            let anchor = CommentAnchor {
+                file_path: path_str.clone(),
+                target_line_no,
+                target_code,
+                context_before: Vec::new(),
+                context_after: Vec::new(),
+                comment_text: self.comment_input.clone(),
+                replies: Vec::new(),
+                created_at_turn: turn_state.current_turn,
+                is_resolved: false,
+                pr_number: self.pr.current_number,
+                remote_id: None,
+                orphaned: false,
+                track: lgtm_core::outcome::Tracking {
+                    hunk_hash: lgtm_core::review::hunk_hash_at(
+                        &self.snapshot.files,
+                        &path_str,
+                        target_line_no,
+                    ),
+                    ..Default::default()
+                },
+            };
+
+            if let Err(e) = self.comment_store.add_comment(&anchor) {
+                self.status_message = Some(format!("Failed to save comment: {}", e));
+                return;
+            }
+            self.comments.push(anchor);
+            if let Some(pr_num) = self.pr.current_number {
+                self.status_message =
+                    Some(format!("Comment on finding added to PR #{} review", pr_num));
+            } else {
+                self.status_message =
+                    Some("Comment on finding added to .lgtm/comments.jsonl".to_string());
+            }
+            return;
+        }
+
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path_str = file.display_name();
             let mut target_line_no = 1;
@@ -560,12 +603,15 @@ impl App {
                 },
             };
 
-            let _ = self.comment_store.add_comment(&anchor);
-            self.comments.push(anchor);
-            if let Some(pr_num) = self.pr.current_number {
-                self.status_message = Some(format!("Comment added to PR #{} review", pr_num));
+            if let Err(e) = self.comment_store.add_comment(&anchor) {
+                self.status_message = Some(format!("Failed to save comment: {}", e));
             } else {
-                self.status_message = Some("Comment added to .lgtm/comments.jsonl".to_string());
+                self.comments.push(anchor);
+                if let Some(pr_num) = self.pr.current_number {
+                    self.status_message = Some(format!("Comment added to PR #{} review", pr_num));
+                } else {
+                    self.status_message = Some("Comment added to .lgtm/comments.jsonl".to_string());
+                }
             }
         }
     }
@@ -750,5 +796,44 @@ mod tests {
         app.handle_comment_list_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(app.active_view, ActiveView::Diff);
         assert_eq!(app.cursor_line_idx, 4);
+    }
+
+    #[test]
+    fn test_comment_on_audit_finding() {
+        let mut app = create_test_app();
+        let alert = crate::guard::GuardAlert {
+            rule_id: "sec.entropy".into(),
+            fingerprint: "abc".into(),
+            severity: crate::guard::Severity::Critical,
+            title: "High-Entropy Secret".into(),
+            description: "Found hardcoded token".into(),
+            line_no: Some(42),
+            file_path: "src/secret.rs".into(),
+        };
+
+        app.audit.alerts = vec![alert.clone()];
+        app.audit.selected_idx = 0;
+        app.active_view = ActiveView::AuditReport;
+
+        // Press 'c' to comment on finding
+        app.handle_audit_report_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::CommentInput);
+        assert_eq!(app.comment_source_view, ActiveView::AuditReport);
+        assert_eq!(app.comment_target_alert.as_ref(), Some(&alert));
+
+        // Type directive and press Enter
+        app.comment_input = "Rotate and move to environment variable".into();
+        app.handle_comment_input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        // Should return to AuditReport view
+        assert_eq!(app.active_view, ActiveView::AuditReport);
+        assert_eq!(app.comments.len(), 1);
+        assert_eq!(app.comments[0].file_path, "src/secret.rs");
+        assert_eq!(app.comments[0].target_line_no, 42);
+        assert_eq!(
+            app.comments[0].comment_text,
+            "Rotate and move to environment variable"
+        );
+        assert!(app.comments[0].target_code.contains("High-Entropy Secret"));
     }
 }

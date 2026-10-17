@@ -58,7 +58,7 @@ impl App {
             "reject" => {
                 self.reject_hunk_and_reprompt();
             }
-            "approve" | "lgtm" | "accept" => {
+            "approve" | "lgtm" => {
                 self.approve_gate();
             }
             "reject-all" | "reject-gate" => {
@@ -545,7 +545,10 @@ mod tests {
         let mut app_e = create_test_app();
         app_e.command.input = "e".to_string();
         app_e.command.autocomplete_next();
-        assert_eq!(app_e.command.completions, vec!["e", "edit", "exit"]);
+        assert_eq!(
+            app_e.command.completions,
+            vec!["e", "edit", "exit", "export"]
+        );
         assert_eq!(app_e.command.input, "e");
         app_e.command.autocomplete_next();
         assert_eq!(app_e.command.input, "edit");
@@ -557,9 +560,9 @@ mod tests {
         app_all.command.input = "".to_string();
         app_all.command.autocomplete_next();
         assert!(app_all.command.completions.len() > 30);
-        assert_eq!(app_all.command.input, "audit");
+        assert_eq!(app_all.command.input, "approve");
         app_all.command.autocomplete_next();
-        assert_eq!(app_all.command.input, "c");
+        assert_eq!(app_all.command.input, "audit");
     }
 
     #[test]

@@ -279,19 +279,23 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  r                ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Thread a reply under the directive at cursor (or open new directive)"),
+                    Span::raw("Thread a reply under directive at cursor (or open new directive)"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  R / v (or Space-r)", Style::default().fg(Color::Cyan)),
+                    Span::styled("  R (or <Space>r)  ", Style::default().fg(Color::Cyan)),
                     Span::raw("Toggle directive resolved state (✓ RESOLVED vs 💬 OPEN)"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  x / <Space>d     ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Delete the directive anchored on the current line"),
+                    Span::styled("  <Space>d         ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Delete the directive anchored on the current line (:del)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  x                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Discard hunk under cursor (or delete directive if on comment line)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  <Space>l / :c    ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open interactive Review Directives list drawer"),
+                    Span::raw("Open interactive Review Directives list drawer (:directives)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  Ctrl-s / :review ", Style::default().fg(Color::Cyan)),
@@ -470,6 +474,27 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::styled("  🟠 Architecture Sprawl & Leaks: ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
                     Span::raw("Catches UI->DB layer violations, blast radius sprawl (≥4 domains), and .env file leaks"),
                 ]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "AUDIT & FINDINGS ACTIONS",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(vec![
+                    Span::styled("  c                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Add review directive / comment anchored to the selected finding"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Enter            ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Inject remediation directive directly to agent pane / clipboard"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  y                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Yank remediation directive to clipboard (OSC 52)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  e / o            ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open file at finding location in $EDITOR"),
+                ]),
             ],
         ),
         6 => (
@@ -506,6 +531,18 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 Line::from(vec![
                     Span::styled("  :pane [id]           ", Style::default().fg(Color::Cyan)),
                     Span::raw("Select or set target tmux agent pane ID (e.g. :pane %2)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :c, :directives      ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open review directives drawer (:directives recheck | orphans)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :clear / :clear-resolved", Style::default().fg(Color::Cyan)),
+                    Span::raw("Clear all directives, or clear only resolved ones"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :resolve / :unresolve", Style::default().fg(Color::Cyan)),
+                    Span::raw("Toggle directive resolved state (or :resolve all / :unresolve all)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :f, :files, :find    ", Style::default().fg(Color::Cyan)),
