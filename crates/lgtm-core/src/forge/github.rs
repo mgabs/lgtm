@@ -88,6 +88,7 @@ pub struct GitHubForge {
     repo: PathBuf,
     remote: Option<Remote>,
     runner: Box<dyn Runner>,
+    explicit_token: Option<String>,
 }
 
 impl GitHubForge {
@@ -101,6 +102,7 @@ impl GitHubForge {
             repo,
             remote,
             runner,
+            explicit_token: None,
         }
     }
 
@@ -113,10 +115,14 @@ impl GitHubForge {
             repo,
             remote,
             runner,
+            explicit_token: None,
         }
     }
 
     fn token(&self) -> Option<String> {
+        if let Some(t) = &self.explicit_token {
+            return Some(t.clone());
+        }
         std::env::var("GITHUB_TOKEN")
             .or_else(|_| std::env::var("GH_TOKEN"))
             .ok()
@@ -506,6 +512,7 @@ mod tests {
                 repo: "lgtm".into(),
             }),
             runner: Box::new(Fake(RefCell::new(vec![]), fakes)),
+            explicit_token: Some("mock-token-for-test".into()),
         }
     }
 
@@ -552,9 +559,7 @@ mod tests {
                 r#"[{"number":12,"title":"New feature","user":{"login":"charlie"},"head":{"ref":"feat"},"state":"open"}]"#,
             )],
         );
-        std::env::set_var("GITHUB_TOKEN", "mock-token-for-test");
         let prs = f.list_prs().unwrap();
-        std::env::remove_var("GITHUB_TOKEN");
         assert_eq!(prs.len(), 1);
         assert_eq!(prs[0].number, 12);
         assert_eq!(prs[0].title, "New feature");
@@ -566,9 +571,7 @@ mod tests {
     fn reads_threads_through_graphql() {
         let json = r#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"id":"RT_1","isResolved":false,"path":"src/main.rs","line":15,"comments":{"nodes":[{"databaseId":42,"author":{"login":"dave"},"body":"Check this"}]}}]}}}}}"#;
         let f = test_forge(".", vec![("graphql", json)]);
-        std::env::set_var("GITHUB_TOKEN", "mock-token-for-test");
         let threads = f.threads(12).unwrap();
-        std::env::remove_var("GITHUB_TOKEN");
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "RT_1");
         assert_eq!(threads[0].path, "src/main.rs");
@@ -587,9 +590,7 @@ mod tests {
             ".",
             vec![("pulls/12", json_commit), ("check-runs", json_checks)],
         );
-        std::env::set_var("GITHUB_TOKEN", "mock-token-for-test");
         let checks = f.checks(12).unwrap();
-        std::env::remove_var("GITHUB_TOKEN");
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0].name, "ci/test");
         assert_eq!(checks[0].bucket, Bucket::Pass);

@@ -1,4 +1,5 @@
-.PHONY: all build release test coverage mutate lint fmt check risk ci install install-hooks clean help
+.DEFAULT_GOAL := help
+.PHONY: help all build release test coverage mutate lint fmt check risk ci install install-hooks clean
 
 SHELL := /bin/bash
 TARGET_BIN := target/release/lgtm
