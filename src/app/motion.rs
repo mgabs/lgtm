@@ -22,7 +22,9 @@ impl App {
             if let Some(f) = self.snapshot.files.get(idx) {
                 for hunk in &f.hunks {
                     for line in &hunk.lines {
-                        if let Some(line_num) = line.new_line_num.or(line.old_line_num) {
+                        let l_no = line.new_line_num.or(line.old_line_num);
+
+                        if let Some(line_num) = l_no {
                             if line_num == target_line {
                                 self.cursor_line_idx = line_counter;
                                 self.diff_scroll_offset = line_counter.saturating_sub(10);
