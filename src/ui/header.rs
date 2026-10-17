@@ -184,6 +184,15 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         ));
     }
 
+    if let Some((status, _msg)) = app.check_gate_status() {
+        if status == "waiting" {
+            header_spans.push(Span::styled(
+                " 🛑 GATE WAITING (A/:approve) |",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ));
+        }
+    }
+
     header_spans.push(Span::styled(
         agent_str,
         Style::default()

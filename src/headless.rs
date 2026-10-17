@@ -571,6 +571,84 @@ pub(crate) fn run_baseline_update(repo_path: &Path, prune: bool) -> Result<i32> 
     Ok(0)
 }
 
+pub(crate) fn run_gate(repo_path: &Path, timeout_secs: u64, message: Option<&str>) -> Result<i32> {
+    let git = git::GitEngine::new(repo_path);
+    if !git.is_git_repo() {
+        eprintln!("lgtm gate: Not a git repository");
+        return Ok(1);
+    }
+
+    let snapshot = git.compute_diff_snapshot()?;
+    if snapshot.files.is_empty() {
+        println!("✅ lgtm gate: Working tree clean, no unreviewed changes.");
+        return Ok(0);
+    }
+
+    let lgtm_dir = repo_path.join(".lgtm");
+    let _ = std::fs::create_dir_all(&lgtm_dir);
+    let gate_file = lgtm_dir.join("gate.json");
+
+    let gate_state = serde_json::json!({
+        "status": "waiting",
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        "timeout": timeout_secs,
+        "message": message.unwrap_or("Agent generated changes awaiting human review"),
+        "files_changed": snapshot.files.len(),
+    });
+
+    std::fs::write(&gate_file, serde_json::to_string_pretty(&gate_state)?)?;
+
+    println!(
+        "🛑 lgtm gate: {} changed file(s) awaiting review.",
+        snapshot.files.len()
+    );
+    if let Some(msg) = message {
+        println!("   Prompt: {}", msg);
+    }
+    println!("   Waiting for approval in TUI (press 'A' or run ':approve' / ':reject-all')...");
+
+    let start = std::time::Instant::now();
+    let timeout = Duration::from_secs(timeout_secs);
+
+    loop {
+        if start.elapsed() > timeout {
+            let _ = std::fs::remove_file(&gate_file);
+            eprintln!(
+                "⏱️ lgtm gate timed out after {}s waiting for review.",
+                timeout_secs
+            );
+            return Ok(1);
+        }
+
+        std::thread::sleep(Duration::from_millis(200));
+
+        if let Ok(content) = std::fs::read_to_string(&gate_file) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                match val.get("status").and_then(|s| s.as_str()) {
+                    Some("approved") => {
+                        let _ = std::fs::remove_file(&gate_file);
+                        println!("✅ lgtm gate: Changes approved by human reviewer!");
+                        return Ok(0);
+                    }
+                    Some("rejected") => {
+                        let _ = std::fs::remove_file(&gate_file);
+                        eprintln!("❌ lgtm gate: Changes rejected by human reviewer.");
+                        return Ok(1);
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            // File was deleted manually
+            println!("ℹ️ lgtm gate: Gate file cleared, resuming.");
+            return Ok(0);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(unused_imports)]

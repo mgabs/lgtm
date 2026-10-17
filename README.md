@@ -30,7 +30,12 @@
 - **Live Streaming Diffs**: Instant AST & streaming git patch parsing; automatically refreshes when files change on disk.
 - **Vim Motion Engine**: Full `j`/`k`, `gg`/`G`, `{`/`}`, `]f`/`[f`, `]h`/`[h`, `]c`/`[c`, `]t`/`[t` (PR threads), `]w`/`[w`, `]u`/`[u`, `zz`/`zt`/`zb`, `/` search, `*`/`#` symbol search, `y` yank, `PgUp`/`PgDn`.
 - **Git Revision & Range Diffing**: Direct comparison of branch ranges (`lgtm main..feat`, `lgtm HEAD~3..HEAD`), commit hashes, or in-app via `:diff <range>`.
-- **Native MCP Server Mode (`lgtm serve --mcp` / `lgtm mcp`)**: Standard JSON-RPC Model Context Protocol (MCP) server over stdio for autonomous AI agents (Claude Code, Cursor, Windsurf, Aider) to query diffs, run security scans, and manage review directives programmatically, including recording claims that a directive was handled (verified against the diff, never auto-resolved).
+- **Human-in-the-Loop Breakpoint Gate (`lgtm gate`)**: Agent pre-tool / pre-commit hook halting autonomous execution until reviewed and approved via `A` / `:approve` or `:reject-all` in TUI.
+- **Reject Hunk & Re-Prompt (`X` / `:reject`)**: 1-key action discarding flawed hunk from working copy and sending prompt with directive/alert context directly to the agent's pane.
+- **Context-Aware Directive Injection (`Enter`)**: Passes `#ref file:line [rule_id] <alert> | DIRECTIVE: <text>` to target agent pane or system clipboard, or bare line ref if no alert/directive exists.
+- **Agent Session / Prompt Correlation (`P` / `:prompt`)**: Split modal displaying agent prompt context and instructions next to diffs from `.lgtm/gate.json`, `.lgtm/prompt.txt`, or commit history.
+- **Test Authenticity & Mutation Check (`T` / `lgtm verify-tests`)**: Automated tautological test verification (`assert_eq!(x, x)`, `toBe(x)`, `assertEquals(x, x)`) and in-app mutation testing.
+- **Native MCP Server & Subscriptions (`lgtm serve --mcp` / `lgtm mcp`)**: Standard JSON-RPC MCP server with live resource read/subscribe (`lgtm://directives`, `lgtm://diff`, `lgtm://findings`, `lgtm://review-state`) and directive claim tracking.
 - **Quick Steering Directive Chords**: 1-key canned directive templates:
   - `ca`: ⚡ Test Coverage (`Add unit/regression tests covering these branches.`)
   - `cs`: 🔒 Security (`Ensure inputs are sanitized, parameterized, and auth checks enforced.`)
@@ -45,17 +50,18 @@
   - **Identifier Hallucination / Typo Guard**: Flags 1-2 character Levenshtein distance typos against repository symbol index.
   - **Dead Function Addition (YAGNI)**: Identifies newly added functions with 0 usages across the project.
   - **Breaking Public API Drift**: Detects changes to `pub` signatures, struct fields, or trait definitions.
-  - **Security & Test Guard**: Flags SQLi, command injection, hardcoded secrets, TLS/auth bypass, and test neutering (deleted asserts, skipped tests, mock inflation).
+  - **Security & Test Guard**: Flags SQLi, command injection, hardcoded secrets, TLS/auth bypass, and test neutering (deleted asserts, skipped tests, mock inflation, self-assertions).
 - **Syntax & Hunk Folding**: Vim-style folding (`zc`, `zo`, `za`, `zM`, `zR`, `zm`, `zr`) to collapse or expand unchanged lines, clean files, or reviewed hunks.
 - **Interactive Commit Forge (`C` / `:commit`)**: Craft conventional commits (`feat:`, `fix:`, `refactor:`, etc.) directly from staged hunks with automated diff-aware commit message synthesis.
 - **Tabbed Interactive Help Modal (`?` / `h`)**: 7 discrete documentation tabs covering Overview & Modes, Motions, Directives, Staging & Forge, Folding, Guardrails, and Ex-Commands & CI.
-- **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:diff <rev>`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
+- **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:diff <rev>`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:approve`, `:reject`, `:prompt`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
 - **PR Review Mode**: Review GitHub PRs (`gh`) or Azure DevOps PRs (`az`: list, diff, policies, threads, post, reply, resolve, vote) with `lgtm pr <num>` or `:pr <num>`, write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review` on GitHub.
 - **CI step**: `lgtm ci --rev origin/main...HEAD` gates a committed range (exit 0 pass, 1 blocking findings, 2 tool error); a composite GitHub Action (`mgabs/lgtm`) adds verified install, SARIF upload and a job summary.
 - **Orphaned comments**: comments re-pin when code moves and are flagged `⚠ Orphaned` when their code is gone, never deleted.
 - **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and instant report export (`w` / `:export`).
 - **Headless CI & Security Gates**:
   - `lgtm check`: Pre-commit / CI gate that blocks builds on critical security vulnerabilities or complexity spikes.
+  - `lgtm gate`: Blocks autonomous agents until human approves or rejects via TUI.
   - `lgtm scan`: Generates full Markdown audit reports or SARIF 2.1.0 output for GitHub Security Code Scanning.
 - **Zero-Crash Non-Git Fallback**: Graceful fallback and file diff scanning even outside git repositories.
 
@@ -156,7 +162,10 @@ lgtm commit -m "feat: core diff engine"
 | `U` | Unstage entire current file |
 | `C` / `:commit` | Open interactive **Commit Forge** modal |
 | `<Space>x` | Discard changes in current hunk |
-| `X` | Discard all working tree changes for current file |
+| `X` / `:reject` | Reject & revert hunk under cursor; re-prompt agent with directive/alert context |
+| `A` / `:approve` | Approve waiting agent breakpoint gate (`.lgtm/gate.json`) |
+| `P` / `:prompt` | View agent prompt context modal from gate, `.lgtm/prompt.txt`, or commit history |
+| `T` | Run mutation verification probe across test files |
 | `c` | Add inline review directive / comment on current line |
 | `x` / `<Space>d` | Remove review directive on current line |
 | `v` | Mark current file as reviewed (persisted in `.lgtm/state.json`) |
@@ -164,9 +173,9 @@ lgtm commit -m "feat: core diff engine"
 | `Tab` | Toggle 35-column file drawer / sidebar |
 | `d` | Toggle split-view / unified diff view |
 | `p` | Select target `tmux` pane for agent steering |
-| `Enter` | Inject reference `#ref file:line` into active `tmux` pane |
+| `Enter` | Inject reference `#ref file:line [rule] <alert> | DIRECTIVE: <text>` into active `tmux` pane |
 | `Ctrl-s` | Compile and export all review directives to agent / `.lgtm/review.md` |
-| `?` / `h` | Toggle multi-tab help modal (`1`-`6` or `[`/`]` to switch tabs) |
+| `?` / `h` | Toggle multi-tab help modal (`1`-`7` or `[`/`]` to switch tabs) |
 | `q` | Quit |
 
 ---
@@ -178,6 +187,10 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:w` — Save comments / directives to `.lgtm/comments.jsonl`
 - `:q` / `:q!` — Quit
 - `:wq` / `:x` — Save directives and quit
+- `:approve` / `:lgtm` — Approve pending agent breakpoint gate
+- `:reject` — Reject current hunk and dispatch prompt to agent
+- `:reject-all` — Reject waiting agent breakpoint gate
+- `:prompt` / `:context` — Open agent prompt and instruction context modal
 - `:commit` / `:cforge` — Open Commit Forge modal
 - `:pr <number>` — Load and review a GitHub or Azure DevOps PR diff
 - `:prs` — Open interactive PR picker

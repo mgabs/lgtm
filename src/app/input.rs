@@ -16,6 +16,7 @@ impl App {
             ActiveView::CommandLine => self.handle_command_line_key(key),
             ActiveView::CommitModal => self.handle_commit_modal_key(key),
             ActiveView::AuditReport => self.handle_audit_report_key(key),
+            ActiveView::AgentPrompt => self.handle_agent_prompt_key(key),
         }
     }
 
@@ -237,6 +238,10 @@ impl App {
                     self.discard_current_hunk();
                 }
             }
+            (KeyModifiers::SHIFT, KeyCode::Char('X'))
+            | (KeyModifiers::NONE, KeyCode::Char('X')) => {
+                self.reject_hunk_and_reprompt();
+            }
             (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
                 self.page_down(15);
             }
@@ -271,6 +276,12 @@ impl App {
             }
             (_, KeyCode::Char('R')) => {
                 self.toggle_resolve_current_comment();
+            }
+            (_, KeyCode::Char('A')) => {
+                self.approve_gate();
+            }
+            (_, KeyCode::Char('P')) => {
+                self.active_view = ActiveView::AgentPrompt;
             }
             (_, KeyCode::Char('T')) => {
                 self.run_test_mutation_probe();
@@ -1316,6 +1327,15 @@ impl App {
             }
             (_, KeyCode::Char(c)) => {
                 self.commit_message_input.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn handle_agent_prompt_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('P') => {
+                self.active_view = ActiveView::Diff;
             }
             _ => {}
         }

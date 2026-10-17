@@ -3,17 +3,21 @@ use lgtm_core::git::GitEngine;
 use lgtm_core::guard::SecurityAndTestGuard;
 use lgtm_core::model::DiffSnapshot;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
+use std::sync::Mutex;
 
 pub struct McpServer {
     git_engine: GitEngine,
+    subscriptions: Mutex<HashSet<String>>,
 }
 
 impl McpServer {
     pub fn new<P: AsRef<Path>>(repo_path: P) -> Self {
         Self {
             git_engine: GitEngine::new(repo_path),
+            subscriptions: Mutex::new(HashSet::new()),
         }
     }
 
@@ -76,7 +80,11 @@ impl McpServer {
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {
-                        "tools": {}
+                        "tools": {},
+                        "resources": {
+                            "subscribe": true,
+                            "listChanged": true
+                        }
                     },
                     "serverInfo": {
                         "name": "lgtm",
@@ -198,6 +206,91 @@ impl McpServer {
                         }
                     })),
                 }
+            }
+            "resources/list" => Some(json!({
+                "jsonrpc": "2.0",
+                "id": id_val,
+                "result": {
+                    "resources": [
+                        {
+                            "uri": "lgtm://directives",
+                            "name": "Review Directives",
+                            "description": "Active and claimed human review directives with line anchors and verdicts.",
+                            "mimeType": "application/json"
+                        },
+                        {
+                            "uri": "lgtm://diff",
+                            "name": "Working Tree Diff",
+                            "description": "Current repository git diff snapshot.",
+                            "mimeType": "text/plain"
+                        },
+                        {
+                            "uri": "lgtm://findings",
+                            "name": "Security & Quality Findings",
+                            "description": "Static analysis alerts and test fraud detections across working tree.",
+                            "mimeType": "application/json"
+                        },
+                        {
+                            "uri": "lgtm://review-state",
+                            "name": "Review Store State",
+                            "description": "Reviewed hunks, progress percentage, and persistent marks.",
+                            "mimeType": "application/json"
+                        }
+                    ]
+                }
+            })),
+            "resources/read" => {
+                let uri = params
+                    .get("uri")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or_default();
+                match self.read_resource(uri) {
+                    Ok((mime_type, text)) => Some(json!({
+                        "jsonrpc": "2.0",
+                        "id": id_val,
+                        "result": {
+                            "contents": [
+                                {
+                                    "uri": uri,
+                                    "mimeType": mime_type,
+                                    "text": text
+                                }
+                            ]
+                        }
+                    })),
+                    Err(e) => Some(json!({
+                        "jsonrpc": "2.0",
+                        "id": id_val,
+                        "error": {
+                            "code": -32602,
+                            "message": format!("Error reading resource {}: {}", uri, e)
+                        }
+                    })),
+                }
+            }
+            "resources/subscribe" => {
+                if let Some(uri) = params.get("uri").and_then(|u| u.as_str()) {
+                    if let Ok(mut subs) = self.subscriptions.lock() {
+                        subs.insert(uri.to_string());
+                    }
+                }
+                Some(json!({
+                    "jsonrpc": "2.0",
+                    "id": id_val,
+                    "result": {}
+                }))
+            }
+            "resources/unsubscribe" => {
+                if let Some(uri) = params.get("uri").and_then(|u| u.as_str()) {
+                    if let Ok(mut subs) = self.subscriptions.lock() {
+                        subs.remove(uri);
+                    }
+                }
+                Some(json!({
+                    "jsonrpc": "2.0",
+                    "id": id_val,
+                    "result": {}
+                }))
             }
             _ => Some(json!({
                 "jsonrpc": "2.0",
@@ -445,6 +538,32 @@ impl McpServer {
 
         Ok(out)
     }
+
+    fn read_resource(&self, uri: &str) -> Result<(String, String)> {
+        match uri {
+            "lgtm://directives" => {
+                let text = self.directive_status()?;
+                Ok(("application/json".to_string(), text))
+            }
+            "lgtm://diff" => {
+                let snap = self.git_engine.compute_diff_snapshot()?;
+                let text = self.format_diff_summary(&snap)?;
+                Ok(("text/plain".to_string(), text))
+            }
+            "lgtm://findings" => {
+                let snap = self.git_engine.compute_diff_snapshot()?;
+                let cfg = lgtm_core::config::LgtmConfig::default();
+                let findings = lgtm_core::findings::run(&snap.files, &cfg);
+                let text = serde_json::to_string_pretty(&findings.active)?;
+                Ok(("application/json".to_string(), text))
+            }
+            "lgtm://review-state" => {
+                let text = self.review_state()?;
+                Ok(("application/json".to_string(), text))
+            }
+            _ => Err(anyhow::anyhow!("Unknown resource URI: {}", uri)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -568,5 +687,68 @@ mod tests {
         assert!(!first.as_array().unwrap().is_empty());
         let second = text(&call(&s, "lgtm_scan_changes", json!({})));
         assert!(second.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_mcp_resources_and_subscriptions() {
+        let d = repo();
+        let s = McpServer::new(d.path());
+
+        // resources/list
+        let list_resp = s
+            .handle_request("resources/list", &json!({}), Some(json!(10)))
+            .unwrap();
+        let resources = list_resp["result"]["resources"].as_array().unwrap();
+        assert_eq!(resources.len(), 4);
+        let uris: Vec<_> = resources
+            .iter()
+            .map(|r| r["uri"].as_str().unwrap())
+            .collect();
+        assert!(uris.contains(&"lgtm://directives"));
+        assert!(uris.contains(&"lgtm://diff"));
+        assert!(uris.contains(&"lgtm://findings"));
+        assert!(uris.contains(&"lgtm://review-state"));
+
+        // resources/subscribe
+        let sub_resp = s
+            .handle_request(
+                "resources/subscribe",
+                &json!({ "uri": "lgtm://directives" }),
+                Some(json!(11)),
+            )
+            .unwrap();
+        assert!(sub_resp["result"].is_object());
+        assert!(s
+            .subscriptions
+            .lock()
+            .unwrap()
+            .contains("lgtm://directives"));
+
+        // resources/read
+        let read_resp = s
+            .handle_request(
+                "resources/read",
+                &json!({ "uri": "lgtm://directives" }),
+                Some(json!(12)),
+            )
+            .unwrap();
+        let contents = read_resp["result"]["contents"].as_array().unwrap();
+        assert_eq!(contents[0]["uri"], "lgtm://directives");
+        assert_eq!(contents[0]["mimeType"], "application/json");
+
+        // resources/unsubscribe
+        let unsub_resp = s
+            .handle_request(
+                "resources/unsubscribe",
+                &json!({ "uri": "lgtm://directives" }),
+                Some(json!(13)),
+            )
+            .unwrap();
+        assert!(unsub_resp["result"].is_object());
+        assert!(!s
+            .subscriptions
+            .lock()
+            .unwrap()
+            .contains("lgtm://directives"));
     }
 }

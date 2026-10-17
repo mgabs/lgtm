@@ -55,6 +55,18 @@ impl App {
                     self.open_commit_modal();
                 }
             }
+            "reject" => {
+                self.reject_hunk_and_reprompt();
+            }
+            "approve" | "lgtm" | "accept" => {
+                self.approve_gate();
+            }
+            "reject-all" | "reject-gate" => {
+                self.reject_gate();
+            }
+            "prompt" | "context" => {
+                self.active_view = ActiveView::AgentPrompt;
+            }
             "c" | "comments" | "directives" | "todo" if args.first() == Some(&"recheck") => {
                 self.recheck_directives();
             }

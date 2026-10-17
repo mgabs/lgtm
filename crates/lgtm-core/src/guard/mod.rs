@@ -444,12 +444,89 @@ fn is_test_skip(text: &str) -> bool {
 }
 
 fn is_tautological_assertion(text: &str) -> bool {
-    // lgtm:ignore
-    let t = text.to_lowercase();
-    t.contains("assert true") // lgtm:ignore
-        || t.contains("assert 1 == 1") // lgtm:ignore
-        || t.contains("expect(true).tobe(true)") // lgtm:ignore
-        || t.contains("assert_eq!(true, true)") // lgtm:ignore
+    let t = text.trim();
+    let lower = t.to_lowercase();
+
+    // Constant truth asserts
+    if lower.contains("assert true")
+        || lower.contains("assert(true)")
+        || lower.contains("assert!(true)")
+        || lower.contains("assert 1 == 1")
+        || lower.contains("assert!(1 == 1)")
+        || lower.contains("assert!(false == false)")
+        || lower.contains("assert_eq!(true, true)")
+        || lower.contains("assert_ne!(true, false)")
+        || lower.contains("expect(true).tobe(true)")
+        || lower.contains("expect(true).tobetruthy()")
+        || lower.contains("expect(1).tobe(1)")
+        || lower.contains("asserttrue(true)")
+        || lower.contains("assertfalse(false)")
+    {
+        return true;
+    }
+
+    // Check for self-equality: assert_eq!(X, X), assert_ne!(X, X)
+    for prefix in &["assert_eq!(", "assert_ne!(", "assert_matches!("] {
+        if let Some(start) = t.find(prefix) {
+            let after = &t[start + prefix.len()..];
+            if let Some(end) = after.rfind(')') {
+                let inner = &after[..end];
+                let parts: Vec<&str> = inner.split(',').collect();
+                if parts.len() >= 2 {
+                    let a = parts[0].trim();
+                    let b = parts[1].trim();
+                    if !a.is_empty() && a == b {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // assertEquals(X, X), assertSame(X, X), assert.strictEqual(X, X)
+    for prefix in &[
+        "assertEquals(",
+        "assertSame(",
+        "assert_equal(",
+        "assert.equal(",
+        "assert.strictEqual(",
+    ] {
+        if let Some(start) = t.find(prefix) {
+            let after = &t[start + prefix.len()..];
+            if let Some(end) = after.rfind(')') {
+                let inner = &after[..end];
+                let parts: Vec<&str> = inner.split(',').collect();
+                if parts.len() >= 2 {
+                    let a = parts[0].trim();
+                    let b = parts[1].trim();
+                    if !a.is_empty() && a == b {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // expect(X).toBe(X) or expect(X).toEqual(X)
+    if let Some(expect_start) = t.find("expect(") {
+        let after_expect = &t[expect_start + 7..];
+        if let Some(paren_close) = after_expect.find(')') {
+            let actual = after_expect[..paren_close].trim();
+            for matcher in &[".toBe(", ".toEqual(", ".toStrictEqual("] {
+                if let Some(m_start) = after_expect.find(matcher) {
+                    let after_m = &after_expect[m_start + matcher.len()..];
+                    if let Some(m_close) = after_m.rfind(')') {
+                        let expected = after_m[..m_close].trim();
+                        if !actual.is_empty() && actual == expected {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn is_swallowed_exception(text: &str) -> bool {

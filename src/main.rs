@@ -105,6 +105,21 @@ fn main() -> ExitCode {
     }
 
     match cli.command {
+        Some(Commands::Gate {
+            repo,
+            timeout,
+            message,
+        }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            match headless::run_gate(&repo_path, timeout, message.as_deref()) {
+                Ok(code) => ExitCode::from(code as u8),
+                Err(e) => {
+                    eprintln!("Error running gate: {}", e);
+                    ExitCode::from(2)
+                }
+            }
+        }
         Some(Commands::Risk { repo }) => {
             let target = repo.unwrap_or(cli.repo);
             let repo_path = std::fs::canonicalize(&target).unwrap_or(target);

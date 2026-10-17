@@ -43,6 +43,18 @@ pub enum AuditStartMode {
 
 #[derive(clap::Subcommand, Debug)]
 pub enum Commands {
+    /// Wait for human review approval in TUI before agent proceeds
+    Gate {
+        /// Target repository path
+        #[arg(short, long, default_value = ".")]
+        repo: Option<PathBuf>,
+        /// Timeout in seconds to wait for approval (default: 300)
+        #[arg(long, default_value_t = 300)]
+        timeout: u64,
+        /// Optional message / prompt describing the agent's changes
+        #[arg(short, long)]
+        message: Option<String>,
+    },
     /// Audit current diff for security risks, test neutering, and fraud
     Risk {
         /// Target repository path

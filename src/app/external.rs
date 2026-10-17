@@ -58,8 +58,23 @@ impl App {
     }
 
     pub fn run_test_mutation_probe(&mut self) {
-        self.status_message =
-            Some("Running test validity probe (checking for vacuous assertions)...".to_string());
+        let test_alerts: Vec<_> = self
+            .alerts
+            .iter()
+            .filter(|a| a.rule_id.starts_with("test/"))
+            .collect();
+        if test_alerts.is_empty() {
+            self.status_message = Some(
+                "✅ Test Authenticity Probe: No test neutering or vacuous assertions detected"
+                    .to_string(),
+            );
+        } else {
+            self.status_message = Some(format!(
+                "⚠️ Test Authenticity Probe: Found {} test risk(s) (e.g. [{}])",
+                test_alerts.len(),
+                test_alerts[0].rule_id
+            ));
+        }
     }
 
     pub fn inject_reference_to_agent(&mut self) {
@@ -82,9 +97,58 @@ impl App {
                 }
             }
 
+            let matching_alerts: Vec<&crate::guard::GuardAlert> = self
+                .alerts
+                .iter()
+                .filter(|a| {
+                    (a.file_path == path_str || a.file_path == file.new_path.to_string_lossy())
+                        && a.line_no == target_line
+                })
+                .collect();
+
+            let matching_comment = target_line.and_then(|lno| {
+                self.comments.iter().find(|c| {
+                    !c.orphaned
+                        && (c.file_path == path_str
+                            || c.file_path == file.new_path.to_string_lossy())
+                        && c.target_line_no == lno
+                })
+            });
+
+            let mut directive_parts = Vec::new();
+            for alert in &matching_alerts {
+                directive_parts.push(format!("[{}] {}", alert.rule_id, alert.title));
+            }
+            if let Some(comment) = matching_comment {
+                directive_parts.push(format!("DIRECTIVE: {}", comment.comment_text));
+            }
+
             let payload = match target_line {
-                Some(line_no) => format!("#ref {}:{}", path_str, line_no),
-                None => format!("#ref {}", path_str),
+                Some(line_no) => {
+                    if directive_parts.is_empty() {
+                        format!("#ref {}:{}", path_str, line_no)
+                    } else {
+                        let mut msg = format!(
+                            "#ref {}:{} {}",
+                            path_str,
+                            line_no,
+                            directive_parts.join(" | ")
+                        );
+                        if let Some(comment) = matching_comment {
+                            for reply in &comment.replies {
+                                msg.push_str(&format!("\n↳ Reply: {}", reply));
+                            }
+                        }
+                        msg
+                    }
+                }
+                None => {
+                    if directive_parts.is_empty() {
+                        format!("#ref {}", path_str)
+                    } else {
+                        format!("#ref {} {}", path_str, directive_parts.join(" | "))
+                    }
+                }
             };
 
             let sink = self.agent_sink();
@@ -192,5 +256,135 @@ impl App {
             IpcBridge::send_osc52_clipboard(&reference);
             self.status_message = Some(format!("Copied to clipboard: {}", reference));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::test_util::create_test_app;
+    use crate::comment::CommentAnchor;
+    use crate::guard::{GuardAlert, Severity};
+    use crate::model::*;
+    use std::path::PathBuf;
+
+    fn setup_app_with_line(line_no: u32) -> crate::app::App {
+        let mut app = create_test_app();
+        let hunk = DiffHunk {
+            old_start: 1,
+            old_lines: 1,
+            new_start: line_no,
+            new_lines: 1,
+            header: "@@ -1,1 +1,1 @@".into(),
+            lines: vec![DiffLine {
+                line_type: LineType::Addition,
+                content: "let x = 42;".into(),
+                old_line_num: None,
+                new_line_num: Some(line_no),
+            }],
+            is_folded: false,
+        };
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/main.rs"),
+            change_type: ChangeType::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: vec![hunk],
+            is_folded: false,
+            is_reviewed: false,
+        };
+        app.snapshot = DiffSnapshot::new(vec![file]);
+        app.selected_file_idx = 0;
+        app.cursor_line_idx = 0;
+        app.agent_pane = None;
+        app
+    }
+
+    #[test]
+    fn test_inject_reference_plain() {
+        let mut app = setup_app_with_line(10);
+        app.inject_reference_to_agent();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Sent to clipboard (OSC 52): #ref src/main.rs:10")
+        );
+    }
+
+    #[test]
+    fn test_inject_reference_with_alert() {
+        let mut app = setup_app_with_line(10);
+        app.alerts.push(GuardAlert {
+            rule_id: "security/sqli".into(),
+            fingerprint: "fp1".into(),
+            severity: Severity::Critical,
+            title: "SQL Injection vulnerability".into(),
+            description: "desc".into(),
+            line_no: Some(10),
+            file_path: "src/main.rs".into(),
+        });
+        app.inject_reference_to_agent();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Sent to clipboard (OSC 52): #ref src/main.rs:10 [security/sqli] SQL Injection vulnerability")
+        );
+    }
+
+    #[test]
+    fn test_inject_reference_with_directive() {
+        let mut app = setup_app_with_line(10);
+        app.comments.push(CommentAnchor {
+            file_path: "src/main.rs".into(),
+            target_line_no: 10,
+            target_code: "let x = 42;".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "Use constant here".into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            orphaned: false,
+            track: Default::default(),
+        });
+        app.inject_reference_to_agent();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Sent to clipboard (OSC 52): #ref src/main.rs:10 DIRECTIVE: Use constant here")
+        );
+    }
+
+    #[test]
+    fn test_inject_reference_with_alert_and_directive() {
+        let mut app = setup_app_with_line(10);
+        app.alerts.push(GuardAlert {
+            rule_id: "security/sqli".into(),
+            fingerprint: "fp1".into(),
+            severity: Severity::Critical,
+            title: "SQL Injection vulnerability".into(),
+            description: "desc".into(),
+            line_no: Some(10),
+            file_path: "src/main.rs".into(),
+        });
+        app.comments.push(CommentAnchor {
+            file_path: "src/main.rs".into(),
+            target_line_no: 10,
+            target_code: "let x = 42;".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "Use parameter binding".into(),
+            replies: vec!["Checked".into()],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            orphaned: false,
+            track: Default::default(),
+        });
+        app.inject_reference_to_agent();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Sent to clipboard (OSC 52): #ref src/main.rs:10 [security/sqli] SQL Injection vulnerability | DIRECTIVE: Use parameter binding\n↳ Reply: Checked")
+        );
     }
 }

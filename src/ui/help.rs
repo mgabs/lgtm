@@ -299,7 +299,23 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  Enter            ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Inject single #ref file:line anchor into target agent tmux pane"),
+                    Span::raw("Inject #ref file:line [rule] alert | DIRECTIVE into target agent pane"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  X (or :reject)   ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Reject & revert hunk under cursor and re-prompt agent with reason"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  A (or :approve)  ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Approve waiting agent breakpoint gate (.lgtm/gate.json)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  P (or :prompt)   ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Inspect agent prompt / gate context modal next to diff"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  T                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Run mutation probe across test files to verify test authenticity"),
                 ]),
                 Line::from(vec![
                     Span::styled("  p (or <Space>p)  ", Style::default().fg(Color::Cyan)),
@@ -514,6 +530,22 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 Line::from(vec![
                     Span::styled("  :diff                ", Style::default().fg(Color::Cyan)),
                     Span::raw("Return to Diff review mode from Audit mode (or specify revision range)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :approve / :lgtm     ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Approve pending agent breakpoint gate"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :reject              ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Revert hunk under cursor and dispatch prompt with rejection reason"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :reject-all          ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Reject waiting agent breakpoint gate"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :prompt / :context   ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open agent prompt / gate context modal"),
                 ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
