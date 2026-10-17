@@ -40,6 +40,7 @@ pub enum ActiveView {
     CommandLine,
     CommitModal,
     AuditReport,
+    AgentPrompt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +93,8 @@ pub struct App {
     pub comment_reply_input: String,
     pub comment_reply_target_idx: Option<usize>,
     pub comment_list_selected_idx: usize,
+    pub comment_source_view: ActiveView,
+    pub comment_target_alert: Option<crate::guard::GuardAlert>,
 
     // PR Thread inspection state
     pub thread_selected_idx: usize,
@@ -187,11 +190,12 @@ impl App {
                 }
             }
         } else if let Some(ref rev) = explicit_rev {
-            match git_engine.compute_revision_diff(rev) {
+            let expanded = git_engine.expand_branch_spec(rev);
+            match git_engine.compute_revision_diff(&expanded) {
                 Ok(snap) => {
                     let msg = format!(
                         "Loaded revision diff '{}' ({} files changed)",
-                        rev,
+                        expanded,
                         snap.files.len()
                     );
                     (snap, Some(msg))
@@ -260,6 +264,8 @@ impl App {
             comment_reply_input: String::new(),
             comment_reply_target_idx: None,
             comment_list_selected_idx: 0,
+            comment_source_view: ActiveView::Diff,
+            comment_target_alert: None,
             thread_selected_idx: 0,
             thread_scroll_offset: 0,
             commit_message_input: String::new(),
@@ -346,5 +352,103 @@ impl App {
         }
         self.update_file_picker_filter();
         self.status_message = Some(format!("{} updated ({} alerts)", label, self.alerts.len()));
+    }
+
+    pub fn check_gate_status(&self) -> Option<(String, String)> {
+        let gate_file = self.git_engine.repo_path.join(".lgtm/gate.json");
+        if gate_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&gate_file) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let status = val
+                        .get("status")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("waiting")
+                        .to_string();
+                    let msg = val
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("Agent awaiting approval")
+                        .to_string();
+                    return Some((status, msg));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn approve_gate(&mut self) {
+        let gate_file = self.git_engine.repo_path.join(".lgtm/gate.json");
+        if gate_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&gate_file) {
+                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(obj) = val.as_object_mut() {
+                        obj.insert("status".to_string(), serde_json::json!("approved"));
+                    }
+                    let _ = std::fs::write(
+                        &gate_file,
+                        serde_json::to_string_pretty(&val).unwrap_or_default(),
+                    );
+                    self.status_message =
+                        Some("✅ Approved agent gate! Agent unblocked.".to_string());
+                    return;
+                }
+            }
+        }
+        self.status_message = Some("No active agent gate waiting.".to_string());
+    }
+
+    pub fn reject_gate(&mut self) {
+        let gate_file = self.git_engine.repo_path.join(".lgtm/gate.json");
+        if gate_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&gate_file) {
+                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(obj) = val.as_object_mut() {
+                        obj.insert("status".to_string(), serde_json::json!("rejected"));
+                    }
+                    let _ = std::fs::write(
+                        &gate_file,
+                        serde_json::to_string_pretty(&val).unwrap_or_default(),
+                    );
+                    self.status_message =
+                        Some("❌ Rejected agent gate! Agent notified.".to_string());
+                    return;
+                }
+            }
+        }
+        self.status_message = Some("No active agent gate waiting.".to_string());
+    }
+
+    pub fn load_agent_prompt_context(&self) -> (String, String) {
+        // 1. Check .lgtm/gate.json
+        if let Some((_, msg)) = self.check_gate_status() {
+            if !msg.is_empty() && msg != "Agent awaiting approval" {
+                return ("Gate Context".to_string(), msg);
+            }
+        }
+
+        // 2. Check .lgtm/prompt.txt or .lgtm/last-prompt.md
+        for name in &["prompt.txt", "last-prompt.md", "prompt.md"] {
+            let p = self.git_engine.repo_path.join(".lgtm").join(name);
+            if p.exists() {
+                if let Ok(content) = std::fs::read_to_string(&p) {
+                    let trimmed = content.trim();
+                    if !trimmed.is_empty() {
+                        return (format!(".lgtm/{}", name), trimmed.to_string());
+                    }
+                }
+            }
+        }
+
+        // 3. Check git HEAD commit message
+        if let Some(msg) = self.git_engine.last_commit_message() {
+            if !msg.is_empty() {
+                return ("Git HEAD Commit".to_string(), msg);
+            }
+        }
+
+        (
+            "No Prompt Found".to_string(),
+            "No prompt context found.\n\nTo provide agent prompt context:\n- Pass message with `lgtm gate -m '<prompt>'`\n- Write prompt to `.lgtm/prompt.txt`\n- Or commit with a descriptive message.".to_string(),
+        )
     }
 }

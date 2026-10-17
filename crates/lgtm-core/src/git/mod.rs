@@ -326,6 +326,13 @@ impl GitEngine {
         let oid = repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)?;
         Ok(oid)
     }
+
+    pub fn last_commit_message(&self) -> Option<String> {
+        let repo = git2::Repository::open(&self.repo_path).ok()?;
+        let head = repo.head().ok()?;
+        let commit = head.peel_to_commit().ok()?;
+        commit.message().map(|m| m.trim().to_string())
+    }
 }
 
 pub fn generate_line_selection_patch(

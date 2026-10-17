@@ -435,20 +435,40 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
 
                                     let old_no = line
                                         .old_line_num
-                                        .map(|n| format!("{:4} ", n))
+                                        .map(|n| format!(" {:3} ", n))
                                         .unwrap_or_else(|| "     ".to_string());
                                     let new_no = line
                                         .new_line_num
-                                        .map(|n| format!("{:4} ", n))
-                                        .unwrap_or_else(|| "     ".to_string());
+                                        .map(|n| {
+                                            if is_cursor {
+                                                format!("▶{:3} ", n)
+                                            } else {
+                                                format!(" {:3} ", n)
+                                            }
+                                        })
+                                        .unwrap_or_else(|| {
+                                            if is_cursor {
+                                                "▶    ".to_string()
+                                            } else {
+                                                "     ".to_string()
+                                            }
+                                        });
 
                                     let mut style = Style::default().fg(Color::White);
                                     if let Some(bg) = base_bg {
-                                        style = style.bg(bg);
+                                         style = style.bg(bg);
                                     }
                                     if is_cursor {
                                         style = style.add_modifier(Modifier::BOLD);
                                     }
+
+                                    let right_no_style = if is_cursor {
+                                        Style::default()
+                                            .fg(Color::Cyan)
+                                            .add_modifier(Modifier::BOLD)
+                                    } else {
+                                        Style::default().fg(Color::DarkGray)
+                                    };
 
                                     let left_spans = vec![
                                         Span::styled(old_no, Style::default().fg(Color::DarkGray)),
@@ -456,7 +476,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                         Span::styled(line.content.clone(), style),
                                     ];
                                     let right_spans = vec![
-                                        Span::styled(new_no, Style::default().fg(Color::DarkGray)),
+                                        Span::styled(new_no, right_no_style),
                                         Span::styled("  ", Style::default()),
                                         Span::styled(line.content.clone(), style),
                                     ];
@@ -537,11 +557,30 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                         if let Some((_, add_line)) = add_opt {
                                             let new_no = add_line
                                                 .new_line_num
-                                                .map(|n| format!("{:4} ", n))
-                                                .unwrap_or_else(|| "     ".to_string());
+                                                .map(|n| {
+                                                    if is_cursor {
+                                                        format!("▶{:3} ", n)
+                                                    } else {
+                                                        format!(" {:3} ", n)
+                                                    }
+                                                })
+                                                .unwrap_or_else(|| {
+                                                    if is_cursor {
+                                                        "▶    ".to_string()
+                                                    } else {
+                                                        "     ".to_string()
+                                                    }
+                                                });
+                                            let right_no_style = if is_cursor {
+                                                Style::default()
+                                                    .fg(Color::Cyan)
+                                                    .add_modifier(Modifier::BOLD)
+                                            } else {
+                                                Style::default().fg(Color::DarkGray)
+                                            };
                                             right_spans.push(Span::styled(
                                                 new_no,
-                                                Style::default().fg(Color::DarkGray),
+                                                right_no_style,
                                             ));
                                             right_spans.push(Span::styled(
                                                 "+ ",
@@ -646,7 +685,9 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
 
                             let line_no = dline.new_line_num.or(dline.old_line_num);
                             let line_no_str = match line_no {
-                                Some(num) => format!("{:4} ", num),
+                                Some(num) if is_cursor => format!("▶{:3} ", num),
+                                Some(num) => format!(" {:3} ", num),
+                                None if is_cursor => "▶    ".to_string(),
                                 None => "     ".to_string(),
                             };
 
@@ -657,13 +698,19 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                 .collect();
 
                             // Check matching line-anchored comments
+                            let dname = file.display_name();
+                            let clean_dname = dname.trim_start_matches("./");
                             let matching_comments: Vec<&crate::comment::CommentAnchor> = app
                                 .comments
                                 .iter()
                                 .filter(|c| {
-                                    !c.orphaned
-                                        && c.file_path == file.display_name()
-                                        && Some(c.target_line_no) == line_no
+                                    if c.orphaned || Some(c.target_line_no) != line_no {
+                                        return false;
+                                    }
+                                    let clean_cpath = c.file_path.trim_start_matches("./");
+                                    clean_cpath == clean_dname
+                                        || clean_dname.ends_with(clean_cpath)
+                                        || clean_cpath.ends_with(clean_dname)
                                 })
                                 .collect();
 
@@ -719,8 +766,16 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                     .add_modifier(Modifier::BOLD)
                             };
 
+                            let line_no_style = if is_cursor {
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default().fg(Color::DarkGray)
+                            };
+
                             let mut line_spans = vec![
-                                Span::styled(line_no_str, Style::default().fg(Color::DarkGray)),
+                                Span::styled(line_no_str, line_no_style),
                                 Span::styled(gutter_icon, icon_style),
                                 Span::styled(
                                     prefix,
@@ -890,6 +945,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                 .title(title)
                 .border_style(Style::default().fg(Color::Cyan)),
         )
+        .scroll((app.diff_scroll_offset as u16, 0))
         .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);

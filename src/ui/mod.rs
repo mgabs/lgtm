@@ -61,8 +61,30 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 render_command_completion_column(frame, size, app);
             }
         }
+        ActiveView::AgentPrompt => render_agent_prompt_modal(frame, size, app),
         ActiveView::Diff | ActiveView::AuditReport => {}
     }
+}
+
+fn render_agent_prompt_modal(frame: &mut Frame, area: Rect, app: &mut App) {
+    let modal_area = centered_rect(75, 60, area);
+    frame.render_widget(Clear, modal_area);
+
+    let (source, content) = app.load_agent_prompt_context();
+
+    let block = Block::default()
+        .title(format!(
+            " 🤖 Agent Prompt Context ({}) [Esc/q/P to close] ",
+            source
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let paragraph = Paragraph::new(content)
+        .block(block)
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(paragraph, modal_area);
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

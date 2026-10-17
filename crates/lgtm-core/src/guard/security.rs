@@ -8,6 +8,11 @@ impl AdvancedSecurityGuard {
     pub fn scan_file(file: &FileDiff) -> Vec<GuardAlert> {
         let mut alerts = Vec::new();
         let path_str = file.display_name();
+        let path_lower = path_str.to_lowercase();
+        let is_lockfile = path_lower.ends_with(".lock")
+            || path_lower.ends_with("-lock.json")
+            || path_lower.ends_with("-lock.yaml")
+            || path_lower.ends_with(".lockb");
 
         for hunk in &file.hunks {
             for line in &hunk.lines {
@@ -20,8 +25,8 @@ impl AdvancedSecurityGuard {
                         continue;
                     }
 
-                    // 1. High-Entropy Secret Detection (for un-prefixed arbitrary tokens)
-                    if !is_known_secret_prefix(text) {
+                    // 1. High-Entropy Secret Detection (for un-prefixed arbitrary tokens; skip lockfiles)
+                    if !is_lockfile && !is_known_secret_prefix(text) {
                         if let Some(secret) = detect_high_entropy_string(text) {
                             alerts.push(GuardAlert {
                                 severity: Severity::Critical,
@@ -177,6 +182,11 @@ fn detect_high_entropy_string(line: &str) -> Option<String> {
             || trimmed.contains(' ')
             || trimmed.contains('\n')
             || trimmed.contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            || trimmed.contains("${")
+            || trimmed.contains("api-version=")
+            || trimmed.ends_with(".tar.gz")
+            || trimmed.ends_with(".zip")
+            || trimmed.ends_with(".tgz")
         {
             continue;
         }

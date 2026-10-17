@@ -9,15 +9,37 @@ pub(crate) fn render_comment_input(frame: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Length(3), Constraint::Min(2)])
         .split(popup_area);
 
+    let title = if let Some(ref alert) = app.comment_target_alert {
+        let loc = match alert.line_no {
+            Some(l) => format!("{}:{}", alert.file_path, l),
+            None => alert.file_path.clone(),
+        };
+        format!(
+            " Add Directive on Finding [{} {}] (Enter to save, Esc to cancel) ",
+            loc,
+            alert.severity.badge()
+        )
+    } else {
+        " Add Review Directive (Enter to save, Esc to cancel) ".to_string()
+    };
+
     let input = Paragraph::new(app.comment_input.as_str()).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Add Review Directive (Enter to save, Esc to cancel) ")
+            .title(title)
             .border_style(Style::default().fg(Color::Magenta)),
     );
     frame.render_widget(input, chunks[0]);
 
-    let help = Paragraph::new("Comment will be context-anchored in .lgtm/comments.jsonl. Press Ctrl-s in diff view to compile into agent prompt.").style(Style::default().fg(Color::DarkGray));
+    let help_text = if let Some(ref alert) = app.comment_target_alert {
+        format!(
+            "Finding: {} - {}. Directive will be saved to .lgtm/comments.jsonl.",
+            alert.title, alert.description
+        )
+    } else {
+        "Comment will be context-anchored in .lgtm/comments.jsonl. Press Ctrl-s in diff view to compile into agent prompt.".to_string()
+    };
+    let help = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
     frame.render_widget(help, chunks[1]);
 }
 
@@ -214,5 +236,7 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
             .border_style(Style::default().fg(Color::Magenta)),
     );
 
-    frame.render_widget(list, popup_area);
+    let mut state =
+        ratatui::widgets::ListState::default().with_selected(Some(app.comment_list_selected_idx));
+    frame.render_stateful_widget(list, popup_area, &mut state);
 }

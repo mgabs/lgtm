@@ -55,6 +55,18 @@ impl App {
                     self.open_commit_modal();
                 }
             }
+            "reject" => {
+                self.reject_hunk_and_reprompt();
+            }
+            "approve" | "lgtm" => {
+                self.approve_gate();
+            }
+            "reject-all" | "reject-gate" => {
+                self.reject_gate();
+            }
+            "prompt" | "context" => {
+                self.active_view = ActiveView::AgentPrompt;
+            }
             "c" | "comments" | "directives" | "todo" if args.first() == Some(&"recheck") => {
                 self.recheck_directives();
             }
@@ -62,8 +74,7 @@ impl App {
                 self.orphans_command(&args[1..]);
             }
             "c" | "comments" | "directives" | "todo" => {
-                self.comment_list_selected_idx = 0;
-                self.active_view = ActiveView::CommentList;
+                self.open_comment_list();
             }
             "prs" => {
                 self.open_pr_picker();
@@ -534,7 +545,10 @@ mod tests {
         let mut app_e = create_test_app();
         app_e.command.input = "e".to_string();
         app_e.command.autocomplete_next();
-        assert_eq!(app_e.command.completions, vec!["e", "edit", "exit"]);
+        assert_eq!(
+            app_e.command.completions,
+            vec!["e", "edit", "exit", "export"]
+        );
         assert_eq!(app_e.command.input, "e");
         app_e.command.autocomplete_next();
         assert_eq!(app_e.command.input, "edit");
@@ -546,9 +560,9 @@ mod tests {
         app_all.command.input = "".to_string();
         app_all.command.autocomplete_next();
         assert!(app_all.command.completions.len() > 30);
-        assert_eq!(app_all.command.input, "audit");
+        assert_eq!(app_all.command.input, "approve");
         app_all.command.autocomplete_next();
-        assert_eq!(app_all.command.input, "c");
+        assert_eq!(app_all.command.input, "audit");
     }
 
     #[test]

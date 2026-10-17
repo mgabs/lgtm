@@ -194,11 +194,32 @@ To minimize typing during fast pairing sessions, use instant directive chords:
 - **`cw`**: ❓ Rationale / Why (`Explain rationale and verify architectural invariants.`)
 
 #### 3. Injecting Directives to AI Agent Panes
-- **`Enter`**: Sends `#ref <file>:<line>` directly into your agent's active `tmux` pane.
+- **`Enter`**: Context-aware agent injection. If the cursor line has an active security/quality alert or human directive, formats and dispatches `#ref <file>:<line> [<rule_id>] <alert> | DIRECTIVE: <text>`. If neither is present, sends the clean `#ref <file>:<line>`.
+- **`X` / `:reject`**: 1-key reject & re-prompt. Reverts the current hunk from the working tree and dispatches `REVERTED hunk in <file>:<line>, reason: <directive/alert>` to your agent's pane or clipboard.
 - **`Ctrl-s` / `:review`**: Compiles all active directives into a structured batch prompt and blasts it into the agent's pane or copies it to clipboard via OSC 52.
 - **`p` / `<Space>p`**: Opens `tmux` pane selector modal to choose which pane receives steering messages.
 - **`<Space>y` / `yr`**: Yanks `#ref <file>:<line>` to system clipboard.
 - **`v` / `R`**: Marks a directive as resolved (`✓ RESOLVED`).
+
+#### 4. Human-in-the-Loop Breakpoint Gate (`lgtm gate`)
+Agents often run tools in loops, modify multiple files, and produce diffs without pausing for human verification.
+- **Agent Hook**: Agents call `lgtm gate [--timeout 300] [--message "Reviewing core auth logic"]` before running destructive tools or committing.
+- This creates `.lgtm/gate.json` and halts the agent until a human acts.
+- **TUI Indicator**: The header displays a bright `🛑 GATE WAITING (A/:approve)` indicator.
+- **Approval (`A` / `:approve` / `:lgtm`)**: Writes `"status": "approved"` to the gate file, allowing the agent to proceed.
+- **Rejection (`:reject-all`)**: Writes `"status": "rejected"`, signaling the agent to halt or course-correct.
+
+#### 5. Agent Prompt & Session Correlation (`P` / `:prompt`)
+- Press **`P`** (or **`:prompt`** / **`:context`**) to open a dedicated modal displaying the exact instructions the agent was executing.
+- Sources checked automatically:
+  1. Active `.lgtm/gate.json` prompt message.
+  2. Workspace `.lgtm/prompt.txt` session log.
+  3. Git repository HEAD commit message.
+- Press `Esc`, `q`, or `P` to return to the diff.
+
+#### 6. In-App Test Authenticity & Mutation Check (`T`)
+- Press **`T`** to trigger an automated mutation probe across test files.
+- Identifies tautological assertions (`assert_eq!(x, x)`, `expect(res).toBe(res)`, `assertEquals(val, val)`), constant truth evaluations, and deleted assertions.
 
 ---
 
@@ -352,6 +373,16 @@ Add `lgtm` to your MCP client configuration (`~/.claude/claude_desktop_config.js
 
 **Claims:** an agent calls `lgtm_resolve_directive` to say it handled a directive. lgtm only stores the claim and checks it against the diff (shown as a verdict such as `claimed but not changed` in the directive list). Only the human resolves. MCP writes are limited to directives and claims; it never stages, commits, posts or edits code. `lgtm_scan_changes` keeps its seen fingerprints in `.lgtm/last_scan.json`.
 
+### MCP Live Resources & Subscriptions
+Agents can discover and subscribe to real-time review resources via standard MCP protocol (`resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`):
+
+| Resource URI | MIME Type | Description |
+|---|---|---|
+| `lgtm://directives` | `application/json` | Active and claimed human review directives with line anchors and verdicts |
+| `lgtm://diff` | `text/plain` | Current repository git diff snapshot |
+| `lgtm://findings` | `application/json` | Security alerts, complexity spikes, and test fraud detections across working tree |
+| `lgtm://review-state` | `application/json` | Reviewed hunk counts, progress percentage, and review marks |
+
 ---
 
 ## 7. Headless CI & Security Gates
@@ -364,7 +395,15 @@ Exits with code `1` if Critical or High severity security alerts, complexity spi
 lgtm check --strict
 ```
 
-### 2. `lgtm scan` & Interactive Codebase Audit Mode
+### 2. `lgtm gate` (Human-in-the-Loop Agent Gate)
+Halts an autonomous agent until a reviewer approves or rejects changes via TUI:
+```bash
+# Agent runs this before tool execution or committing
+lgtm gate --timeout 300 --message "Review generated auth middleware"
+```
+Exit codes: `0` (Approved), `1` (Rejected or timeout), `2` (Tool error).
+
+### 3. `lgtm scan` & Interactive Codebase Audit Mode
 `:audit` and `:scan repo` audit the **whole codebase**, not just the diff; plain `:scan` and `:risk` cover changed files only.
 
 Recursively audits all source files in the repository for security vulnerabilities, architectural violations, and code quality issues:
@@ -544,16 +583,27 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:f` | `:files`, `:find` | Open fuzzy file switcher popup |
 | `:pane [id]` | `:panes` | Select or set target `tmux` agent pane ID (e.g. `:pane %2`) |
 | `:sp` | `:split`, `:vsp` | Toggle Unified Diff vs Side-by-Side Dual Pane Diff |
-| `:c` | `:comments`, `:todo` | Open review directives management drawer |
+| `:tree` | `:drawer`, `:sidebar` | Toggle file tree sidebar |
+| `:c` | `:comments`, `:directives`, `:todo` | Open review directives management drawer |
 | `:c recheck` / `:c orphans [repin <n> \| drop [--yes]]` | `:directives` | Reclassify outcomes; list, re-pin or drop orphaned comments |
+| `:clear` | — | Clear all review directives |
+| `:clear-resolved` | — | Purge all resolved directives while preserving active ones |
+| `:resolve [all]` | `:res` | Mark directive on current line (or all directives) as resolved |
+| `:unresolve [all]` | — | Mark directive on current line (or all directives) as active |
 | `:checks` / `:threads` | — | CI status in the header / list PR threads and mark their lines (`]t`/`[t` jump) |
 | `:thread reply <n> <text>` / `resolve <n>` / `unresolve <n>` | — | Preview; add `--yes` to send |
-| `:r` | `:review`, `:send` | Compile directives batch prompt and blast to target agent pane |
+| `:r` | `:review`, `:send`, `:push` | Compile directives batch prompt and blast to target agent pane |
 | `:risk` | — | Re-scan current diff for security, test fraud, and complexity risks |
 | `:reload` | `:e`, `:edit` | Reload diff snapshot from working tree or GitHub PR |
-| `:resolve [all]` | — | Mark directive on current line (or all directives) as resolved |
-| `:unresolve [all]` | — | Mark directive on current line (or all directives) as active |
-| `:clear-resolved` | — | Purge all resolved directives while preserving active ones |
+| `:filter <1\|2\|3\|crit\|high\|all>` | `:sev` | Filter audit issues by severity |
+| `:inject [all]` | — | Inject violation remediation directive(s) into agent pane |
+| `:approve` | `:lgtm`, `:accept` | Approve pending agent breakpoint gate (`.lgtm/gate.json`) |
+| `:reject` | — | Reject & revert hunk under cursor and re-prompt agent with reason |
+| `:reject-all` | `:reject-gate` | Reject waiting agent breakpoint gate |
+| `:prompt` | `:context` | Open agent prompt context modal from gate, prompt log, or commit |
+| `:y` | `:yank` | Yank current code line to clipboard |
+| `:yr` | `:ref` | Yank `#ref file:line` to clipboard |
+| `:d` | `:del`, `:delete` | Delete directive anchored on current line |
 | `:<number>` | — | Jump directly to line number (e.g. `:42` or `:150`) |
 
 ---
@@ -598,6 +648,7 @@ debounce_ms = 300
 | Command | Description |
 |---|---|
 | `lgtm` / `diff` / `status` / `review` | Launch interactive diff reviewer TUI (default) |
+| `lgtm gate [--timeout <s>] [-m <msg>]` | Human-in-the-loop breakpoint gate; halts until approved/rejected in TUI |
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
 | `lgtm init` / `--init` | Create `.lgtm/config.toml` |
 | `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via `gh`, Azure DevOps via `az`) |

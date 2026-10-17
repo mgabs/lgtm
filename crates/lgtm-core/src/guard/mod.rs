@@ -4,6 +4,7 @@ pub mod complexity;
 pub mod dead_code;
 pub mod deps;
 pub mod duplicate;
+pub mod fragility;
 pub mod security;
 pub mod swift;
 pub mod symbols;
@@ -67,6 +68,7 @@ pub fn registry() -> &'static [&'static dyn Guard] {
         &security::AdvancedSecurityGuard,
         &arch::ArchitectureGuard,
         &complexity::ComplexityGuard,
+        &fragility::FragilityGuard,
         &symbols::SymbolGuard,
         &api_drift::ApiDriftGuard,
         &dead_code::DeadCodeGuard,
@@ -265,30 +267,9 @@ impl SecurityAndTestGuard {
             let alerts = Self::scan_file(file);
             all_alerts.extend(alerts);
 
-            let path_str = file.display_name();
-            let is_test = is_test_path(&path_str);
-
-            for hunk in &file.hunks {
-                for line in &hunk.lines {
-                    if line.line_type == LineType::Addition {
-                        let text = line.content.trim();
-                        if !text.is_empty()
-                            && !text.starts_with("//")
-                            && !text.starts_with('#')
-                            && text != "{"
-                            && text != "}"
-                        {
-                            if is_test {
-                                if is_assertion_line(text) {
-                                    total_assert_additions += 1;
-                                }
-                            } else {
-                                total_logic_lines += 1;
-                            }
-                        }
-                    }
-                }
-            }
+            let (logic, asserts) = count_file_metrics(file);
+            total_logic_lines += logic;
+            total_assert_additions += asserts;
         }
 
         // Assertion Density Gate: alert if substantial new logic is added without any assertions
@@ -315,6 +296,78 @@ impl SecurityAndTestGuard {
         assign_fingerprints(&mut all_alerts, files);
         all_alerts
     }
+}
+
+fn count_file_metrics(file: &FileDiff) -> (usize, usize) {
+    let path_str = file.display_name();
+    let lower = path_str.to_lowercase();
+    let is_doc = lower.ends_with(".md") || lower.ends_with(".txt") || lower.starts_with("docs/");
+    let is_test = is_test_path(&path_str);
+
+    let mut in_test_mod = false;
+    let mut logic = 0;
+    let mut asserts = 0;
+
+    for hunk in &file.hunks {
+        let (h_l, h_a) = count_hunk_metrics(hunk, &mut in_test_mod, is_test, is_doc);
+        logic += h_l;
+        asserts += h_a;
+    }
+
+    (logic, asserts)
+}
+
+fn count_hunk_metrics(
+    hunk: &crate::model::DiffHunk,
+    in_test_mod: &mut bool,
+    is_test: bool,
+    is_doc: bool,
+) -> (usize, usize) {
+    let lower_hdr = hunk.header.to_lowercase();
+    if lower_hdr.contains("test") {
+        *in_test_mod = true;
+    }
+    let mut l_sum = 0;
+    let mut a_sum = 0;
+    for line in &hunk.lines {
+        let (is_test_ctx, l, a) = process_metric_line(line, in_test_mod, is_test, is_doc);
+        if is_test_ctx {
+            a_sum += a;
+        } else {
+            l_sum += l;
+        }
+    }
+    (l_sum, a_sum)
+}
+
+fn process_metric_line(
+    line: &crate::model::DiffLine,
+    in_test_mod: &mut bool,
+    is_test: bool,
+    is_doc: bool,
+) -> (bool, usize, usize) {
+    let text = line.content.trim();
+    *in_test_mod |= text.starts_with("#[cfg(test)]")
+        || text.starts_with("mod tests")
+        || text.starts_with("#[test]");
+
+    let is_test_ctx = is_test || *in_test_mod;
+    if line.line_type != LineType::Addition || !is_countable_line(text) {
+        return (is_test_ctx, 0, 0);
+    }
+
+    match is_test_ctx {
+        true => (true, 0, usize::from(is_assertion_line(text))),
+        false => (false, usize::from(!is_doc), 0),
+    }
+}
+
+fn is_countable_line(text: &str) -> bool {
+    !text.is_empty()
+        && !text.starts_with("//")
+        && !text.starts_with('#')
+        && text != "{"
+        && text != "}"
 }
 
 pub fn fnv1a(s: &str) -> u64 {
@@ -444,12 +497,89 @@ fn is_test_skip(text: &str) -> bool {
 }
 
 fn is_tautological_assertion(text: &str) -> bool {
-    // lgtm:ignore
-    let t = text.to_lowercase();
-    t.contains("assert true") // lgtm:ignore
-        || t.contains("assert 1 == 1") // lgtm:ignore
-        || t.contains("expect(true).tobe(true)") // lgtm:ignore
-        || t.contains("assert_eq!(true, true)") // lgtm:ignore
+    let t = text.trim();
+    let lower = t.to_lowercase();
+
+    // Constant truth asserts
+    if lower.contains("assert true")
+        || lower.contains("assert(true)")
+        || lower.contains("assert!(true)")
+        || lower.contains("assert 1 == 1")
+        || lower.contains("assert!(1 == 1)")
+        || lower.contains("assert!(false == false)")
+        || lower.contains("assert_eq!(true, true)")
+        || lower.contains("assert_ne!(true, false)")
+        || lower.contains("expect(true).tobe(true)")
+        || lower.contains("expect(true).tobetruthy()")
+        || lower.contains("expect(1).tobe(1)")
+        || lower.contains("asserttrue(true)")
+        || lower.contains("assertfalse(false)")
+    {
+        return true;
+    }
+
+    // Check for self-equality: assert_eq!(X, X), assert_ne!(X, X)
+    for prefix in &["assert_eq!(", "assert_ne!(", "assert_matches!("] {
+        if let Some(start) = t.find(prefix) {
+            let after = &t[start + prefix.len()..];
+            if let Some(end) = after.rfind(')') {
+                let inner = &after[..end];
+                let parts: Vec<&str> = inner.split(',').collect();
+                if parts.len() >= 2 {
+                    let a = parts[0].trim();
+                    let b = parts[1].trim();
+                    if !a.is_empty() && a == b {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // assertEquals(X, X), assertSame(X, X), assert.strictEqual(X, X)
+    for prefix in &[
+        "assertEquals(",
+        "assertSame(",
+        "assert_equal(",
+        "assert.equal(",
+        "assert.strictEqual(",
+    ] {
+        if let Some(start) = t.find(prefix) {
+            let after = &t[start + prefix.len()..];
+            if let Some(end) = after.rfind(')') {
+                let inner = &after[..end];
+                let parts: Vec<&str> = inner.split(',').collect();
+                if parts.len() >= 2 {
+                    let a = parts[0].trim();
+                    let b = parts[1].trim();
+                    if !a.is_empty() && a == b {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // expect(X).toBe(X) or expect(X).toEqual(X)
+    if let Some(expect_start) = t.find("expect(") {
+        let after_expect = &t[expect_start + 7..];
+        if let Some(paren_close) = after_expect.find(')') {
+            let actual = after_expect[..paren_close].trim();
+            for matcher in &[".toBe(", ".toEqual(", ".toStrictEqual("] {
+                if let Some(m_start) = after_expect.find(matcher) {
+                    let after_m = &after_expect[m_start + matcher.len()..];
+                    if let Some(m_close) = after_m.rfind(')') {
+                        let expected = after_m[..m_close].trim();
+                        if !actual.is_empty() && actual == expected {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn is_swallowed_exception(text: &str) -> bool {
@@ -490,6 +620,7 @@ mod tests {
                 "security",
                 "arch",
                 "complexity",
+                "fragility",
                 "symbols",
                 "api_drift",
                 "dead_code",

@@ -128,6 +128,70 @@ impl App {
         }
     }
 
+    pub fn reject_hunk_and_reprompt(&mut self) {
+        if !self.git_engine.is_git_repo() {
+            self.status_message = Some("Not a git repository".to_string());
+            return;
+        }
+        if let Some((file, hunk, _h_idx)) = self.current_hunk_info() {
+            let file_clone = file.clone();
+            let hunk_clone = hunk.clone();
+            let file_name = file_clone.display_name();
+            let line_no = hunk
+                .lines
+                .first()
+                .and_then(|l| l.new_line_num.or(l.old_line_num))
+                .unwrap_or(hunk.new_start);
+
+            let reason = self
+                .comments
+                .iter()
+                .find(|c| {
+                    !c.orphaned
+                        && (c.file_path == file_name
+                            || c.file_path == file_clone.new_path.to_string_lossy())
+                        && c.target_line_no >= hunk.new_start
+                        && c.target_line_no < hunk.new_start + hunk.new_lines.max(1)
+                })
+                .map(|c| c.comment_text.clone())
+                .or_else(|| {
+                    self.alerts
+                        .iter()
+                        .find(|a| {
+                            (a.file_path == file_name
+                                || a.file_path == file_clone.new_path.to_string_lossy())
+                                && a.line_no.is_some_and(|l| {
+                                    l >= hunk.new_start
+                                        && l < hunk.new_start + hunk.new_lines.max(1)
+                                })
+                        })
+                        .map(|a| format!("[{}] {}", a.rule_id, a.title))
+                })
+                .unwrap_or_else(|| "does not meet requirements".to_string());
+
+            match self.git_engine.discard_hunk(&file_clone, &hunk_clone) {
+                Ok(_) => {
+                    let prompt = format!(
+                        "Reverted hunk in {}:{}, reason: {}. Please fix and re-implement.",
+                        file_name, line_no, reason
+                    );
+                    let sink = self.agent_sink();
+                    let _ = sink.send(&prompt);
+                    let label = sink.label();
+                    drop(sink);
+                    self.status_message = Some(format!(
+                        "❌ Reverted hunk & re-prompted {}: {}",
+                        label, prompt
+                    ));
+                    self.reload_diff();
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to revert hunk: {}", e));
+                }
+            }
+        }
+    }
+
     pub fn unstage_current_file(&mut self) {
         if !self.git_engine.is_git_repo() {
             self.status_message = Some("Not a git repository".to_string());

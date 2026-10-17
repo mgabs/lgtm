@@ -2,31 +2,54 @@ use super::*;
 
 impl App {
     pub fn jump_to_file_and_line(&mut self, file_path: &str, target_line: u32) {
-        if let Some(idx) = self
-            .snapshot
-            .files
-            .iter()
-            .position(|f| f.display_name() == file_path)
-        {
+        let clean_path = file_path.trim_start_matches("./");
+        if let Some(idx) = self.snapshot.files.iter().position(|f| {
+            let dname = f.display_name();
+            let clean_dname = dname.trim_start_matches("./");
+            clean_dname == clean_path
+                || clean_dname.ends_with(clean_path)
+                || clean_path.ends_with(clean_dname)
+        }) {
             self.selected_file_idx = idx;
             if let Some(f) = self.snapshot.files.get_mut(idx) {
                 f.is_folded = false;
             }
             self.cursor_line_idx = 0;
             let mut line_counter = 0;
+            let mut closest_idx = None;
+            let mut min_diff = u32::MAX;
+
             if let Some(f) = self.snapshot.files.get(idx) {
                 for hunk in &f.hunks {
                     for line in &hunk.lines {
-                        let line_num = line.new_line_num.or(line.old_line_num);
-                        if line_num == Some(target_line) {
-                            self.cursor_line_idx = line_counter;
-                            self.diff_scroll_offset = line_counter.saturating_sub(10);
-                            return;
+                        let l_no = line.new_line_num.or(line.old_line_num);
+
+                        if let Some(line_num) = l_no {
+                            if line_num == target_line {
+                                self.cursor_line_idx = line_counter;
+                                self.diff_scroll_offset = line_counter.saturating_sub(10);
+                                self.status_message =
+                                    Some(format!("Jumped to {}:{}", clean_path, target_line));
+                                return;
+                            }
+                            let diff = (line_num as i64 - target_line as i64).unsigned_abs() as u32;
+                            if diff < min_diff {
+                                min_diff = diff;
+                                closest_idx = Some(line_counter);
+                            }
                         }
                         line_counter += 1;
                     }
                 }
             }
+
+            if let Some(c_idx) = closest_idx {
+                self.cursor_line_idx = c_idx;
+                self.diff_scroll_offset = c_idx.saturating_sub(10);
+            }
+            self.status_message = Some(format!("Jumped to {}:{}", clean_path, target_line));
+        } else {
+            self.status_message = Some(format!("File '{}' is not in the active diff", clean_path));
         }
     }
 

@@ -16,6 +16,7 @@ impl App {
             ActiveView::CommandLine => self.handle_command_line_key(key),
             ActiveView::CommitModal => self.handle_commit_modal_key(key),
             ActiveView::AuditReport => self.handle_audit_report_key(key),
+            ActiveView::AgentPrompt => self.handle_agent_prompt_key(key),
         }
     }
 
@@ -162,8 +163,7 @@ impl App {
                     return;
                 }
                 (' ', KeyCode::Char('l')) => {
-                    self.comment_list_selected_idx = 0;
-                    self.active_view = ActiveView::CommentList;
+                    self.open_comment_list();
                     return;
                 }
                 (' ', KeyCode::Char('t')) => {
@@ -237,6 +237,10 @@ impl App {
                     self.discard_current_hunk();
                 }
             }
+            (KeyModifiers::SHIFT, KeyCode::Char('X'))
+            | (KeyModifiers::NONE, KeyCode::Char('X')) => {
+                self.reject_hunk_and_reprompt();
+            }
             (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
                 self.page_down(15);
             }
@@ -271,6 +275,12 @@ impl App {
             }
             (_, KeyCode::Char('R')) => {
                 self.toggle_resolve_current_comment();
+            }
+            (_, KeyCode::Char('A')) => {
+                self.approve_gate();
+            }
+            (_, KeyCode::Char('P')) => {
+                self.active_view = ActiveView::AgentPrompt;
             }
             (_, KeyCode::Char('T')) => {
                 self.run_test_mutation_probe();
@@ -749,13 +759,16 @@ impl App {
     pub(crate) fn handle_comment_input_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.active_view = ActiveView::Diff;
+                self.comment_target_alert = None;
+                self.active_view = self.comment_source_view;
             }
             KeyCode::Enter => {
                 if !self.comment_input.trim().is_empty() {
                     self.save_current_line_comment();
+                } else {
+                    self.comment_target_alert = None;
                 }
-                self.active_view = ActiveView::Diff;
+                self.active_view = self.comment_source_view;
             }
             KeyCode::Backspace => {
                 self.comment_input.pop();
@@ -1287,6 +1300,14 @@ impl App {
                     self.open_file_in_editor(&file_path, line_no);
                 }
             }
+            (_, KeyCode::Char('c')) => {
+                if let Some(alert) = filtered.get(self.audit.selected_idx) {
+                    self.comment_target_alert = Some((*alert).clone());
+                    self.comment_source_view = ActiveView::AuditReport;
+                    self.comment_input.clear();
+                    self.active_view = ActiveView::CommentInput;
+                }
+            }
             (_, KeyCode::Char(':')) => {
                 self.command.input.clear();
                 self.command.completions.clear();
@@ -1316,6 +1337,15 @@ impl App {
             }
             (_, KeyCode::Char(c)) => {
                 self.commit_message_input.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn handle_agent_prompt_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('P') => {
+                self.active_view = ActiveView::Diff;
             }
             _ => {}
         }
