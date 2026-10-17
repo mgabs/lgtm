@@ -202,9 +202,15 @@ pub enum Commands {
     /// Run inverted test verification to detect fraudulent or tautological tests
     VerifyTests,
     /// Launch interactive diff reviewer TUI (default)
-    Diff,
+    Diff {
+        /// Optional branch or revision to review (e.g. main, feat..HEAD)
+        revision: Option<String>,
+    },
     /// Launch interactive diff reviewer TUI
-    Status,
+    Status {
+        /// Optional branch or revision to review (e.g. main, feat..HEAD)
+        revision: Option<String>,
+    },
     /// Launch Model Context Protocol (MCP) server over stdio for AI coding agents
     Mcp {
         /// Target repository path

@@ -188,11 +188,12 @@ impl App {
                 }
             }
         } else if let Some(ref rev) = explicit_rev {
-            match git_engine.compute_revision_diff(rev) {
+            let expanded = git_engine.expand_branch_spec(rev);
+            match git_engine.compute_revision_diff(&expanded) {
                 Ok(snap) => {
                     let msg = format!(
                         "Loaded revision diff '{}' ({} files changed)",
-                        rev,
+                        expanded,
                         snap.files.len()
                     );
                     (snap, Some(msg))

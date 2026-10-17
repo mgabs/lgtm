@@ -183,8 +183,15 @@ fn main() -> ExitCode {
         }
         Some(Commands::External(ext_args)) => {
             let first = ext_args.first().map(|s| s.as_str()).unwrap_or("");
-            if first.contains("..") || first.starts_with("HEAD~") || first.starts_with("HEAD^") {
-                let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo.clone());
+            let git_engine = git::GitEngine::new(&repo_path);
+            let expanded = git_engine.expand_branch_spec(first);
+            let is_branch_or_rev = first.contains("..")
+                || first.starts_with("HEAD~")
+                || first.starts_with("HEAD^")
+                || expanded != first;
+
+            if is_branch_or_rev {
                 if let Err(e) = run_tui(
                     repo_path,
                     cli.agent_pane,
@@ -446,7 +453,22 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Diff) | Some(Commands::Status) | Some(Commands::Review { .. }) | None => {
+        Some(Commands::Diff { revision }) | Some(Commands::Status { revision }) => {
+            let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+            if let Err(e) = run_tui(
+                repo_path,
+                cli.agent_pane,
+                cli.debounce,
+                cli.pr,
+                revision,
+                None,
+            ) {
+                eprintln!("Error running lgtm: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Some(Commands::Review { .. }) | None => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
             if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr, None, None) {
                 eprintln!("Error running lgtm: {}", e);
