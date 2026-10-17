@@ -30,12 +30,7 @@
 - **Live Streaming Diffs**: Instant AST & streaming git patch parsing; automatically refreshes when files change on disk.
 - **Vim Motion Engine**: Full `j`/`k`, `gg`/`G`, `{`/`}`, `]f`/`[f`, `]h`/`[h`, `]c`/`[c`, `]t`/`[t` (PR threads), `]w`/`[w`, `]u`/`[u`, `zz`/`zt`/`zb`, `/` search, `*`/`#` symbol search, `y` yank, `PgUp`/`PgDn`.
 - **Git Revision & Range Diffing**: Direct comparison of branch ranges (`lgtm main..feat`, `lgtm HEAD~3..HEAD`), commit hashes, or in-app via `:diff <range>`.
-- **Human-in-the-Loop Breakpoint Gate (`lgtm gate`)**: Agent pre-tool / pre-commit hook halting autonomous execution until reviewed and approved via `A` / `:approve` or `:reject-all` in TUI.
-- **Reject Hunk & Re-Prompt (`X` / `:reject`)**: 1-key action discarding flawed hunk from working copy and sending prompt with directive/alert context directly to the agent's pane.
-- **Context-Aware Directive Injection (`Enter`)**: Passes `#ref file:line [rule_id] <alert> | DIRECTIVE: <text>` to target agent pane or system clipboard, or bare line ref if no alert/directive exists.
-- **Agent Session / Prompt Correlation (`P` / `:prompt`)**: Split modal displaying agent prompt context and instructions next to diffs from `.lgtm/gate.json`, `.lgtm/prompt.txt`, or commit history.
-- **Test Authenticity & Mutation Check (`T` / `lgtm verify-tests`)**: Automated tautological test verification (`assert_eq!(x, x)`, `toBe(x)`, `assertEquals(x, x)`) and in-app mutation testing.
-- **Native MCP Server & Subscriptions (`lgtm serve --mcp` / `lgtm mcp`)**: Standard JSON-RPC MCP server with live resource read/subscribe (`lgtm://directives`, `lgtm://diff`, `lgtm://findings`, `lgtm://review-state`) and directive claim tracking.
+- **Native MCP Server Mode (`lgtm serve --mcp` / `lgtm mcp`)**: Standard JSON-RPC Model Context Protocol (MCP) server over stdio for autonomous AI agents (Claude Code, Cursor, Windsurf, Aider) to query diffs, run security scans, and manage review directives programmatically, including recording claims that a directive was handled (verified against the diff, never auto-resolved).
 - **Quick Steering Directive Chords**: 1-key canned directive templates:
   - `ca`: ⚡ Test Coverage (`Add unit/regression tests covering these branches.`)
   - `cs`: 🔒 Security (`Ensure inputs are sanitized, parameterized, and auth checks enforced.`)
@@ -166,8 +161,12 @@ lgtm commit -m "feat: core diff engine"
 | `A` / `:approve` | Approve waiting agent breakpoint gate (`.lgtm/gate.json`) |
 | `P` / `:prompt` | View agent prompt context modal from gate, `.lgtm/prompt.txt`, or commit history |
 | `T` | Run mutation verification probe across test files |
-| `c` | Add inline review directive / comment on current line |
-| `x` / `<Space>d` | Remove review directive on current line |
+| `c` | Add inline review directive on current line (or comment on finding in `:audit`) |
+| `r` | Reply to review directive at cursor |
+| `R` / `<Space>r` | Toggle directive resolved state (`✓ RESOLVED` vs `💬 OPEN`) |
+| `<Space>d` | Delete directive on current line |
+| `x` | Discard changes in current hunk (or delete directive if on comment line) |
+| `<Space>l` / `:c` | Open Review Directives list drawer |
 | `v` | Mark current file as reviewed (persisted in `.lgtm/state.json`) |
 | `o` / `e` | Open current file and line in `$EDITOR` / `$VISUAL` (e.g. `nvim +line file`) |
 | `Tab` | Toggle 35-column file drawer / sidebar |
@@ -184,28 +183,36 @@ lgtm commit -m "feat: core diff engine"
 
 Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu completion:
 
-- `:w` — Save comments / directives to `.lgtm/comments.jsonl`
+- `:w` — Save comments / directives to `.lgtm/comments.jsonl` (or export report in Audit mode)
 - `:q` / `:q!` — Quit
 - `:wq` / `:x` — Save directives and quit
-- `:approve` / `:lgtm` — Approve pending agent breakpoint gate
+- `:approve` / `:lgtm` / `:accept` — Approve pending agent breakpoint gate
 - `:reject` — Reject current hunk and dispatch prompt to agent
 - `:reject-all` — Reject waiting agent breakpoint gate
 - `:prompt` / `:context` — Open agent prompt and instruction context modal
-- `:commit` / `:cforge` — Open Commit Forge modal
+- `:commit [msg]` / `:ci` — Open Commit Forge modal or commit staged changes
 - `:pr <number>` — Load and review a GitHub or Azure DevOps PR diff
 - `:prs` — Open interactive PR picker
 - `:checks` / `:threads` — PR CI status / list PR threads (gutter `◆`/`◇`, `]t`/`[t`)
-- `:directives orphans` — List orphaned comments; `repin <n>` or `drop --yes`
-- `:f` / `:files` — Open fuzzy file finder
-- `:pane` / `:panes` — Open `tmux` target pane selector
-- `:sp` / `:split` — Toggle split / unified view
-- `:tree` / `:drawer` — Toggle file tree drawer
-- `:risk` — Re-scan current diff for security & test risks
-- `:audit` — Audit the whole codebase (not just the diff)
-- `:r` / `:review` — Compile directives into batch review file and blast to agent
-- `:e` / `:reload` — Reload diff from disk
+- `:c` / `:directives` — Open review directives drawer (`:directives recheck`, `:directives orphans`)
 - `:clear` — Clear all review directives
+- `:clear-resolved` — Purge all resolved directives while preserving active ones
+- `:resolve [all]` / `:unresolve [all]` — Toggle directive resolved state
+- `:f` / `:files` / `:find` — Open fuzzy file finder
+- `:pane` / `:panes` — Open `tmux` target pane selector
+- `:sp` / `:split` / `:vsp` — Toggle split / unified view
+- `:tree` / `:drawer` / `:sidebar` — Toggle file tree drawer
+- `:risk` — Re-scan current diff for security & test risks
+- `:scan [repo]` — Scan diff for issues (or `:scan repo` for full codebase)
+- `:audit` / `:issues` — Audit whole codebase for security & architectural findings
+- `:filter <1|2|3|crit|high|all>` / `:sev` — Filter audit issues by severity
+- `:inject [all]` — Inject violation remediation directive(s) into agent pane
+- `:export [path]` — Export audit scorecard report to Markdown
+- `:r` / `:review` / `:send` — Compile directives into batch review file and blast to agent
+- `:e` / `:reload` — Reload diff from disk
 - `:d` / `:del` — Delete directive on current line
+- `:y` / `:yank` — Yank current code line
+- `:yr` / `:ref` — Yank `#ref file:line` to clipboard
 - `:<line_number>` — Jump directly to line number (e.g. `:42`)
 
 ---

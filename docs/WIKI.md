@@ -583,20 +583,27 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:f` | `:files`, `:find` | Open fuzzy file switcher popup |
 | `:pane [id]` | `:panes` | Select or set target `tmux` agent pane ID (e.g. `:pane %2`) |
 | `:sp` | `:split`, `:vsp` | Toggle Unified Diff vs Side-by-Side Dual Pane Diff |
-| `:c` | `:comments`, `:todo` | Open review directives management drawer |
+| `:tree` | `:drawer`, `:sidebar` | Toggle file tree sidebar |
+| `:c` | `:comments`, `:directives`, `:todo` | Open review directives management drawer |
 | `:c recheck` / `:c orphans [repin <n> \| drop [--yes]]` | `:directives` | Reclassify outcomes; list, re-pin or drop orphaned comments |
+| `:clear` | — | Clear all review directives |
+| `:clear-resolved` | — | Purge all resolved directives while preserving active ones |
+| `:resolve [all]` | `:res` | Mark directive on current line (or all directives) as resolved |
+| `:unresolve [all]` | — | Mark directive on current line (or all directives) as active |
 | `:checks` / `:threads` | — | CI status in the header / list PR threads and mark their lines (`]t`/`[t` jump) |
 | `:thread reply <n> <text>` / `resolve <n>` / `unresolve <n>` | — | Preview; add `--yes` to send |
-| `:r` | `:review`, `:send` | Compile directives batch prompt and blast to target agent pane |
+| `:r` | `:review`, `:send`, `:push` | Compile directives batch prompt and blast to target agent pane |
 | `:risk` | — | Re-scan current diff for security, test fraud, and complexity risks |
 | `:reload` | `:e`, `:edit` | Reload diff snapshot from working tree or GitHub PR |
-| `:resolve [all]` | — | Mark directive on current line (or all directives) as resolved |
-| `:unresolve [all]` | — | Mark directive on current line (or all directives) as active |
-| `:approve` | `:lgtm` | Approve pending agent breakpoint gate (`.lgtm/gate.json`) |
+| `:filter <1\|2\|3\|crit\|high\|all>` | `:sev` | Filter audit issues by severity |
+| `:inject [all]` | — | Inject violation remediation directive(s) into agent pane |
+| `:approve` | `:lgtm`, `:accept` | Approve pending agent breakpoint gate (`.lgtm/gate.json`) |
 | `:reject` | — | Reject & revert hunk under cursor and re-prompt agent with reason |
-| `:reject-all` | — | Reject waiting agent breakpoint gate |
+| `:reject-all` | `:reject-gate` | Reject waiting agent breakpoint gate |
 | `:prompt` | `:context` | Open agent prompt context modal from gate, prompt log, or commit |
-| `:clear-resolved` | — | Purge all resolved directives while preserving active ones |
+| `:y` | `:yank` | Yank current code line to clipboard |
+| `:yr` | `:ref` | Yank `#ref file:line` to clipboard |
+| `:d` | `:del`, `:delete` | Delete directive anchored on current line |
 | `:<number>` | — | Jump directly to line number (e.g. `:42` or `:150`) |
 
 ---
