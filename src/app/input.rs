@@ -645,12 +645,10 @@ impl App {
                     }
                 }
             }
-            (_, KeyCode::Char('r')) => {
-                if !self.threads.is_empty() {
-                    self.command.input = format!("thread reply {} ", self.thread_selected_idx + 1);
-                    self.command.history_idx = None;
-                    self.active_view = ActiveView::CommandLine;
-                }
+            (_, KeyCode::Char('r')) if !self.threads.is_empty() => {
+                self.command.input = format!("thread reply {} ", self.thread_selected_idx + 1);
+                self.command.history_idx = None;
+                self.active_view = ActiveView::CommandLine;
             }
             _ => {}
         }
