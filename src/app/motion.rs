@@ -137,7 +137,10 @@ impl App {
     }
 
     pub fn cursor_down(&mut self) {
-        self.cursor_line_idx += 1;
+        let total = self.current_file_line_count();
+        if total > 0 && self.cursor_line_idx + 1 < total {
+            self.cursor_line_idx += 1;
+        }
     }
 
     pub fn cursor_up(&mut self) {
