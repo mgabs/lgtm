@@ -128,6 +128,50 @@ impl App {
         }
     }
 
+    pub fn hunk_rejection_prompt(&self, file: &FileDiff, hunk: &DiffHunk) -> (u32, String) {
+        let file_name = file.display_name();
+        let matching_comment = self.comments.iter().find(|c| {
+            !c.orphaned
+                && (c.file_path == file_name || c.file_path == file.new_path.to_string_lossy())
+                && c.target_line_no >= hunk.new_start
+                && c.target_line_no < hunk.new_start + hunk.new_lines.max(1)
+        });
+
+        let matching_alert = self.alerts.iter().find(|a| {
+            (a.file_path == file_name || a.file_path == file.new_path.to_string_lossy())
+                && a.line_no.is_some_and(|l| {
+                    l >= hunk.new_start && l < hunk.new_start + hunk.new_lines.max(1)
+                })
+        });
+
+        let mut directive_parts = Vec::new();
+        if let Some(a) = matching_alert {
+            directive_parts.push(format!("[{}] {}", a.rule_id, a.title));
+        }
+        if let Some(c) = matching_comment {
+            directive_parts.push(format!("DIRECTIVE: {}", c.comment_text));
+            for reply in &c.replies {
+                directive_parts.push(format!("↳ Reply: {}", reply));
+            }
+        }
+
+        let reason = if directive_parts.is_empty() {
+            "does not meet requirements".to_string()
+        } else {
+            directive_parts.join(" | ")
+        };
+
+        let line_no = matching_comment
+            .map(|c| c.target_line_no)
+            .unwrap_or(hunk.new_start);
+
+        let prompt = format!(
+            "Reverted hunk in {}:{}, reason: {}. Please fix and re-implement.",
+            file_name, line_no, reason
+        );
+        (line_no, prompt)
+    }
+
     pub fn reject_hunk_and_reprompt(&mut self) {
         if !self.git_engine.is_git_repo() {
             self.status_message = Some("Not a git repository".to_string());
@@ -136,45 +180,10 @@ impl App {
         if let Some((file, hunk, _h_idx)) = self.current_hunk_info() {
             let file_clone = file.clone();
             let hunk_clone = hunk.clone();
-            let file_name = file_clone.display_name();
-            let line_no = hunk
-                .lines
-                .first()
-                .and_then(|l| l.new_line_num.or(l.old_line_num))
-                .unwrap_or(hunk.new_start);
-
-            let reason = self
-                .comments
-                .iter()
-                .find(|c| {
-                    !c.orphaned
-                        && (c.file_path == file_name
-                            || c.file_path == file_clone.new_path.to_string_lossy())
-                        && c.target_line_no >= hunk.new_start
-                        && c.target_line_no < hunk.new_start + hunk.new_lines.max(1)
-                })
-                .map(|c| c.comment_text.clone())
-                .or_else(|| {
-                    self.alerts
-                        .iter()
-                        .find(|a| {
-                            (a.file_path == file_name
-                                || a.file_path == file_clone.new_path.to_string_lossy())
-                                && a.line_no.is_some_and(|l| {
-                                    l >= hunk.new_start
-                                        && l < hunk.new_start + hunk.new_lines.max(1)
-                                })
-                        })
-                        .map(|a| format!("[{}] {}", a.rule_id, a.title))
-                })
-                .unwrap_or_else(|| "does not meet requirements".to_string());
+            let (_line_no, prompt) = self.hunk_rejection_prompt(&file_clone, &hunk_clone);
 
             match self.git_engine.discard_hunk(&file_clone, &hunk_clone) {
                 Ok(_) => {
-                    let prompt = format!(
-                        "Reverted hunk in {}:{}, reason: {}. Please fix and re-implement.",
-                        file_name, line_no, reason
-                    );
                     let sink = self.agent_sink();
                     let _ = sink.send(&prompt);
                     let label = sink.label();
@@ -584,5 +593,56 @@ mod tests {
         app.unfold_all_hunks();
         assert!(!app.snapshot.files[0].hunks[0].is_folded);
         assert!(!app.snapshot.files[0].hunks[1].is_folded);
+    }
+
+    #[test]
+    fn test_reject_hunk_and_reprompt_includes_directive() {
+        use crate::comment::CommentAnchor;
+        let mut app = create_test_app();
+        app.git_engine = lgtm_core::git::GitEngine::new(".");
+        let hunk = DiffHunk {
+            header: "@@ -1,3 +1,3 @@".into(),
+            old_start: 1,
+            old_lines: 3,
+            new_start: 1,
+            new_lines: 3,
+            lines: vec![DiffLine {
+                line_type: LineType::Addition,
+                content: "let x = 10;".into(),
+                old_line_num: None,
+                new_line_num: Some(1),
+            }],
+            is_folded: false,
+        };
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/main.rs"),
+            change_type: ChangeType::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: vec![hunk.clone()],
+            is_folded: false,
+            is_reviewed: false,
+        };
+        app.snapshot = DiffSnapshot::new(vec![file.clone()]);
+        app.comments.push(CommentAnchor {
+            file_path: "src/main.rs".into(),
+            target_line_no: 1,
+            target_code: "let x = 10;".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "Use constant instead of magic number".into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            orphaned: false,
+            track: Default::default(),
+        });
+        let (line_no, prompt) = app.hunk_rejection_prompt(&file, &hunk);
+        assert_eq!(line_no, 1);
+        assert!(prompt.contains("DIRECTIVE: Use constant instead of magic number"));
+        assert!(prompt.contains("Reverted hunk in src/main.rs:1"));
     }
 }

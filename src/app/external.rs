@@ -20,7 +20,25 @@ impl App {
 
             let sink = self.agent_sink();
             let text = if self.agent_pane.is_some() {
-                format!("Please review directives in {}", file_path.display())
+                let open_comments: Vec<_> = self
+                    .comments
+                    .iter()
+                    .filter(|c| {
+                        !c.is_resolved && (c.pr_number == Some(pr_num) || c.pr_number.is_none())
+                    })
+                    .collect();
+                if open_comments.is_empty() {
+                    format!("Please review directives in {}", file_path.display())
+                } else {
+                    let mut s = format!("Please review directives in {}:\n", file_path.display());
+                    for c in open_comments {
+                        s.push_str(&format!(
+                            "- {}:{} DIRECTIVE: {}\n",
+                            c.file_path, c.target_line_no, c.comment_text
+                        ));
+                    }
+                    s.trim_end().to_string()
+                }
             } else {
                 prompt.clone()
             };
@@ -41,7 +59,19 @@ impl App {
 
         let sink = self.agent_sink();
         let text = if self.agent_pane.is_some() {
-            format!("Please review directives in {}", file_path.display())
+            let open_comments: Vec<_> = self.comments.iter().filter(|c| !c.is_resolved).collect();
+            if open_comments.is_empty() {
+                format!("Please review directives in {}", file_path.display())
+            } else {
+                let mut s = format!("Please review directives in {}:\n", file_path.display());
+                for c in open_comments {
+                    s.push_str(&format!(
+                        "- {}:{} DIRECTIVE: {}\n",
+                        c.file_path, c.target_line_no, c.comment_text
+                    ));
+                }
+                s.trim_end().to_string()
+            }
         } else {
             prompt.clone()
         };
@@ -106,14 +136,26 @@ impl App {
                 })
                 .collect();
 
-            let matching_comment = target_line.and_then(|lno| {
-                self.comments.iter().find(|c| {
-                    !c.orphaned
-                        && (c.file_path == path_str
-                            || c.file_path == file.new_path.to_string_lossy())
-                        && c.target_line_no == lno
+            let matching_comment = target_line
+                .and_then(|lno| {
+                    self.comments.iter().find(|c| {
+                        !c.orphaned
+                            && (c.file_path == path_str
+                                || c.file_path == file.new_path.to_string_lossy())
+                            && c.target_line_no == lno
+                    })
                 })
-            });
+                .or_else(|| {
+                    if target_line.is_none() {
+                        self.comments.iter().find(|c| {
+                            !c.orphaned
+                                && (c.file_path == path_str
+                                    || c.file_path == file.new_path.to_string_lossy())
+                        })
+                    } else {
+                        None
+                    }
+                });
 
             let mut directive_parts = Vec::new();
             for alert in &matching_alerts {

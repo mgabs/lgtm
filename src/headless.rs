@@ -629,13 +629,29 @@ pub(crate) fn run_gate(repo_path: &Path, timeout_secs: u64, message: Option<&str
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                 match val.get("status").and_then(|s| s.as_str()) {
                     Some("approved") => {
+                        let feedback = val
+                            .get("feedback")
+                            .and_then(|f| f.as_str())
+                            .map(|s| s.to_string());
                         let _ = std::fs::remove_file(&gate_file);
-                        println!("✅ lgtm gate: Changes approved by human reviewer!");
+                        if let Some(fb) = feedback {
+                            println!("✅ lgtm gate: Changes approved by human reviewer with directives:\n{}", fb);
+                        } else {
+                            println!("✅ lgtm gate: Changes approved by human reviewer!");
+                        }
                         return Ok(0);
                     }
                     Some("rejected") => {
+                        let feedback = val
+                            .get("feedback")
+                            .and_then(|f| f.as_str())
+                            .map(|s| s.to_string());
                         let _ = std::fs::remove_file(&gate_file);
-                        eprintln!("❌ lgtm gate: Changes rejected by human reviewer.");
+                        if let Some(fb) = feedback {
+                            eprintln!("❌ lgtm gate: Changes rejected by human reviewer:\n{}", fb);
+                        } else {
+                            eprintln!("❌ lgtm gate: Changes rejected by human reviewer.");
+                        }
                         return Ok(1);
                     }
                     _ => {}
