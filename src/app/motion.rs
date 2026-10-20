@@ -64,19 +64,57 @@ impl App {
     }
 
     pub fn next_file(&mut self) {
-        if !self.snapshot.files.is_empty() && self.selected_file_idx < self.snapshot.files.len() - 1
-        {
+        if self.snapshot.files.is_empty() {
+            self.status_message = Some("No changed files in diff".to_string());
+            return;
+        }
+        let total = self.snapshot.files.len();
+        if self.selected_file_idx + 1 < total {
             self.selected_file_idx += 1;
             self.diff_scroll_offset = 0;
             self.cursor_line_idx = 0;
+            if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
+                file.is_folded = false;
+            }
+            let name = self.snapshot.files[self.selected_file_idx].display_name();
+            self.status_message = Some(format!(
+                "File [{}/{}]: {}",
+                self.selected_file_idx + 1,
+                total,
+                name
+            ));
+        } else {
+            let name = self.snapshot.files[self.selected_file_idx].display_name();
+            self.status_message = Some(format!(
+                "Already at last file [{}/{}]: {}",
+                total, total, name
+            ));
         }
     }
 
     pub fn prev_file(&mut self) {
+        if self.snapshot.files.is_empty() {
+            self.status_message = Some("No changed files in diff".to_string());
+            return;
+        }
+        let total = self.snapshot.files.len();
         if self.selected_file_idx > 0 {
             self.selected_file_idx -= 1;
             self.diff_scroll_offset = 0;
             self.cursor_line_idx = 0;
+            if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
+                file.is_folded = false;
+            }
+            let name = self.snapshot.files[self.selected_file_idx].display_name();
+            self.status_message = Some(format!(
+                "File [{}/{}]: {}",
+                self.selected_file_idx + 1,
+                total,
+                name
+            ));
+        } else {
+            let name = self.snapshot.files[0].display_name();
+            self.status_message = Some(format!("Already at first file [1/{}]: {}", total, name));
         }
     }
 
@@ -200,11 +238,16 @@ impl App {
         if self.snapshot.files.is_empty() {
             return;
         }
-        for i in (self.selected_file_idx + 1)..self.snapshot.files.len() {
+        let total = self.snapshot.files.len();
+        for i in (self.selected_file_idx + 1)..total {
             if !self.snapshot.files[i].is_reviewed {
                 self.selected_file_idx = i;
                 self.diff_scroll_offset = 0;
                 self.cursor_line_idx = 0;
+                self.snapshot.files[i].is_folded = false;
+                let name = self.snapshot.files[i].display_name();
+                self.status_message =
+                    Some(format!("Unreviewed file [{}/{}]: {}", i + 1, total, name));
                 return;
             }
         }
@@ -213,6 +256,10 @@ impl App {
                 self.selected_file_idx = i;
                 self.diff_scroll_offset = 0;
                 self.cursor_line_idx = 0;
+                self.snapshot.files[i].is_folded = false;
+                let name = self.snapshot.files[i].display_name();
+                self.status_message =
+                    Some(format!("Unreviewed file [{}/{}]: {}", i + 1, total, name));
                 return;
             }
         }
@@ -223,19 +270,28 @@ impl App {
         if self.snapshot.files.is_empty() {
             return;
         }
+        let total = self.snapshot.files.len();
         for i in (0..self.selected_file_idx).rev() {
             if !self.snapshot.files[i].is_reviewed {
                 self.selected_file_idx = i;
                 self.diff_scroll_offset = 0;
                 self.cursor_line_idx = 0;
+                self.snapshot.files[i].is_folded = false;
+                let name = self.snapshot.files[i].display_name();
+                self.status_message =
+                    Some(format!("Unreviewed file [{}/{}]: {}", i + 1, total, name));
                 return;
             }
         }
-        for i in ((self.selected_file_idx + 1)..self.snapshot.files.len()).rev() {
+        for i in ((self.selected_file_idx + 1)..total).rev() {
             if !self.snapshot.files[i].is_reviewed {
                 self.selected_file_idx = i;
                 self.diff_scroll_offset = 0;
                 self.cursor_line_idx = 0;
+                self.snapshot.files[i].is_folded = false;
+                let name = self.snapshot.files[i].display_name();
+                self.status_message =
+                    Some(format!("Unreviewed file [{}/{}]: {}", i + 1, total, name));
                 return;
             }
         }
@@ -1007,7 +1063,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bracket_single_press_navigation() {
+    fn test_bracket_chord_and_file_navigation() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut app = create_test_app();
         app.snapshot.files = vec![
@@ -1028,7 +1084,7 @@ mod tests {
                 additions: 1,
                 deletions: 0,
                 hunks: Vec::new(),
-                is_folded: false,
+                is_folded: true,
                 is_reviewed: false,
             },
             crate::model::FileDiff {
@@ -1046,21 +1102,46 @@ mod tests {
 
         let key_close_bracket = KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE);
         let key_open_bracket = KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE);
+        let key_f = KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE);
 
-        // Single press ']' immediately moves to file 1
+        // Chord ']f' moves to file 1 and un-folds it
         app.handle_diff_key(key_close_bracket);
+        assert_eq!(app.pending_leader, Some(']'));
+        app.handle_diff_key(key_f);
         assert_eq!(app.selected_file_idx, 1);
+        assert!(!app.snapshot.files[1].is_folded);
+        assert_eq!(app.status_message.as_deref(), Some("File [2/3]: file2.rs"));
 
-        // Single press ']' immediately moves to file 2
+        // Chained ']]' moves to file 2
+        app.handle_diff_key(key_close_bracket);
         app.handle_diff_key(key_close_bracket);
         assert_eq!(app.selected_file_idx, 2);
+        assert_eq!(app.status_message.as_deref(), Some("File [3/3]: file3.rs"));
 
-        // Single press '[' immediately moves to file 1
+        // Chaining ']' while already at last file gives hard stop warning
+        app.handle_diff_key(key_close_bracket);
+        assert_eq!(app.selected_file_idx, 2);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Already at last file [3/3]: file3.rs")
+        );
+
+        // Reverse direction: '[' moves back to file 1
         app.handle_diff_key(key_open_bracket);
         assert_eq!(app.selected_file_idx, 1);
+        assert_eq!(app.status_message.as_deref(), Some("File [2/3]: file2.rs"));
 
-        // Single press '[' immediately moves to file 0
+        // Chaining '[' moves to file 0
         app.handle_diff_key(key_open_bracket);
         assert_eq!(app.selected_file_idx, 0);
+        assert_eq!(app.status_message.as_deref(), Some("File [1/3]: file1.rs"));
+
+        // At first file, hard stop with informative status message
+        app.handle_diff_key(key_open_bracket);
+        assert_eq!(app.selected_file_idx, 0);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Already at first file [1/3]: file1.rs")
+        );
     }
 }

@@ -28,12 +28,18 @@ impl App {
                     self.cursor_to_top();
                     return;
                 }
-                (']', KeyCode::Char('f')) | (']', KeyCode::Char(']')) => {
+                (']', KeyCode::Char(']')) => {
+                    self.next_file();
+                    self.pending_leader = Some(']');
+                    return;
+                }
+                (']', KeyCode::Char('f')) => {
                     self.next_file();
                     return;
                 }
                 (']', KeyCode::Char('[')) => {
                     self.prev_file();
+                    self.pending_leader = Some('[');
                     return;
                 }
                 (']', KeyCode::Char('u')) => {
@@ -60,12 +66,18 @@ impl App {
                     self.jump_thread(false);
                     return;
                 }
-                ('[', KeyCode::Char('f')) | ('[', KeyCode::Char('[')) => {
+                ('[', KeyCode::Char('[')) => {
+                    self.prev_file();
+                    self.pending_leader = Some('[');
+                    return;
+                }
+                ('[', KeyCode::Char('f')) => {
                     self.prev_file();
                     return;
                 }
                 ('[', KeyCode::Char(']')) => {
                     self.next_file();
+                    self.pending_leader = Some(']');
                     return;
                 }
                 ('[', KeyCode::Char('u')) => {
@@ -292,10 +304,16 @@ impl App {
                 self.cursor_to_bottom();
             }
             (_, KeyCode::Char(']')) => {
-                self.next_file();
+                self.pending_leader = Some(']');
+                self.status_message = Some(
+                    "] (f/]: file, h: hunk, c: comment, w: alert, u: unreviewed, t: thread)".into(),
+                );
             }
             (_, KeyCode::Char('[')) => {
-                self.prev_file();
+                self.pending_leader = Some('[');
+                self.status_message = Some(
+                    "[ (f/[: file, h: hunk, c: comment, w: alert, u: unreviewed, t: thread)".into(),
+                );
             }
             (_, KeyCode::Char(' ')) => {
                 self.pending_leader = Some(' ');
