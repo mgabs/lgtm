@@ -112,6 +112,9 @@ pub struct App {
     // Active Git Revision
     pub active_revision: Option<String>,
 
+    // Editor configuration override
+    pub editor_override: Option<String>,
+
     // Alert navigation index
     pub selected_alert_idx: usize,
 
@@ -258,6 +261,7 @@ impl App {
             should_quit: false,
             pr: PrState::new(explicit_pr),
             active_revision: explicit_rev,
+            editor_override: None,
             file_picker: FilePicker::default(),
             pane_picker: PanePicker::default(),
             comment_input: String::new(),
@@ -397,6 +401,16 @@ impl App {
         } else {
             Some(open_directives.join("\n"))
         }
+    }
+
+    pub fn resolved_editor(&self) -> String {
+        self.editor_override
+            .clone()
+            .or_else(|| self.config.editor.clone())
+            .or_else(|| std::env::var("LGTM_EDITOR").ok())
+            .or_else(|| std::env::var("VISUAL").ok())
+            .or_else(|| std::env::var("EDITOR").ok())
+            .unwrap_or_else(|| "nvim".to_string())
     }
 
     pub fn approve_gate(&mut self) {

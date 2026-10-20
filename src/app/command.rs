@@ -364,6 +364,18 @@ impl App {
                 ));
                 self.active_view = ActiveView::Diff;
             }
+            "editor" => {
+                if let Some(name) = args.first() {
+                    self.editor_override = Some(name.to_string());
+                    self.status_message = Some(format!("Configured editor: {}", name));
+                } else {
+                    let current = self.resolved_editor();
+                    self.status_message = Some(format!(
+                        "Current editor: {} (set with :editor <name>)",
+                        current
+                    ));
+                }
+            }
             "reload" | "e" | "edit" => {
                 if let Some(pr_num) = self.pr.current_number {
                     if let Ok(snap) = crate::diff_source::DiffSource::snapshot(
@@ -508,6 +520,16 @@ mod tests {
 
         app.execute_command(":comments");
         assert_eq!(app.active_view, ActiveView::CommentList);
+
+        app.execute_command(":editor vscode");
+        assert_eq!(app.resolved_editor(), "vscode");
+        assert_eq!(
+            app.status_message,
+            Some("Configured editor: vscode".to_string())
+        );
+
+        app.execute_command(":editor");
+        assert!(app.status_message.as_ref().unwrap().contains("vscode"));
     }
 
     #[test]
@@ -547,11 +569,13 @@ mod tests {
         app_e.command.autocomplete_next();
         assert_eq!(
             app_e.command.completions,
-            vec!["e", "edit", "exit", "export"]
+            vec!["e", "edit", "editor", "exit", "export"]
         );
         assert_eq!(app_e.command.input, "e");
         app_e.command.autocomplete_next();
         assert_eq!(app_e.command.input, "edit");
+        app_e.command.autocomplete_next();
+        assert_eq!(app_e.command.input, "editor");
         app_e.command.autocomplete_next();
         assert_eq!(app_e.command.input, "exit");
 

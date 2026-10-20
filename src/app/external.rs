@@ -230,41 +230,106 @@ impl App {
                 }
             }
 
-            let editor = std::env::var("EDITOR")
-                .or_else(|_| std::env::var("VISUAL"))
-                .unwrap_or_else(|_| "nvim".to_string());
-
-            let _ = std::process::Command::new(&editor)
-                .arg(format!("+{}", line_no))
-                .arg(&path)
-                .status();
-
-            self.status_message = Some(format!(
-                "Opened {}:{} in {}",
-                file.display_name(),
-                line_no,
-                editor
-            ));
+            let editor = self.resolved_editor();
+            match launch_editor(&editor, &path, line_no) {
+                Ok(_) => {
+                    self.status_message = Some(format!(
+                        "Opened {}:{} in {}",
+                        file.display_name(),
+                        line_no,
+                        editor
+                    ));
+                }
+                Err(err) => {
+                    self.status_message = Some(format!(
+                        "Failed to launch editor '{}': {} (use :editor <name>)",
+                        editor, err
+                    ));
+                }
+            }
         }
     }
 
     pub fn open_file_in_editor(&mut self, file_rel_path: &str, line_no: u32) {
         let path = self.git_engine.repo_path.join(file_rel_path);
-        let editor = std::env::var("EDITOR")
-            .or_else(|_| std::env::var("VISUAL"))
-            .unwrap_or_else(|_| "nvim".to_string());
+        let editor = self.resolved_editor();
 
-        let _ = std::process::Command::new(&editor)
-            .arg(format!("+{}", line_no))
-            .arg(&path)
-            .status();
+        match launch_editor(&editor, &path, line_no) {
+            Ok(_) => {
+                self.status_message = Some(format!(
+                    "Opened {}:{} in {}",
+                    file_rel_path, line_no, editor
+                ));
+            }
+            Err(err) => {
+                self.status_message = Some(format!(
+                    "Failed to launch editor '{}': {} (use :editor <name>)",
+                    editor, err
+                ));
+            }
+        }
+    }
+}
 
-        self.status_message = Some(format!(
-            "Opened {}:{} in {}",
-            file_rel_path, line_no, editor
-        ));
+fn launch_editor(editor: &str, path: &std::path::Path, line_no: u32) -> Result<(), std::io::Error> {
+    let lower = editor.trim().to_lowercase();
+    let is_gui = lower == "vscode"
+        || lower == "code"
+        || lower == "cursor"
+        || lower == "subl"
+        || lower == "sublime"
+        || lower == "idea"
+        || lower.starts_with("code ")
+        || lower.starts_with("cursor ");
+
+    if !is_gui {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
     }
 
+    let status = match lower.as_str() {
+        "vscode" | "code" => std::process::Command::new("code")
+            .arg("-g")
+            .arg(format!("{}:{}", path.display(), line_no))
+            .status(),
+        "cursor" => std::process::Command::new("cursor")
+            .arg("-g")
+            .arg(format!("{}:{}", path.display(), line_no))
+            .status(),
+        "subl" | "sublime" => std::process::Command::new("subl")
+            .arg(format!("{}:{}", path.display(), line_no))
+            .status(),
+        "idea" => std::process::Command::new("idea")
+            .arg("--line")
+            .arg(line_no.to_string())
+            .arg(path)
+            .status(),
+        _ => {
+            let mut parts = editor.split_whitespace();
+            let bin = parts.next().unwrap_or(editor);
+            let mut cmd = std::process::Command::new(bin);
+            for arg in parts {
+                cmd.arg(arg);
+            }
+            if bin == "hx" || bin == "helix" {
+                cmd.arg(format!("{}:{}", path.display(), line_no));
+            } else {
+                cmd.arg(format!("+{}", line_no));
+                cmd.arg(path);
+            }
+            cmd.status()
+        }
+    };
+
+    if !is_gui {
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen);
+        let _ = crossterm::terminal::enable_raw_mode();
+    }
+
+    status.map(|_| ())
+}
+
+impl App {
     pub fn yank_current_code_line(&mut self) {
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let mut line_counter = 0;

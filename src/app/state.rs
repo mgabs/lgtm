@@ -65,6 +65,7 @@ impl CommandLine {
             "drawer",
             "e",
             "edit",
+            "editor",
             "exit",
             "export",
             "f",

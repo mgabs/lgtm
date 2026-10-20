@@ -27,6 +27,7 @@ pub fn command_description(cmd: &str) -> &'static str {
         }
         "scan" => "Scan changed files, or the whole codebase with `:scan repo`",
         "risk" => "Re-scan diff for security & test risks",
+        "editor" => "Set or view external editor (:editor [nvim|vim|vi|vscode|code|cursor])",
         "e" | "edit" | "reload" => "Reload diff from disk / PR",
         "clear" => "Clear all review directives",
         "clear-resolved" => "Remove all resolved review directives",

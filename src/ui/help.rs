@@ -262,7 +262,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  o / e            ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open current file:line in $EDITOR (nvim, vim, vscode)"),
+                    Span::raw("Open current file:line in editor (default: nvim, config: :editor <name>)"),
                 ]),
             ],
         ),
@@ -623,7 +623,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  e / o                ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open current issue file and line in external editor ($EDITOR)"),
+                    Span::raw("Open current issue file:line in editor (default: nvim, config: :editor <name>)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  w / E                ", Style::default().fg(Color::Cyan)),
