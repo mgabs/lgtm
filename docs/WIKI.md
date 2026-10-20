@@ -136,7 +136,7 @@ lgtm
 | `f` / `Ctrl-p` | Fuzzy Finder | Open fuzzy file switcher popup to jump to any file |
 | `Tab` | Drawer Sidebar | Toggle 35-column changed file list on the left |
 | `d` | Split View Toggle | Toggle between Unified Diff and Side-by-Side Dual Pane Diff |
-| `o` / `e` | Open in `$EDITOR` | Open current file and line in Neovim, Vim, or VS Code |
+| `o` / `e` | Open in Editor | Open current file and line in configured editor (default: `nvim`, configurable: `:editor <name>` or config `editor = "vscode"`) |
 | `?` / `h` | **Help Modal** | Open 7-tab interactive documentation modal |
 | `q` | Quit | Exit `lgtm` |
 
@@ -459,7 +459,7 @@ When in Codebase Audit Mode (`ActiveView::AuditReport`):
 - `2`: Filter to `[🟠 HIGH]` and `[🔴 CRIT]` issues.
 - `3` / `a`: Show all issues (`Critical`, `High`, `Warn`).
 - `Enter`: Inject violation remediation directive directly to agent `tmux` pane / OSC 52 clipboard.
-- `e` / `o`: Open violation file and line number directly in `$EDITOR`.
+- `e` / `o`: Open violation file and line number directly in configured editor (default: `nvim`).
 - `w` / `E`: Export full repository audit report to `lgtm-report.md`.
 - `Esc`: Return to diff review mode.
 - `:w [path]`: Export report to a custom Markdown path.

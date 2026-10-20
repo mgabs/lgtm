@@ -494,4 +494,19 @@ mod tests {
             Some("Sent to clipboard (OSC 52): #ref src/main.rs:10 [security/sqli] SQL Injection vulnerability | DIRECTIVE: Use parameter binding\n↳ Reply: Checked")
         );
     }
+
+    #[test]
+    fn test_editor_resolution_precedence() {
+        let mut app = setup_app_with_line(1);
+        // Default
+        assert_eq!(app.resolved_editor(), "nvim");
+
+        // Config file override
+        app.config.editor = Some("vscode".to_string());
+        assert_eq!(app.resolved_editor(), "vscode");
+
+        // Runtime :editor command override takes highest precedence
+        app.editor_override = Some("helix".to_string());
+        assert_eq!(app.resolved_editor(), "helix");
+    }
 }

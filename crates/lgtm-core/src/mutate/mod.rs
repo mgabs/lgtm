@@ -432,6 +432,34 @@ impl MutationTester {
                     MutationStatus::Survived
                 },
             });
+            id += 1;
+        }
+
+        // Mutation 13: Config editor parsing - drop editor field from LgtmConfig
+        {
+            let original = "editor = \"vscode\"";
+            let mutated = "editor field dropped / unrecognized";
+            let tmp = std::env::temp_dir().join(format!("lgtm-cfg-mut-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = std::fs::create_dir_all(&tmp);
+            let _ = std::fs::write(tmp.join(".lgtm.toml"), "editor = \"vscode\"\n");
+            let cfg = crate::config::LgtmConfig::load(&tmp, None).ok();
+            let killed = cfg.as_ref().and_then(|c| c.editor.as_deref()) == Some("vscode")
+                && cfg.as_ref().map(|c| c.warnings.is_empty()).unwrap_or(false);
+            results.push(MutantResult {
+                id,
+                module: "src/config/mod.rs",
+                description: "Drop editor configuration field from LgtmConfig parser",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "config::tests::editor_config_option",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
         }
 
         results

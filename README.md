@@ -123,7 +123,7 @@ lgtm commit -m "feat: core diff engine"
 | `{` / `}` | Jump to previous / next paragraph (blank lines / hunk headers) |
 | `Ctrl-d` / `Ctrl-u` | Scroll half-page down / up |
 | `Ctrl-f` / `Ctrl-b` / `PgDn` / `PgUp` | Scroll full-page down / up |
-| `]f` / `[f` or `]` / `[` | Jump to next / previous file |
+| `]f` / `[f` (or `]]` / `[[`) | Jump to next / previous changed file (chainable) |
 | `]h` / `[h` | Jump to next / previous hunk |
 | `]c` / `[c` | Jump to next / previous comment / directive |
 | `]w` / `[w` | Jump to next / previous security / quality alert |
@@ -168,7 +168,7 @@ lgtm commit -m "feat: core diff engine"
 | `x` | Discard changes in current hunk (or delete directive if on comment line) |
 | `<Space>l` / `:c` | Open Review Directives list drawer |
 | `v` | Mark current file as reviewed (persisted in `.lgtm/state.json`) |
-| `o` / `e` | Open current file and line in `$EDITOR` / `$VISUAL` (e.g. `nvim +line file`) |
+| `o` / `e` | Open active file at cursor line in external editor (default: `nvim`, configurable: `vscode`, `vim`, etc.) |
 | `Tab` | Toggle 35-column file drawer / sidebar |
 | `d` | Toggle split-view / unified diff view |
 | `p` | Select target `tmux` pane for agent steering |
@@ -203,6 +203,7 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:sp` / `:split` / `:vsp` — Toggle split / unified view
 - `:tree` / `:drawer` / `:sidebar` — Toggle file tree drawer
 - `:risk` — Re-scan current diff for security & test risks
+- `:editor [name]` — View or configure active editor (`nvim`, `vim`, `vi`, `vscode`, `code`, `cursor`, `helix`)
 - `:scan [repo]` — Scan diff for issues (or `:scan repo` for full codebase)
 - `:audit` / `:issues` — Audit whole codebase for security & architectural findings
 - `:filter <1|2|3|crit|high|all>` / `:sev` — Filter audit issues by severity
