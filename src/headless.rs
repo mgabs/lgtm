@@ -684,14 +684,14 @@ mod tests {
     fn ci_rev_checks_committed_diff_and_errors_on_bad_rev() {
         let dir = test_dir("ci-rev");
         let git = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
-                .args(["-c", "user.email=a@b", "-c", "user.name=a"])
+            let mut cmd = std::process::Command::new("git");
+            cmd.args(["-c", "user.email=a@b", "-c", "user.name=a"])
                 .args(args)
-                .current_dir(&dir)
-                .output()
-                .unwrap()
-                .status
-                .success();
+                .current_dir(&dir);
+            for var in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"] {
+                cmd.env_remove(var);
+            }
+            let ok = cmd.output().unwrap().status.success();
             assert!(ok, "git {args:?}");
         };
         git(&["init", "-q"]);
