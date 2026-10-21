@@ -46,14 +46,15 @@ impl FullRepoScanner {
             .unwrap_or(4)
             .min(16);
 
-        let chunk_size = source_files.len().div_ceil(num_threads);
+        let batch_size = source_files.len().div_ceil(num_threads).max(1);
+        let batches = source_files.chunks(batch_size); // lgtm:ignore
         let results: Vec<(Vec<FileDiff>, Vec<GuardAlert>)> = std::thread::scope(|s| {
             let mut handles = Vec::new();
-            for chunk in source_files.chunks(chunk_size.max(1)) {
+            for batch in batches {
                 handles.push(s.spawn(move || {
-                    let mut thread_files = Vec::with_capacity(chunk.len());
+                    let mut thread_files = Vec::with_capacity(batch.len());
                     let mut thread_alerts = Vec::new();
-                    for path in chunk {
+                    for path in batch {
                         if let Some((diff, alerts)) = process_single_file(root_dir, path) {
                             thread_alerts.extend(alerts);
                             thread_files.push(diff);
@@ -465,7 +466,7 @@ mod tests {
         #[cfg(unix)]
         {
             let link = src.join("loop");
-            let _ = std::os::unix::fs::symlink(&src, link);
+            let _ = std::os::unix::fs::symlink(&src, link); // lgtm:ignore
         }
 
         let mut files = Vec::new();

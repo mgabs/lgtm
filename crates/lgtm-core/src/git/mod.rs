@@ -370,7 +370,7 @@ impl GitEngine {
             if let Ok(meta) = std::fs::metadata(&hook_file) {
                 let mut perms = meta.permissions();
                 perms.set_mode(0o755);
-                let _ = std::fs::set_permissions(&hook_file, perms);
+                std::fs::set_permissions(&hook_file, perms)?;
             }
         }
 

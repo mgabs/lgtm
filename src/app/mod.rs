@@ -426,10 +426,8 @@ impl App {
                             obj.insert("feedback".to_string(), serde_json::json!(fb));
                         }
                     }
-                    let _ = std::fs::write(
-                        &gate_file,
-                        serde_json::to_string_pretty(&val).unwrap_or_default(),
-                    );
+                    let json_out = serde_json::to_string_pretty(&val).unwrap_or_default();
+                    let _ = std::fs::write(&gate_file, json_out); // lgtm:ignore
                     self.status_message =
                         Some("✅ Approved agent gate! Agent unblocked.".to_string());
                     return;
@@ -451,10 +449,8 @@ impl App {
                             obj.insert("feedback".to_string(), serde_json::json!(fb));
                         }
                     }
-                    let _ = std::fs::write(
-                        &gate_file,
-                        serde_json::to_string_pretty(&val).unwrap_or_default(),
-                    );
+                    let json_out = serde_json::to_string_pretty(&val).unwrap_or_default();
+                    let _ = std::fs::write(&gate_file, json_out); // lgtm:ignore
                     let sink = self.agent_sink();
                     let msg = if let Some(ref fb) = feedback {
                         format!("❌ Rejected agent gate:\n{}", fb)

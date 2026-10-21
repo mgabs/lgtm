@@ -64,58 +64,51 @@ impl App {
     }
 
     pub fn next_file(&mut self) {
-        if self.snapshot.files.is_empty() {
-            self.status_message = Some("No changed files in diff".to_string());
-            return;
-        }
-        let total = self.snapshot.files.len();
-        if self.selected_file_idx + 1 < total {
-            self.selected_file_idx += 1;
-            self.diff_scroll_offset = 0;
-            self.cursor_line_idx = 0;
-            if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
-                file.is_folded = false;
-            }
-            let name = self.snapshot.files[self.selected_file_idx].display_name();
-            self.status_message = Some(format!(
-                "File [{}/{}]: {}",
-                self.selected_file_idx + 1,
-                total,
-                name
-            ));
-        } else {
-            let name = self.snapshot.files[self.selected_file_idx].display_name();
-            self.status_message = Some(format!(
-                "Already at last file [{}/{}]: {}",
-                total, total, name
-            ));
-        }
+        self.step_file(true);
     }
 
     pub fn prev_file(&mut self) {
+        self.step_file(false);
+    }
+
+    fn step_file(&mut self, forward: bool) {
         if self.snapshot.files.is_empty() {
             self.status_message = Some("No changed files in diff".to_string());
             return;
         }
         let total = self.snapshot.files.len();
-        if self.selected_file_idx > 0 {
-            self.selected_file_idx -= 1;
-            self.diff_scroll_offset = 0;
-            self.cursor_line_idx = 0;
-            if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
-                file.is_folded = false;
-            }
+        let can_step = if forward {
+            self.selected_file_idx + 1 < total
+        } else {
+            self.selected_file_idx > 0
+        };
+        if !can_step {
+            let edge = if forward { "last" } else { "first" };
+            let pos = if forward { total } else { 1 };
             let name = self.snapshot.files[self.selected_file_idx].display_name();
             self.status_message = Some(format!(
-                "File [{}/{}]: {}",
-                self.selected_file_idx + 1,
-                total,
-                name
+                "Already at {} file [{}/{}]: {}",
+                edge, pos, total, name
             ));
-        } else {
-            let name = self.snapshot.files[0].display_name();
-            self.status_message = Some(format!("Already at first file [1/{}]: {}", total, name));
+            return;
         }
+        self.selected_file_idx = if forward {
+            self.selected_file_idx + 1
+        } else {
+            self.selected_file_idx - 1
+        };
+        self.diff_scroll_offset = 0;
+        self.cursor_line_idx = 0;
+        if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
+            file.is_folded = false;
+        }
+        let name = self.snapshot.files[self.selected_file_idx].display_name();
+        self.status_message = Some(format!(
+            "File [{}/{}]: {}",
+            self.selected_file_idx + 1,
+            total,
+            name
+        ));
     }
 
     pub fn next_alert(&mut self) {

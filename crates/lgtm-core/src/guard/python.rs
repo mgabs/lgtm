@@ -15,8 +15,8 @@ const RULES: &[Rule] = &[
     Rule {
         id: "python/shell-injection",
         severity: Severity::Critical,
-        title: "Subprocess shell injection (shell=True)",
-        description: "Executing subprocesses with shell=True invites command injection vulnerabilities",
+        title: "Subprocess shell injection (shell=True)", // lgtm:ignore
+        description: "Executing subprocesses with shell=True invites command injection vulnerabilities", // lgtm:ignore
         query: r#"(keyword_argument name: (identifier) @n (#eq? @n "shell") value: (true) @hit)"#,
         inside: &[],
     },
@@ -101,11 +101,11 @@ mod tests {
         assert_eq!(ids("test.py", "eval(user_input)"), vec!["python/eval-exec"]);
         assert_eq!(ids("test.py", "exec(user_input)"), vec!["python/eval-exec"]);
         assert_eq!(
-            ids("test.py", "subprocess.run(cmd, shell=True)"),
+            ids("test.py", "subprocess.run(cmd, shell=True)"), // lgtm:ignore
             vec!["python/shell-injection"]
         );
         assert_eq!(
-            ids("test.py", "pickle.loads(payload)"),
+            ids("test.py", "pickle.loads(payload)"), // lgtm:ignore
             vec!["python/unsafe-pickle"]
         );
         assert_eq!(

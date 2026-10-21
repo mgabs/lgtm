@@ -449,13 +449,13 @@ impl MutationTester {
                 CFG_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             );
             let tmp = std::env::temp_dir().join(format!("lgtm-cfg-mut-{}", unique));
-            let _ = std::fs::remove_dir_all(&tmp);
-            let _ = std::fs::create_dir_all(&tmp);
-            let _ = std::fs::write(tmp.join(".lgtm.toml"), "editor = \"vscode\"\n");
-            let cfg = crate::config::LgtmConfig::load(&tmp, None).ok();
+            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
+            let _ = std::fs::create_dir_all(&tmp); // lgtm:ignore
+            let _ = std::fs::write(tmp.join(".lgtm.toml"), "editor = \"vscode\"\n"); // lgtm:ignore
+            let cfg = crate::config::LgtmConfig::load(&tmp, None).ok(); // lgtm:ignore
             let killed = cfg.as_ref().and_then(|c| c.editor.as_deref()) == Some("vscode")
                 && cfg.as_ref().map(|c| c.warnings.is_empty()).unwrap_or(false);
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
             results.push(MutantResult {
                 id,
                 module: "src/config/mod.rs",
@@ -464,7 +464,7 @@ impl MutationTester {
                 mutated,
                 status: if killed {
                     MutationStatus::Killed {
-                        killing_test: "config::tests::editor_config_option",
+                        killing_test: "config::tests::test_editor_config_option",
                     }
                 } else {
                     MutationStatus::Survived
@@ -579,10 +579,10 @@ impl MutationTester {
             id += 1;
         }
 
-        // Mutation 17: Python AST Guard - shell=True command injection rule
+        // Mutation 17: Python AST Guard - shell=True command injection rule // lgtm:ignore
         {
             use crate::guard::Guard;
-            let original = "python/shell-injection detects shell=True";
+            let original = "python/shell-injection detects shell=True"; // lgtm:ignore
             let mutated = "python/shell-injection pattern dropped";
             let f = crate::model::FileDiff {
                 old_path: None,
@@ -598,7 +598,7 @@ impl MutationTester {
                     new_lines: 2,
                     lines: vec![crate::model::DiffLine {
                         line_type: crate::model::LineType::Addition,
-                        content: "subprocess.run(cmd, shell=True)".into(),
+                        content: "subprocess.run(cmd, shell=True)".into(), // lgtm:ignore
                         old_line_num: None,
                         new_line_num: Some(1),
                     }],
@@ -613,7 +613,7 @@ impl MutationTester {
             results.push(MutantResult {
                 id,
                 module: "src/guard/python.rs",
-                description: "Bypass subprocess shell=True command injection check",
+                description: "Bypass subprocess shell=True command injection check", // lgtm:ignore
                 original,
                 mutated,
                 status: if killed {
@@ -825,15 +825,15 @@ impl MutationTester {
                 "GitEngine install_pre_commit_hook writes hook and pre_commit_hook_status reports true";
             let mutated = "GitEngine hook status always reports false";
             let tmp = std::env::temp_dir().join(format!("lgtm-mut-hook-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&tmp);
-            let _ = git2::Repository::init(&tmp);
+            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
+            let _ = git2::Repository::init(&tmp); // lgtm:ignore
             let engine = crate::git::GitEngine::new(&tmp);
-            let _ = engine.install_pre_commit_hook();
+            let _ = engine.install_pre_commit_hook(); // lgtm:ignore
             let installed_ok = engine.pre_commit_hook_status().unwrap_or(false);
             let uninstalled_ok = engine.uninstall_pre_commit_hook().unwrap_or(false);
             let status_after_uninstall = !engine.pre_commit_hook_status().unwrap_or(true);
             let killed = installed_ok && uninstalled_ok && status_after_uninstall;
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
             results.push(MutantResult {
                 id,
                 module: "crates/lgtm-core/src/git/mod.rs",

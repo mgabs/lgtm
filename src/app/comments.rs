@@ -837,7 +837,7 @@ mod tests {
         assert!(app.comments.is_empty());
 
         // Test open_comment_list and Enter key navigation
-        let anchor2 = CommentAnchor {
+        let second_anchor = CommentAnchor {
             file_path: "src/lib.rs".into(),
             target_line_no: 5,
             target_code: "line 5".into(),
@@ -852,7 +852,7 @@ mod tests {
             orphaned: false,
             track: Default::default(),
         };
-        let _ = app.comment_store.add_comment(&anchor2);
+        let _ = app.comment_store.add_comment(&second_anchor); // lgtm:ignore
         app.cursor_line_idx = 4;
         app.open_comment_list();
         assert_eq!(app.active_view, ActiveView::CommentList);

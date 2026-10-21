@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn editor_config_option() {
+    fn test_editor_config_option() {
         let d = dir("editor");
         std::fs::write(d.join(REPO_FILE), "editor = \"vscode\"\n").unwrap();
         let c = LgtmConfig::load(&d, None).unwrap();

@@ -108,249 +108,193 @@ impl App {
     }
 
     pub fn inject_reference_to_agent(&mut self) {
-        if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
-            let path_str = file.display_name();
+        let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
+            return;
+        };
+        let path_str = file.display_name();
+        let target_line = file
+            .hunks
+            .iter()
+            .flat_map(|h| &h.lines)
+            .nth(self.cursor_line_idx)
+            .and_then(|l| l.new_line_num.or(l.old_line_num));
 
-            let mut target_line: Option<u32> = None;
-            let mut line_counter = 0;
-
-            for hunk in &file.hunks {
-                for line in &hunk.lines {
-                    if line_counter == self.cursor_line_idx {
-                        target_line = line.new_line_num.or(line.old_line_num);
-                        break;
-                    }
-                    line_counter += 1;
-                }
-                if target_line.is_some() {
-                    break;
-                }
+        let payload = self.build_reference_payload(file, &path_str, target_line);
+        let sink = self.agent_sink();
+        let result = sink.send(&payload);
+        let label = sink.label();
+        drop(sink);
+        self.status_message = Some(match result {
+            Ok(()) => format!("Sent to {}: {}", label, payload),
+            Err(e) => {
+                let _ = crate::ipc::sink::ClipboardSink.send(&payload); // lgtm:ignore
+                format!("Send failed: {}", e)
             }
+        });
+    }
 
-            let matching_alerts: Vec<&crate::guard::GuardAlert> = self
-                .alerts
-                .iter()
-                .filter(|a| {
-                    (a.file_path == path_str || a.file_path == file.new_path.to_string_lossy())
-                        && a.line_no == target_line
-                })
-                .collect();
+    fn build_reference_payload(
+        &self,
+        file: &crate::model::FileDiff,
+        path_str: &str,
+        target_line: Option<u32>,
+    ) -> String {
+        let new_path_str = file.new_path.to_string_lossy();
+        let mut directive_parts: Vec<String> = self
+            .alerts
+            .iter()
+            .filter(|a| {
+                (a.file_path == path_str || a.file_path == new_path_str) && a.line_no == target_line
+            })
+            .map(|a| format!("[{}] {}", a.rule_id, a.title))
+            .collect();
 
-            let matching_comment = target_line
-                .and_then(|lno| {
-                    self.comments.iter().find(|c| {
-                        !c.orphaned
-                            && (c.file_path == path_str
-                                || c.file_path == file.new_path.to_string_lossy())
-                            && c.target_line_no == lno
-                    })
-                })
-                .or_else(|| {
-                    if target_line.is_none() {
-                        self.comments.iter().find(|c| {
-                            !c.orphaned
-                                && (c.file_path == path_str
-                                    || c.file_path == file.new_path.to_string_lossy())
-                        })
-                    } else {
-                        None
-                    }
-                });
-
-            let mut directive_parts = Vec::new();
-            for alert in &matching_alerts {
-                directive_parts.push(format!("[{}] {}", alert.rule_id, alert.title));
-            }
-            if let Some(comment) = matching_comment {
-                directive_parts.push(format!("DIRECTIVE: {}", comment.comment_text));
-            }
-
-            let payload = match target_line {
-                Some(line_no) => {
-                    if directive_parts.is_empty() {
-                        format!("#ref {}:{}", path_str, line_no)
-                    } else {
-                        let mut msg = format!(
-                            "#ref {}:{} {}",
-                            path_str,
-                            line_no,
-                            directive_parts.join(" | ")
-                        );
-                        if let Some(comment) = matching_comment {
-                            for reply in &comment.replies {
-                                msg.push_str(&format!("\n↳ Reply: {}", reply));
-                            }
-                        }
-                        msg
-                    }
-                }
-                None => {
-                    if directive_parts.is_empty() {
-                        format!("#ref {}", path_str)
-                    } else {
-                        format!("#ref {} {}", path_str, directive_parts.join(" | "))
-                    }
-                }
-            };
-
-            let sink = self.agent_sink();
-            let result = sink.send(&payload);
-            let label = sink.label();
-            drop(sink);
-            self.status_message = Some(match result {
-                Ok(()) => format!("Sent to {}: {}", label, payload),
-                Err(e) => {
-                    let _ = crate::ipc::sink::ClipboardSink.send(&payload);
-                    format!("Send failed: {}", e)
-                }
-            });
+        let matching_comment = self.comments.iter().find(|c| {
+            !c.orphaned
+                && (c.file_path == path_str || c.file_path == new_path_str)
+                && target_line.is_none_or(|lno| c.target_line_no == lno)
+        });
+        if let Some(comment) = matching_comment {
+            directive_parts.push(format!("DIRECTIVE: {}", comment.comment_text));
         }
+
+        let base = match target_line {
+            Some(line_no) => format!("#ref {}:{}", path_str, line_no),
+            None => format!("#ref {}", path_str),
+        };
+        if directive_parts.is_empty() {
+            return base;
+        }
+        let mut msg = format!("{} {}", base, directive_parts.join(" | "));
+        if let Some(comment) = matching_comment.filter(|_| target_line.is_some()) {
+            for reply in &comment.replies {
+                msg.push_str(&format!("\n↳ Reply: {}", reply));
+            }
+        }
+        msg
     }
 
     pub fn resolved_sink_kind(&self) -> crate::ipc::SinkKind {
-        if let Some(kind) = self.agent_sink_kind {
-            if kind != crate::ipc::SinkKind::Auto {
-                return kind;
-            }
-        }
-        if let Some(ref sink_str) = self.config.agent_sink {
-            if let Ok(kind) = sink_str.parse() {
-                if kind != crate::ipc::SinkKind::Auto {
-                    return kind;
-                }
-            }
-        }
-        crate::ipc::IpcBridge::detect_sink()
+        self.agent_sink_kind
+            .filter(|&k| k != crate::ipc::SinkKind::Auto)
+            .or_else(|| {
+                self.config
+                    .agent_sink
+                    .as_deref()?
+                    .parse()
+                    .ok()
+                    .filter(|&k| k != crate::ipc::SinkKind::Auto)
+            })
+            .unwrap_or_else(crate::ipc::IpcBridge::detect_sink)
     }
 
     pub fn agent_sink(&self) -> Box<dyn crate::ipc::sink::AgentSink + '_> {
         use crate::ipc::sink::*;
-        let kind = self.resolved_sink_kind();
-        match kind {
-            crate::ipc::SinkKind::Tmux => match self.agent_pane.as_deref() {
-                Some(pane) => Box::new(TmuxSink(pane)),
-                None => Box::new(ClipboardSink),
-            },
-            crate::ipc::SinkKind::Zellij => Box::new(ZellijSink(self.agent_pane.as_deref())),
-            crate::ipc::SinkKind::WezTerm => Box::new(WezTermSink(self.agent_pane.as_deref())),
-            crate::ipc::SinkKind::Kitty => Box::new(KittySink(self.agent_pane.as_deref())),
-            crate::ipc::SinkKind::Dummy => Box::new(DummySink),
-            crate::ipc::SinkKind::Clipboard | crate::ipc::SinkKind::Auto => Box::new(ClipboardSink),
+        match (self.resolved_sink_kind(), self.agent_pane.as_deref()) {
+            (crate::ipc::SinkKind::Tmux, Some(pane)) => Box::new(TmuxSink(pane)),
+            (crate::ipc::SinkKind::Zellij, p) => Box::new(ZellijSink(p)),
+            (crate::ipc::SinkKind::WezTerm, p) => Box::new(WezTermSink(p)),
+            (crate::ipc::SinkKind::Kitty, p) => Box::new(KittySink(p)),
+            (crate::ipc::SinkKind::Dummy, _) => Box::new(DummySink),
+            _ => Box::new(ClipboardSink),
         }
     }
 
     pub fn open_in_editor(&mut self) {
-        if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
-            let path = self.git_engine.repo_path.join(&file.new_path);
-            let mut line_no = 1;
-            let mut line_counter = 0;
-            for hunk in &file.hunks {
-                for line in &hunk.lines {
-                    if line_counter == self.cursor_line_idx {
-                        line_no = line.new_line_num.or(line.old_line_num).unwrap_or(1);
-                        break;
-                    }
-                    line_counter += 1;
-                }
-            }
-
-            let editor = self.resolved_editor();
-            match launch_editor(&editor, &path, line_no) {
-                Ok(_) => {
-                    self.status_message = Some(format!(
-                        "Opened {}:{} in {}",
-                        file.display_name(),
-                        line_no,
-                        editor
-                    ));
-                }
-                Err(err) => {
-                    self.status_message = Some(format!(
-                        "Failed to launch editor '{}': {} (use :editor <name>)",
-                        editor, err
-                    ));
-                }
-            }
-        }
+        let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
+            return;
+        };
+        let path = self.git_engine.repo_path.join(&file.new_path);
+        let line_no = file
+            .hunks
+            .iter()
+            .flat_map(|h| &h.lines)
+            .nth(self.cursor_line_idx)
+            .and_then(|l| l.new_line_num.or(l.old_line_num))
+            .unwrap_or(1);
+        let display_name = file.display_name();
+        let editor = self.resolved_editor();
+        self.status_message = Some(match launch_editor(&editor, &path, line_no) {
+            Ok(_) => format!("Opened {}:{} in {}", display_name, line_no, editor),
+            Err(err) => format!(
+                "Failed to launch editor '{}': {} (use :editor <name>)",
+                editor, err
+            ),
+        });
     }
 
     pub fn open_file_in_editor(&mut self, file_rel_path: &str, line_no: u32) {
         let path = self.git_engine.repo_path.join(file_rel_path);
         let editor = self.resolved_editor();
-
-        match launch_editor(&editor, &path, line_no) {
-            Ok(_) => {
-                self.status_message = Some(format!(
-                    "Opened {}:{} in {}",
-                    file_rel_path, line_no, editor
-                ));
-            }
-            Err(err) => {
-                self.status_message = Some(format!(
-                    "Failed to launch editor '{}': {} (use :editor <name>)",
-                    editor, err
-                ));
-            }
-        }
+        self.status_message = Some(match launch_editor(&editor, &path, line_no) {
+            Ok(_) => format!("Opened {}:{} in {}", file_rel_path, line_no, editor),
+            Err(err) => format!(
+                "Failed to launch editor '{}': {} (use :editor <name>)",
+                editor, err
+            ),
+        });
     }
 }
 
-fn launch_editor(editor: &str, path: &std::path::Path, line_no: u32) -> Result<(), std::io::Error> {
-    let lower = editor.trim().to_lowercase();
-    let is_gui = lower == "vscode"
-        || lower == "code"
-        || lower == "cursor"
-        || lower == "subl"
-        || lower == "sublime"
-        || lower == "idea"
-        || lower.starts_with("code ")
-        || lower.starts_with("cursor ");
+fn is_gui_editor(lower: &str) -> bool {
+    matches!(
+        lower,
+        "vscode" | "code" | "cursor" | "subl" | "sublime" | "idea"
+    ) || lower.starts_with("code ")
+        || lower.starts_with("cursor ")
+}
 
+fn launch_editor(editor: &str, path: &std::path::Path, line_no: u32) -> Result<(), std::io::Error> {
+    use crossterm::terminal::{
+        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    };
+    let lower = editor.trim().to_lowercase();
+    let is_gui = is_gui_editor(&lower);
     if !is_gui {
-        let _ = crossterm::terminal::disable_raw_mode();
-        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
+        let _ = disable_raw_mode(); // lgtm:ignore
+        let _ = crossterm::execute!(std::io::stdout(), LeaveAlternateScreen); // lgtm:ignore
     }
 
+    let loc = format!("{}:{}", path.display(), line_no);
     let status = match lower.as_str() {
         "vscode" | "code" => std::process::Command::new("code")
-            .arg("-g")
-            .arg(format!("{}:{}", path.display(), line_no))
+            .args(["-g", &loc])
             .status(),
         "cursor" => std::process::Command::new("cursor")
-            .arg("-g")
-            .arg(format!("{}:{}", path.display(), line_no))
+            .args(["-g", &loc])
             .status(),
-        "subl" | "sublime" => std::process::Command::new("subl")
-            .arg(format!("{}:{}", path.display(), line_no))
-            .status(),
+        "subl" | "sublime" => std::process::Command::new("subl").arg(&loc).status(),
         "idea" => std::process::Command::new("idea")
-            .arg("--line")
-            .arg(line_no.to_string())
+            .args(["--line", &line_no.to_string()])
             .arg(path)
             .status(),
-        _ => {
-            let mut parts = editor.split_whitespace();
-            let bin = parts.next().unwrap_or(editor);
-            let mut cmd = std::process::Command::new(bin);
-            for arg in parts {
-                cmd.arg(arg);
-            }
-            if bin == "hx" || bin == "helix" {
-                cmd.arg(format!("{}:{}", path.display(), line_no));
-            } else {
-                cmd.arg(format!("+{}", line_no));
-                cmd.arg(path);
-            }
-            cmd.status()
-        }
+        _ => spawn_cli_editor(editor, path, line_no, &loc),
     };
 
     if !is_gui {
-        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen);
-        let _ = crossterm::terminal::enable_raw_mode();
+        let _ = crossterm::execute!(std::io::stdout(), EnterAlternateScreen); // lgtm:ignore
+        let _ = enable_raw_mode(); // lgtm:ignore
     }
 
     status.map(|_| ())
+}
+
+fn spawn_cli_editor(
+    editor: &str,
+    path: &std::path::Path,
+    line_no: u32,
+    loc: &str,
+) -> Result<std::process::ExitStatus, std::io::Error> {
+    let mut parts = editor.split_whitespace();
+    let bin = parts.next().unwrap_or(editor);
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(parts);
+    if bin == "hx" || bin == "helix" {
+        cmd.arg(loc);
+    } else {
+        cmd.arg(format!("+{}", line_no)).arg(path);
+    }
+    cmd.status()
 }
 
 impl App {

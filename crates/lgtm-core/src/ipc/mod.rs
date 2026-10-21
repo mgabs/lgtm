@@ -16,37 +16,44 @@ pub enum SinkKind {
     Dummy,
 }
 
+const SINK_TABLE: &[(&str, SinkKind)] = &[
+    ("tmux", SinkKind::Tmux),
+    ("zellij", SinkKind::Zellij),
+    ("wezterm", SinkKind::WezTerm),
+    ("kitty", SinkKind::Kitty),
+    ("clipboard", SinkKind::Clipboard),
+    ("clip", SinkKind::Clipboard),
+    ("dummy", SinkKind::Dummy),
+    ("null", SinkKind::Dummy),
+    ("/dev/null", SinkKind::Dummy),
+    ("none", SinkKind::Dummy),
+    ("auto", SinkKind::Auto),
+];
+
 impl std::str::FromStr for SinkKind {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_str() {
-            "tmux" => Ok(SinkKind::Tmux),
-            "zellij" => Ok(SinkKind::Zellij),
-            "wezterm" => Ok(SinkKind::WezTerm),
-            "kitty" => Ok(SinkKind::Kitty),
-            "clipboard" | "clip" => Ok(SinkKind::Clipboard),
-            "dummy" | "null" | "/dev/null" | "none" => Ok(SinkKind::Dummy),
-            "auto" => Ok(SinkKind::Auto),
-            other => bail!(
-                "unknown agent sink `{}` (expected tmux, zellij, wezterm, kitty, clipboard, or dummy)",
-                other
-            ),
-        }
+        let lower = s.trim().to_lowercase();
+        SINK_TABLE
+            .iter()
+            .find_map(|&(name, kind)| (name == lower).then_some(kind))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "unknown agent sink `{}` (expected tmux, zellij, wezterm, kitty, clipboard, or dummy)",
+                    lower
+                )
+            })
     }
 }
 
 impl std::fmt::Display for SinkKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SinkKind::Auto => write!(f, "auto"),
-            SinkKind::Tmux => write!(f, "tmux"),
-            SinkKind::Zellij => write!(f, "zellij"),
-            SinkKind::WezTerm => write!(f, "wezterm"),
-            SinkKind::Kitty => write!(f, "kitty"),
-            SinkKind::Clipboard => write!(f, "clipboard"),
-            SinkKind::Dummy => write!(f, "dummy"),
-        }
+        let s = SINK_TABLE
+            .iter()
+            .find_map(|&(name, kind)| (kind == *self).then_some(name))
+            .unwrap_or("auto");
+        write!(f, "{}", s)
     }
 }
 
@@ -65,7 +72,9 @@ impl IpcBridge {
     }
 
     pub fn is_inside_zellij() -> bool {
-        std::env::var("ZELLIJ").is_ok() || std::env::var("ZELLIJ_SESSION_NAME").is_ok()
+        ["ZELLIJ", "ZELLIJ_SESSION_NAME"]
+            .into_iter()
+            .any(|k| std::env::var(k).is_ok())
     }
 
     pub fn is_inside_wezterm() -> bool {
@@ -73,21 +82,21 @@ impl IpcBridge {
     }
 
     pub fn is_inside_kitty() -> bool {
-        std::env::var("KITTY_WINDOW_ID").is_ok() || std::env::var("KITTY_PID").is_ok()
+        ["KITTY_WINDOW_ID", "KITTY_PID"]
+            .into_iter()
+            .any(|k| std::env::var(k).is_ok())
     }
 
     pub fn detect_sink() -> SinkKind {
-        if Self::is_inside_tmux() {
-            SinkKind::Tmux
-        } else if Self::is_inside_zellij() {
-            SinkKind::Zellij
-        } else if Self::is_inside_wezterm() {
-            SinkKind::WezTerm
-        } else if Self::is_inside_kitty() {
-            SinkKind::Kitty
-        } else {
-            SinkKind::Clipboard
-        }
+        [
+            (Self::is_inside_tmux(), SinkKind::Tmux),
+            (Self::is_inside_zellij(), SinkKind::Zellij),
+            (Self::is_inside_wezterm(), SinkKind::WezTerm),
+            (Self::is_inside_kitty(), SinkKind::Kitty),
+        ]
+        .into_iter()
+        .find_map(|(active, kind)| active.then_some(kind))
+        .unwrap_or(SinkKind::Clipboard)
     }
 
     pub fn list_tmux_panes() -> Result<Vec<TmuxPane>> {
@@ -165,32 +174,13 @@ impl IpcBridge {
     pub fn parse_wezterm_panes_json(json_str: &str) -> Result<Vec<TmuxPane>> {
         let val: serde_json::Value =
             serde_json::from_str(json_str).context("Failed to parse wezterm cli list JSON")?;
-        let mut panes = Vec::new();
-        if let Some(arr) = val.as_array() {
-            for item in arr {
-                let id = item
-                    .get("pane_id")
-                    .and_then(|v| {
-                        v.as_i64()
-                            .map(|n| n.to_string())
-                            .or_else(|| v.as_str().map(|s| s.to_string()))
-                    })
-                    .unwrap_or_default();
-                let title = item
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("pane")
-                    .to_string();
-                let active = item
-                    .get("is_active")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                if !id.is_empty() {
-                    panes.push(TmuxPane { id, title, active });
-                }
-            }
-        }
-        Ok(panes)
+        let Some(arr) = val.as_array() else {
+            return Ok(Vec::new());
+        };
+        Ok(arr
+            .iter()
+            .filter_map(|item| Self::pane_from_json(item, "pane_id", "pane", "is_active"))
+            .collect())
     }
 
     pub fn list_kitty_windows() -> Result<Vec<TmuxPane>> {
@@ -209,64 +199,69 @@ impl IpcBridge {
     pub fn parse_kitty_windows_json(json_str: &str) -> Result<Vec<TmuxPane>> {
         let val: serde_json::Value =
             serde_json::from_str(json_str).context("Failed to parse kitty @ ls JSON")?;
-        let mut windows = Vec::new();
-        if let Some(os_windows) = val.as_array() {
-            for os_win in os_windows {
-                if let Some(tabs) = os_win.get("tabs").and_then(|t| t.as_array()) {
-                    for tab in tabs {
-                        if let Some(wins) = tab.get("windows").and_then(|w| w.as_array()) {
-                            for win in wins {
-                                let id = win
-                                    .get("id")
-                                    .and_then(|v| {
-                                        v.as_i64()
-                                            .map(|n| n.to_string())
-                                            .or_else(|| v.as_str().map(|s| s.to_string()))
-                                    })
-                                    .unwrap_or_default();
-                                let title = win
-                                    .get("title")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("window")
-                                    .to_string();
-                                let active = win
-                                    .get("is_focused")
-                                    .and_then(|v| v.as_bool())
-                                    .unwrap_or(false);
-                                if !id.is_empty() {
-                                    windows.push(TmuxPane { id, title, active });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        let Some(os_windows) = val.as_array() else {
+            return Ok(Vec::new());
+        };
+        let wins = os_windows
+            .iter()
+            .filter_map(|w| w.get("tabs")?.as_array())
+            .flatten()
+            .filter_map(|t| t.get("windows")?.as_array())
+            .flatten()
+            .filter_map(|win| Self::pane_from_json(win, "id", "window", "is_focused"))
+            .collect();
+        Ok(wins)
+    }
+
+    fn pane_from_json(
+        item: &serde_json::Value,
+        id_key: &str,
+        default_title: &str,
+        active_key: &str,
+    ) -> Option<TmuxPane> {
+        let v = item.get(id_key)?;
+        let id = v
+            .as_i64()
+            .map(|n| n.to_string())
+            .or_else(|| v.as_str().map(|s| s.to_string()))?;
+        if id.is_empty() {
+            return None;
         }
-        Ok(windows)
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or(default_title)
+            .to_string();
+        let active = item
+            .get(active_key)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        Some(TmuxPane { id, title, active })
     }
 
     pub fn list_zellij_panes() -> Result<Vec<TmuxPane>> {
-        let output = Command::new("zellij")
+        if let Ok(out) = Command::new("zellij")
             .args(["action", "query-tab-names"])
-            .output();
-
-        if let Ok(out) = output {
-            if out.status.success() {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let mut panes = Vec::new();
-                for (idx, line) in stdout.lines().enumerate() {
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .ok_or(())
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let panes: Vec<TmuxPane> = stdout
+                .lines()
+                .enumerate()
+                .filter_map(|(idx, line)| {
                     let trimmed = line.trim();
-                    if !trimmed.is_empty() {
-                        panes.push(TmuxPane {
-                            id: (idx + 1).to_string(),
-                            title: trimmed.to_string(),
-                            active: idx == 0,
-                        });
-                    }
-                }
-                if !panes.is_empty() {
-                    return Ok(panes);
-                }
+                    (!trimmed.is_empty()).then(|| TmuxPane {
+                        id: (idx + 1).to_string(),
+                        title: trimmed.to_string(),
+                        active: idx == 0,
+                    })
+                })
+                .collect();
+            if !panes.is_empty() {
+                return Ok(panes);
             }
         }
 

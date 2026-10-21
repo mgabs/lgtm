@@ -481,51 +481,7 @@ impl App {
             }
             "hook" => {
                 let action = args.first().copied().unwrap_or("status");
-                match action {
-                    "install" => match self.git_engine.install_pre_commit_hook() {
-                        Ok(p) => {
-                            self.status_message =
-                                Some(format!("Installed pre-commit hook at {}", p.display()))
-                        }
-                        Err(e) => {
-                            self.status_message =
-                                Some(format!("Failed to install pre-commit hook: {}", e))
-                        }
-                    },
-                    "uninstall" => match self.git_engine.uninstall_pre_commit_hook() {
-                        Ok(true) => {
-                            self.status_message = Some("Uninstalled pre-commit hook".to_string())
-                        }
-                        Ok(false) => {
-                            self.status_message =
-                                Some("No LGTM pre-commit hook found to uninstall".to_string())
-                        }
-                        Err(e) => {
-                            self.status_message =
-                                Some(format!("Failed to uninstall pre-commit hook: {}", e))
-                        }
-                    },
-                    "status" => match self.git_engine.pre_commit_hook_status() {
-                        Ok(true) => {
-                            self.status_message =
-                                Some("Pre-commit hook is installed and active".to_string())
-                        }
-                        Ok(false) => {
-                            self.status_message =
-                                Some("Pre-commit hook is not installed".to_string())
-                        }
-                        Err(e) => {
-                            self.status_message =
-                                Some(format!("Failed to check hook status: {}", e))
-                        }
-                    },
-                    other => {
-                        self.status_message = Some(format!(
-                            "Unknown hook action '{}'. Usage: :hook [install|uninstall|status]",
-                            other
-                        ))
-                    }
-                }
+                self.status_message = Some(Self::run_hook_action(&self.git_engine, action));
                 self.active_view = ActiveView::Diff;
             }
             _ => {
@@ -533,6 +489,45 @@ impl App {
                 self.active_view = ActiveView::Diff;
             }
         }
+    }
+
+    fn run_hook_action(git_engine: &crate::git::GitEngine, action: &str) -> String {
+        if action == "install" {
+            return git_engine
+                .install_pre_commit_hook()
+                .map(|p| format!("Installed pre-commit hook at {}", p.display()))
+                .unwrap_or_else(|e| format!("Failed to install pre-commit hook: {}", e));
+        }
+        if action == "uninstall" {
+            return git_engine
+                .uninstall_pre_commit_hook()
+                .map(|removed| {
+                    if removed {
+                        "Uninstalled pre-commit hook"
+                    } else {
+                        "No LGTM pre-commit hook found to uninstall"
+                    }
+                    .to_string()
+                })
+                .unwrap_or_else(|e| format!("Failed to uninstall pre-commit hook: {}", e));
+        }
+        if action == "status" {
+            return git_engine
+                .pre_commit_hook_status()
+                .map(|active| {
+                    if active {
+                        "Pre-commit hook is installed and active"
+                    } else {
+                        "Pre-commit hook is not installed"
+                    }
+                    .to_string()
+                })
+                .unwrap_or_else(|e| format!("Failed to check hook status: {}", e));
+        }
+        format!(
+            "Unknown hook action '{}'. Usage: :hook [install|uninstall|status]",
+            action
+        )
     }
 
     pub fn jump_to_line(&mut self, target_line_no: u32) {
@@ -1146,8 +1141,8 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let _ = std::fs::create_dir_all(&tmp);
-        let _ = lgtm_core::git2::Repository::init(&tmp).unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+        lgtm_core::git2::Repository::init(&tmp).unwrap();
         app.git_engine = crate::git::GitEngine::new(&tmp);
 
         app.execute_command("hook status");
@@ -1188,6 +1183,6 @@ mod tests {
             .unwrap()
             .contains("Unknown hook action"));
 
-        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
     }
 }

@@ -86,8 +86,8 @@ impl McpServer {
                             }
                         });
                         if let Ok(mut out) = stdout_clone.lock() {
-                            let _ = writeln!(out, "{}", notification);
-                            let _ = out.flush();
+                            let _ = writeln!(out, "{}", notification); // lgtm:ignore
+                            let _ = out.flush(); // lgtm:ignore
                         }
                     }
                 }

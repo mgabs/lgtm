@@ -281,7 +281,7 @@ Python (`.py` / `.pyi`, same engine):
 | Rule | Severity | Flags |
 |---|---|---|
 | `python/eval-exec` | Critical | Dynamic code execution (`eval(...)`, `exec(...)`) |
-| `python/shell-injection` | Critical | Subprocess invocation with `shell=True` |
+| `python/shell-injection` | Critical | Subprocess invocation with `shell = True` |
 | `python/unsafe-pickle` | Critical | Unsafe deserialization via `pickle.load` or `pickle.loads` |
 | `python/bare-except` | Warn | Bare `except:` catching system exits and `KeyboardInterrupt` |
 

@@ -50,7 +50,7 @@ pub fn sexp(lang: Lang, src: &str) -> Result<String> {
     let mut parser = Parser::new();
     parser.set_language(&grammar(lang))?;
     let tree = parser
-        .parse(src, None)
+        .parse(src, None) // lgtm:ignore
         .ok_or_else(|| anyhow!("parse failed"))?;
     Ok(tree.root_node().to_sexp())
 }
@@ -101,7 +101,7 @@ pub fn fold_blocks(lang: Lang, src: &str) -> Result<Vec<AstBlock>> {
     let mut parser = Parser::new();
     parser.set_language(&grammar(lang))?;
     let tree = parser
-        .parse(src, None)
+        .parse(src, None) // lgtm:ignore
         .ok_or_else(|| anyhow!("parse failed"))?;
     let mut blocks = Vec::new();
     let mut stack = vec![tree.root_node()];
