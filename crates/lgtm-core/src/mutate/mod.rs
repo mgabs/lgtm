@@ -768,6 +768,54 @@ impl MutationTester {
                     MutationStatus::Survived
                 },
             });
+            id += 1;
+        }
+
+        // Mutation 23: Java AST Guard - command injection rule
+        {
+            use crate::guard::Guard;
+            let original = "java/command-injection detects Runtime.exec invocation";
+            let mutated = "java/command-injection pattern dropped";
+            let f = crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("Exec.java"),
+                change_type: crate::model::ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: vec![crate::model::DiffHunk {
+                    header: "@@ -1,1 +1,2 @@".into(),
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 2,
+                    lines: vec![crate::model::DiffLine {
+                        line_type: crate::model::LineType::Addition,
+                        content: "Runtime.getRuntime().exec(cmd);".into(),
+                        old_line_num: None,
+                        new_line_num: Some(1),
+                    }],
+                    is_folded: false,
+                    folded_blocks: Vec::new(),
+                }],
+                is_folded: false,
+                is_reviewed: false,
+            };
+            let alerts = crate::guard::java::JavaGuard.scan_file(&f);
+            let killed = alerts.iter().any(|a| a.rule_id == "java/command-injection");
+            results.push(MutantResult {
+                id,
+                module: "src/guard/java.rs",
+                description: "Bypass Java Runtime.exec command injection check",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "guard::java::tests::test_java_rules_fire_correctly",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
         }
 
         results

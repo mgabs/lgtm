@@ -293,6 +293,15 @@ Go (`.go`, same engine):
 | `go/command-injection` | Critical | `exec.Command` invoked with shell binary (`sh`, `bash`, `zsh`) |
 | `go/unhandled-error` | Warn | Ignored error assigned to blank identifier (`_`) |
 
+Java (`.java`, same engine):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `java/sql-injection` | Critical | Raw SQL in `executeQuery` / `executeUpdate` instead of PreparedStatement |
+| `java/command-injection` | Critical | Invoking `Runtime.getRuntime().exec(...)` with raw external commands |
+| `java/unsafe-deserialization` | High | Remote code execution hazard via `ObjectInputStream.readObject()` |
+| `java/empty-catch` | Warn | Empty catch block swallowing exceptions without logging or rethrow |
+
 ### Identifier Hallucination & Typo Guard
 - **What it checks**: Extracts project-wide symbol identifiers (variable names, functions, structs, methods).
 - **Trigger**: Flags new identifiers that have a Levenshtein edit distance of $1 \le d \le 2$ from existing symbols (e.g. agent typed `user_token` when the project defines `usertoken`).

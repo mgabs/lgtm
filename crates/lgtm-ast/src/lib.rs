@@ -11,6 +11,7 @@ pub enum Lang {
     Tsx,
     Swift,
     Go,
+    Java,
 }
 
 /// JS/JSX parse with the TSX grammar, which is a superset.
@@ -22,6 +23,7 @@ pub fn lang_of(path: &Path) -> Option<Lang> {
         "swift" => Some(Lang::Swift),
         "tsx" | "jsx" | "js" | "mjs" | "cjs" => Some(Lang::Tsx),
         "go" => Some(Lang::Go),
+        "java" => Some(Lang::Java),
         _ => None,
     }
 }
@@ -34,6 +36,7 @@ fn grammar(lang: Lang) -> Language {
         Lang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
         Lang::Swift => tree_sitter_swift::LANGUAGE.into(),
         Lang::Go => tree_sitter_go::LANGUAGE.into(),
+        Lang::Java => tree_sitter_java::LANGUAGE.into(),
     }
 }
 
@@ -80,6 +83,7 @@ const FOLD_BLOCK_KINDS: &[&str] = &[
     "object_type",
     "code_block",
     "method_declaration",
+    "constructor_declaration",
     "type_declaration",
     "block",
     "compound_statement",
@@ -330,6 +334,7 @@ mod tests {
         assert_eq!(lang_of(Path::new("a.py")), Some(Lang::Python));
         assert_eq!(lang_of(Path::new("a.pyi")), Some(Lang::Python));
         assert_eq!(lang_of(Path::new("a.go")), Some(Lang::Go));
+        assert_eq!(lang_of(Path::new("a.java")), Some(Lang::Java));
         assert_eq!(lang_of(Path::new("a.rb")), None);
     }
 
@@ -389,5 +394,23 @@ mod tests {
         assert!(!go_blocks.is_empty());
         assert_eq!(go_blocks[0].start_row, 0);
         assert_eq!(go_blocks[0].end_row, 4);
+
+        let java_src = "public class OrderService {\n    public void processOrder() {\n        doProcess();\n    }\n}\n";
+        let java_blocks = fold_blocks(Lang::Java, java_src).unwrap();
+        assert!(!java_blocks.is_empty());
+        assert_eq!(java_blocks[0].start_row, 0);
+        assert_eq!(java_blocks[0].end_row, 4);
+    }
+
+    #[test]
+    fn java_identifiers_skip_strings_and_comments() {
+        let src = "// commentWord\nString userName = \"stringWord\";\nprocessOrder(userName);\n";
+        let ids = identifiers(Lang::Java, src).unwrap();
+        let names: Vec<_> = ids.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"userName"));
+        assert!(names.contains(&"processOrder"));
+        assert!(!names
+            .iter()
+            .any(|n| n.contains("commentWord") || n.contains("stringWord")));
     }
 }
