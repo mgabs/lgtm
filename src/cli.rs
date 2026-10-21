@@ -230,6 +230,15 @@ pub enum Commands {
         #[arg(short, long, default_value = ".")]
         repo: Option<PathBuf>,
     },
+    /// Manage Git pre-commit hooks (install, uninstall, status)
+    Hook {
+        /// Hook action: install, uninstall, or status
+        #[arg(value_parser = ["install", "uninstall", "status"])]
+        action: String,
+        /// Target repository path
+        #[arg(short, long)]
+        repo: Option<PathBuf>,
+    },
     /// Unrecognized git command passthrough
     #[command(external_subcommand)]
     External(Vec<String>),

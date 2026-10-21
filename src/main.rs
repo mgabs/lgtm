@@ -457,6 +457,17 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some(Commands::Hook { action, repo }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            match headless::run_hook_command(&repo_path, &action) {
+                Ok(code) => ExitCode::from(code as u8),
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some(Commands::Diff { revision }) | Some(Commands::Status { revision }) => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
             if let Err(e) = run_tui(

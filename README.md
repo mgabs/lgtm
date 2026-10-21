@@ -56,6 +56,7 @@
 - **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and instant report export (`w` / `:export`).
 - **Headless CI & Security Gates**:
   - `lgtm check`: Pre-commit / CI gate that blocks builds on critical security vulnerabilities or complexity spikes.
+  - `lgtm hook [install|uninstall|status]`: Automates setup of `.git/hooks/pre-commit` to gate commits locally.
   - `lgtm gate`: Blocks autonomous agents until human approves or rejects via TUI.
   - `lgtm scan`: Generates full Markdown audit reports or SARIF 2.1.0 output for GitHub Security Code Scanning.
 - **Zero-Crash Non-Git Fallback**: Graceful fallback and file diff scanning even outside git repositories.

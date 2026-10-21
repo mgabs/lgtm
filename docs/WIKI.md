@@ -601,8 +601,10 @@ steps:
 **pre-commit hook** (`.git/hooks/pre-commit`, checks the working tree):
 
 ```bash
-#!/bin/sh
-exec lgtm check
+# Manage pre-commit hook automatically:
+lgtm hook install     # writes .git/hooks/pre-commit and chmod +x
+lgtm hook status      # verifies hook presence and active state
+lgtm hook uninstall   # cleanly removes hook
 ```
 
 ### Azure DevOps pull requests

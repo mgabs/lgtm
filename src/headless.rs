@@ -571,6 +571,40 @@ pub(crate) fn run_baseline_update(repo_path: &Path, prune: bool) -> Result<i32> 
     Ok(0)
 }
 
+pub(crate) fn run_hook_command(repo_path: &Path, action: &str) -> Result<i32> {
+    let engine = git::GitEngine::new(repo_path);
+    if !engine.is_git_repo() {
+        eprintln!("lgtm hook: Not a git repository");
+        return Ok(1);
+    }
+    match action {
+        "install" => {
+            let path = engine.install_pre_commit_hook()?;
+            println!("Installed LGTM pre-commit hook at {}", path.display());
+            Ok(0)
+        }
+        "uninstall" => {
+            let removed = engine.uninstall_pre_commit_hook()?;
+            if removed {
+                println!("Uninstalled LGTM pre-commit hook");
+            } else {
+                println!("No LGTM pre-commit hook found to uninstall");
+            }
+            Ok(0)
+        }
+        "status" => {
+            let installed = engine.pre_commit_hook_status()?;
+            if installed {
+                println!("LGTM pre-commit hook is installed and active");
+            } else {
+                println!("LGTM pre-commit hook is not installed");
+            }
+            Ok(0)
+        }
+        _ => anyhow::bail!("Unknown hook action: {}", action),
+    }
+}
+
 pub(crate) fn run_gate(repo_path: &Path, timeout_secs: u64, message: Option<&str>) -> Result<i32> {
     let git = git::GitEngine::new(repo_path);
     if !git.is_git_repo() {
@@ -845,6 +879,21 @@ mod tests {
         assert!(run_review(&tmp, "import", None).is_err());
         std::fs::write(&f, r#"{"version":9,"target":"feat"}"#).unwrap();
         assert!(run_review(&tmp, "import", f.to_str()).is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_headless_hook_command() {
+        let tmp = std::env::temp_dir().join(format!("lgtm-hook-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = lgtm_core::git2::Repository::init(&tmp).unwrap();
+
+        assert_eq!(run_hook_command(&tmp, "status").unwrap(), 0);
+        assert_eq!(run_hook_command(&tmp, "install").unwrap(), 0);
+        assert_eq!(run_hook_command(&tmp, "status").unwrap(), 0);
+        assert_eq!(run_hook_command(&tmp, "uninstall").unwrap(), 0);
+        assert_eq!(run_hook_command(&tmp, "status").unwrap(), 0);
+
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

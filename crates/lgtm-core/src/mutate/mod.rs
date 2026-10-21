@@ -816,6 +816,35 @@ impl MutationTester {
                     MutationStatus::Survived
                 },
             });
+            id += 1;
+        }
+
+        // Mutation 24: Git pre-commit hook installation and status
+        {
+            let original =
+                "GitEngine install_pre_commit_hook writes hook and pre_commit_hook_status reports true";
+            let mutated = "GitEngine hook status always reports false";
+            let tmp = std::env::temp_dir().join(format!("lgtm-mut-hook-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = git2::Repository::init(&tmp);
+            let engine = crate::git::GitEngine::new(&tmp);
+            let _ = engine.install_pre_commit_hook();
+            let killed = engine.pre_commit_hook_status().unwrap_or(false);
+            let _ = std::fs::remove_dir_all(&tmp);
+            results.push(MutantResult {
+                id,
+                module: "crates/lgtm-core/src/git/mod.rs",
+                description: "Corrupt GitEngine pre-commit hook installer and status checker",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "git::tests::test_git_hook_lifecycle",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
         }
 
         results
