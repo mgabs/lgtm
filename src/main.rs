@@ -560,11 +560,17 @@ fn run_tui(
         terminal.draw(|f| ui::render(f, &mut app))?;
 
         // Poll user keyboard events
-        if event::poll(tick_rate)? {
+        // Apply every queued key before the next redraw so held keys (j/k repeat) don't lag
+        let mut wait = tick_rate;
+        while event::poll(wait)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == crossterm::event::KeyEventKind::Press {
                     app.handle_key(key);
                 }
+            }
+            wait = Duration::ZERO;
+            if app.should_quit {
+                break;
             }
         }
     }

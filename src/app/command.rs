@@ -12,8 +12,14 @@ impl App {
         if let Ok(line_num) = trimmed.parse::<u32>() {
             self.active_view = ActiveView::Diff;
             if line_num > 0 {
-                self.jump_to_line(line_num);
-                self.status_message = Some(format!("Jumped to line {}", line_num));
+                self.status_message = Some(match self.jump_to_line(line_num) {
+                    Some(n) if n == line_num => format!("Jumped to line {}", line_num),
+                    Some(n) => format!(
+                        "Line {} not in diff; jumped to nearest line {}",
+                        line_num, n
+                    ),
+                    None => "No lines in the active file".to_string(),
+                });
             }
             return;
         }
@@ -530,23 +536,21 @@ impl App {
         )
     }
 
-    pub fn jump_to_line(&mut self, target_line_no: u32) {
-        if let Some(f) = self.snapshot.files.get(self.selected_file_idx) {
-            let mut line_counter = 0;
-            for hunk in &f.hunks {
-                for line in &hunk.lines {
-                    let line_num = line.new_line_num.or(line.old_line_num);
-                    if line_num == Some(target_line_no) {
-                        self.cursor_line_idx = line_counter;
-                        return;
-                    }
-                    line_counter += 1;
+    /// Moves the cursor to the diff line closest to `target_line_no`; returns the line landed on.
+    pub fn jump_to_line(&mut self, target_line_no: u32) -> Option<u32> {
+        let f = self.snapshot.files.get(self.selected_file_idx)?;
+        let mut best: Option<(u32, usize, u32)> = None;
+        for (counter, line) in f.hunks.iter().flat_map(|h| &h.lines).enumerate() {
+            if let Some(n) = line.new_line_num.or(line.old_line_num) {
+                let dist = n.abs_diff(target_line_no);
+                if best.is_none_or(|(d, _, _)| dist < d) {
+                    best = Some((dist, counter, n));
                 }
             }
-            if line_counter > 0 {
-                self.cursor_line_idx = line_counter - 1;
-            }
         }
+        let (_, idx, n) = best?;
+        self.cursor_line_idx = idx;
+        Some(n)
     }
 }
 
@@ -631,7 +635,7 @@ mod tests {
             .status_message
             .as_ref()
             .unwrap()
-            .contains("Jumped to line 10"));
+            .contains("No lines in the active file"));
     }
 
     #[test]

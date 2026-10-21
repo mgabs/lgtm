@@ -422,9 +422,12 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                         )));
 
                         let mut h_idx = 0;
+                        let mut seen_blocks = Vec::new();
+                        let fold_map = App::fold_map(hunk);
                         while h_idx < hunk.lines.len() {
-                            if let Some(range) = App::is_line_in_folded_block(hunk, h_idx) {
-                                if App::is_first_line_of_folded_block(hunk, h_idx) == Some(range) {
+                            if let Some(range) = fold_map[h_idx] {
+                                if !seen_blocks.contains(&range) {
+                                    seen_blocks.push(range);
                                     let is_cursor = line_counter == app.cursor_line_idx;
                                     let style = if is_cursor {
                                         Style::default()
@@ -707,10 +710,13 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                         )));
 
                         let pairs = find_intra_line_pairs(&hunk.lines);
+                        let mut seen_blocks = Vec::new();
+                        let fold_map = App::fold_map(hunk);
 
                         for (h_line_idx, dline) in hunk.lines.iter().enumerate() {
-                            if let Some(range) = App::is_line_in_folded_block(hunk, h_line_idx) {
-                                if App::is_first_line_of_folded_block(hunk, h_line_idx) == Some(range) {
+                            if let Some(range) = fold_map[h_line_idx] {
+                                if !seen_blocks.contains(&range) {
+                                    seen_blocks.push(range);
                                     let is_cursor = line_counter == app.cursor_line_idx;
                                     let style = if is_cursor {
                                         Style::default()

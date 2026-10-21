@@ -186,17 +186,34 @@ impl App {
         None
     }
 
-    pub fn is_first_line_of_folded_block(
+    /// Per-line folded range for a hunk (first matching range wins), computed in
+    /// O(n log n + total range length) instead of scanning every range per line.
+    pub fn fold_map(
         hunk: &lgtm_core::model::DiffHunk,
-        line_idx: usize,
-    ) -> Option<lgtm_core::model::BlockRange> {
-        let range = Self::is_line_in_folded_block(hunk, line_idx)?;
-        for prev in 0..line_idx {
-            if Self::is_line_in_folded_block(hunk, prev) == Some(range) {
-                return None;
+    ) -> Vec<Option<lgtm_core::model::BlockRange>> {
+        let mut map = vec![None; hunk.lines.len()];
+        if hunk.folded_blocks.is_empty() {
+            return map;
+        }
+        let mut by_key: std::collections::BTreeMap<u32, Vec<usize>> = Default::default();
+        for (idx, line) in hunk.lines.iter().enumerate() {
+            let key = line.new_line_num.unwrap_or(hunk.new_start + idx as u32);
+            by_key.entry(key).or_default().push(idx);
+        }
+        for range in &hunk.folded_blocks {
+            if range.start_line > range.end_line {
+                continue;
+            }
+            for idxs in by_key
+                .range(range.start_line..=range.end_line)
+                .map(|(_, v)| v)
+            {
+                for &idx in idxs {
+                    map[idx].get_or_insert(*range);
+                }
             }
         }
-        Some(range)
+        map
     }
 
     pub fn visible_line_indices(&self) -> Vec<usize> {
@@ -214,10 +231,12 @@ impl App {
                 line_offset += hunk.lines.len();
                 continue;
             }
-            for (idx, _) in hunk.lines.iter().enumerate() {
+            let mut seen = Vec::new();
+            for (idx, folded) in Self::fold_map(hunk).into_iter().enumerate() {
                 let abs_idx = line_offset + idx;
-                if let Some(range) = Self::is_line_in_folded_block(hunk, idx) {
-                    if Self::is_first_line_of_folded_block(hunk, idx) == Some(range) {
+                if let Some(range) = folded {
+                    if !seen.contains(&range) {
+                        seen.push(range);
                         visible.push(abs_idx);
                     }
                 } else {
@@ -735,6 +754,45 @@ mod tests {
     use crate::model::*;
     use crossbeam_channel::unbounded;
     use std::path::PathBuf;
+
+    #[test]
+    fn fold_map_matches_per_line_lookup_with_overlaps_and_deletions() {
+        let lines = (0..40u32)
+            .map(|i| DiffLine {
+                line_type: LineType::Context,
+                content: String::new(),
+                old_line_num: Some(i + 1),
+                new_line_num: (i % 5 != 0).then_some(i + 1),
+            })
+            .collect();
+        let hunk = DiffHunk {
+            header: String::new(),
+            old_start: 1,
+            old_lines: 40,
+            new_start: 1,
+            new_lines: 40,
+            lines,
+            is_folded: false,
+            folded_blocks: vec![
+                BlockRange {
+                    start_line: 10,
+                    end_line: 30,
+                },
+                BlockRange {
+                    start_line: 5,
+                    end_line: 12,
+                },
+                BlockRange {
+                    start_line: 35,
+                    end_line: 33,
+                },
+            ],
+        };
+        let expected: Vec<_> = (0..40)
+            .map(|i| App::is_line_in_folded_block(&hunk, i))
+            .collect();
+        assert_eq!(App::fold_map(&hunk), expected);
+    }
 
     #[test]
     fn test_paragraph_jumps_and_page_scroll() {
