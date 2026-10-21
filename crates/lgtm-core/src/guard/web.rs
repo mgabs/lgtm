@@ -68,6 +68,28 @@ const RULES: &[Rule] = &[
         query: r#"((comment) @hit (#match? @hit "@ts-(ignore|nocheck)"))"#,
         inside: &[],
     },
+    Rule {
+        id: "next/client-server-leak",
+        severity: Severity::High,
+        title: "Server-only dependency in 'use client' file",
+        description: "Client component imports server-only module or reads non-public process.env",
+        query: r#"
+            (import_statement source: (string (string_fragment) @hit (#match? @hit "^(server-only|fs|child_process|crypto|path|dns|net)$")))
+            (member_expression
+                object: (member_expression object: (identifier) @obj (#eq? @obj "process") property: (property_identifier) @p (#eq? @p "env"))
+                property: (property_identifier) @hit (#not-match? @hit "^NEXT_PUBLIC_"))
+        "#,
+        inside: &[],
+    },
+    Rule {
+        id: "next/action-unvalidated",
+        severity: Severity::High,
+        title: "Unvalidated Next.js Server Action",
+        description:
+            "'use server' function receives input without schema validation or session/auth check",
+        query: r#"(statement_block (expression_statement (string (string_fragment) @hit (#eq? @hit "use server"))))"#,
+        inside: &[],
+    },
 ];
 
 pub struct WebGuard;
@@ -89,8 +111,16 @@ pub(super) fn run(file: &FileDiff, rules: &[Rule], accept: fn(Lang) -> bool) -> 
     };
     let path = file.display_name();
     let mut alerts = Vec::new();
+
+    // Context-sensitive whole-file parse for Next.js "use client" leak rule
+    let is_use_client_file = file.hunks.iter().any(|h| {
+        h.lines.iter().any(|l| {
+            matches!(l.line_type, LineType::Addition | LineType::Context)
+                && l.content.contains("\"use client\"")
+        })
+    });
+
     for hunk in &file.hunks {
-        // ponytail: parses each hunk's new-side lines as a fragment; full-file parse if context-sensitive rules need it
         let side: Vec<_> = hunk
             .lines
             .iter()
@@ -102,6 +132,10 @@ pub(super) fn run(file: &FileDiff, rules: &[Rule], accept: fn(Lang) -> bool) -> 
             .collect::<Vec<_>>()
             .join("\n");
         for r in rules {
+            // "next/client-server-leak" only applies when the file is declared "use client"
+            if r.id == "next/client-server-leak" && !is_use_client_file {
+                continue;
+            }
             let Ok(rows) = lgtm_ast::hits_within(lang, &src, r.query, r.inside) else {
                 continue;
             };
@@ -190,6 +224,16 @@ mod tests {
                 "web/hook-conditional",
             ),
             ("a.ts", "// @ts-ignore\nfoo();", "web/ts-escape"),
+            (
+                "a.tsx",
+                "\"use client\";\nimport { server } from \"server-only\";",
+                "next/client-server-leak",
+            ),
+            (
+                "a.ts",
+                "async function updateUser() {\n  \"use server\";\n  db.users.update();\n}",
+                "next/action-unvalidated",
+            ),
         ];
         for (path, code, id) in cases {
             assert_eq!(ids(path, code), [id], "{id}");

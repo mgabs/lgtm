@@ -525,6 +525,53 @@ impl MutationTester {
                     MutationStatus::Survived
                 },
             });
+            id += 1;
+        }
+
+        // Mutation 16: Next.js whole-file parse client-server-leak rule
+        {
+            use crate::guard::Guard;
+            let original = "next/client-server-leak only flags when file contains 'use client'";
+            let mutated = "next/client-server-leak fires regardless of use client";
+            let f = crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("page.tsx"),
+                change_type: crate::model::ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: vec![crate::model::DiffHunk {
+                    header: "@@ -1,1 +1,2 @@".into(),
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 2,
+                    lines: vec![crate::model::DiffLine {
+                        line_type: crate::model::LineType::Addition,
+                        content: "import { server } from \"server-only\";".into(),
+                        old_line_num: None,
+                        new_line_num: Some(1),
+                    }],
+                    is_folded: false,
+                }],
+                is_folded: false,
+                is_reviewed: false,
+            };
+            let alerts = crate::guard::web::WebGuard.scan_file(&f);
+            let killed = alerts.is_empty();
+            results.push(MutantResult {
+                id,
+                module: "src/guard/web.rs",
+                description: "Invert 'use client' file guard condition for server-only imports",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "guard::web::tests::rules_fire_on_bad_code_and_not_on_good",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
         }
 
         results

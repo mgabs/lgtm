@@ -249,7 +249,7 @@ Once you have staged your verified hunks (`s` / `S`), press **`C`** (or type **`
 ### AST-based web rules
 Identifier typo detection (`typo/identifier`) reads real identifiers from the AST, so strings and comments are ignored. Cognitive complexity (`cx/complexity-spike`) also uses the AST for TS/JS/Swift hunks (branch cost = 1 + nesting, `else if` adds no depth); other languages keep the text heuristic.
 
-`lgtm-ast` parses JS/TS/JSX/TSX with tree-sitter and guards query syntax nodes instead of text. Only matches on added lines are reported. Each hunk's new-side lines are parsed as a fragment, so rules needing whole-file context are not possible yet. Rules (added lines only):
+`lgtm-ast` parses JS/TS/JSX/TSX with tree-sitter and guards query syntax nodes instead of text. Only matches on added lines are reported. Context-aware rules (like `"use client"` leaks) leverage whole-file directive detection. Rules (added lines only):
 
 | Rule | Severity | Flags |
 |---|---|---|
@@ -259,6 +259,8 @@ Identifier typo detection (`typo/identifier`) reads real identifiers from the AS
 | `next/public-secret` | Critical | `process.env.NEXT_PUBLIC_*` with SECRET/TOKEN/PASSWORD/PRIVATE/API_KEY |
 | `web/hook-conditional` | High | `useX()` inside if/loop/ternary (within one function) |
 | `web/ts-escape` | Warn | `@ts-ignore` / `@ts-nocheck` |
+| `next/client-server-leak` | High | Server-only modules or private env read in `"use client"` files |
+| `next/action-unvalidated` | High | Next.js Server Action (`"use server"`) without validation |
 
 Swift (`.swift`, same engine):
 
