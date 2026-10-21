@@ -219,6 +219,54 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 
 ---
 
+## Agent Setup & MCP Client Configuration
+
+`lgtm` embeds a Model Context Protocol (MCP) server over standard I/O for AI agents:
+
+### Claude Code (`~/.claude/claude_desktop_config.json` or `.mcp.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["mcp", "--repo", "."]
+    }
+  }
+}
+```
+
+### Cursor (`.cursor/mcp.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["serve", "--mcp"]
+    }
+  }
+}
+```
+
+### Windsurf (`~/.codeium/windsurf/mcp_config.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### Aider (`.aider.conf.yml`)
+```yaml
+lint-cmd: "lgtm check --strict"
+test-cmd: "cargo test"
+```
+
+---
+
 ## CI/CD Integration & Quality Gates
 
 ### GitHub Actions Workflow

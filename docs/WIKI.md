@@ -361,19 +361,51 @@ lgtm serve --mcp
 lgtm mcp
 ```
 
-### Configuration with Claude Code / Cursor / Windsurf
-Add `lgtm` to your MCP client configuration (`~/.claude/claude_desktop_config.json` or `.cursor/mcp.json`):
+### Configuration with Claude Code / Cursor / Windsurf / Aider
 
+#### Claude Code (`~/.claude/claude_desktop_config.json` or project `.mcp.json`)
 ```json
 {
   "mcpServers": {
     "lgtm": {
       "command": "lgtm",
-      "args": ["serve", "--mcp", "--repo", "/path/to/your/repo"]
+      "args": ["mcp", "--repo", "."]
     }
   }
 }
 ```
+
+#### Cursor (`.cursor/mcp.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["serve", "--mcp"]
+    }
+  }
+}
+```
+
+#### Windsurf (`~/.codeium/windsurf/mcp_config.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+#### Aider (`.aider.conf.yml` or CLI)
+```yaml
+# In .aider.conf.yml:
+lint-cmd: "lgtm check --strict"
+test-cmd: "cargo test"
+```
+Or start Aider in one tmux/zellij/wezterm pane and `lgtm` in the other for real-time steering via `Enter` or chords (`ca`, `cs`, `cr`, `cp`, `cw`).
 
 ### Available MCP Tools
 

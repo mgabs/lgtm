@@ -2,7 +2,7 @@
 
 Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A5, E1–E4, E6–E8 done; R6 and E5 dropped. D1–D3, F1–F3, G1–G5 done on `rel.0.8.2`. Pending: A6, D4, E5′.
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E6–E8, F1–F3, G1–G5, D1–D3 done; R6 and E5 dropped. Pending: D4, E5′.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
@@ -53,7 +53,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | A3 ✅ | New MCP tools incl. claims | M | A1, R4 |
 | A4 ✅ | MCP resources, subscriptions, notifications | L | A3 |
 | A5 ✅ | Agent sinks: Zellij, WezTerm, kitty | M | R3 |
-| A6 | Docs incl. MCP client setup | S | A4, A5 |
+| A6 ✅ | Docs incl. MCP client setup | S | A4, A5 |
 
 ### D — CI/CD step (spec: `specs/2026-10-12-cicd-integration-design.md`, draft)
 | ID | Item | Effort | Depends on |

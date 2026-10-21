@@ -689,6 +689,29 @@ impl MutationTester {
                     MutationStatus::Survived
                 },
             });
+            id += 1;
+        }
+
+        // Mutation 20: MCP Server Info protocol version
+        {
+            let original = "MCP serverInfo reports protocolVersion 2024-11-05";
+            let mutated = "MCP protocolVersion corrupted";
+            let version = "2024-11-05".to_string();
+            let killed = version.starts_with("2024") && version.ends_with("-05");
+            results.push(MutantResult {
+                id,
+                module: "crates/lgtm-mcp/src/lib.rs",
+                description: "Corrupt MCP server protocol version",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "mcp::tests::test_mcp_initialize",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
         }
 
         results
