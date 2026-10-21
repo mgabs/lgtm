@@ -283,6 +283,14 @@ Python (`.py` / `.pyi`, same engine):
 | `python/unsafe-pickle` | Critical | Unsafe deserialization via `pickle.load` or `pickle.loads` |
 | `python/bare-except` | Warn | Bare `except:` catching system exits and `KeyboardInterrupt` |
 
+Go (`.go`, same engine):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `go/sql-concat` | Critical | SQL query execution with `fmt.Sprintf` / concatenation |
+| `go/command-injection` | Critical | `exec.Command` invoked with shell binary (`sh`, `bash`, `zsh`) |
+| `go/unhandled-error` | Warn | Ignored error assigned to blank identifier (`_`) |
+
 ### Identifier Hallucination & Typo Guard
 - **What it checks**: Extracts project-wide symbol identifiers (variable names, functions, structs, methods).
 - **Trigger**: Flags new identifiers that have a Levenshtein edit distance of $1 \le d \le 2$ from existing symbols (e.g. agent typed `user_token` when the project defines `usertoken`).

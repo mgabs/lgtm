@@ -619,6 +619,53 @@ impl MutationTester {
                     MutationStatus::Survived
                 },
             });
+            id += 1;
+        }
+
+        // Mutation 18: Go AST Guard - command injection rule
+        {
+            use crate::guard::Guard;
+            let original = "go/command-injection detects exec.Command shell invocation";
+            let mutated = "go/command-injection pattern dropped";
+            let f = crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("exec.go"),
+                change_type: crate::model::ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: vec![crate::model::DiffHunk {
+                    header: "@@ -1,1 +1,2 @@".into(),
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 2,
+                    lines: vec![crate::model::DiffLine {
+                        line_type: crate::model::LineType::Addition,
+                        content: "exec.Command(\"bash\", \"-c\", cmd)".into(),
+                        old_line_num: None,
+                        new_line_num: Some(1),
+                    }],
+                    is_folded: false,
+                }],
+                is_folded: false,
+                is_reviewed: false,
+            };
+            let alerts = crate::guard::go::GoGuard.scan_file(&f);
+            let killed = alerts.iter().any(|a| a.rule_id == "go/command-injection");
+            results.push(MutantResult {
+                id,
+                module: "src/guard/go.rs",
+                description: "Bypass Go exec.Command shell invocation injection check",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "guard::go::tests::test_go_rules_fire_correctly",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
         }
 
         results

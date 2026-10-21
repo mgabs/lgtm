@@ -9,6 +9,7 @@ pub enum Lang {
     Ts,
     Tsx,
     Swift,
+    Go,
 }
 
 /// JS/JSX parse with the TSX grammar, which is a superset.
@@ -19,6 +20,7 @@ pub fn lang_of(path: &Path) -> Option<Lang> {
         "ts" | "mts" | "cts" => Some(Lang::Ts),
         "swift" => Some(Lang::Swift),
         "tsx" | "jsx" | "js" | "mjs" | "cjs" => Some(Lang::Tsx),
+        "go" => Some(Lang::Go),
         _ => None,
     }
 }
@@ -30,6 +32,7 @@ fn grammar(lang: Lang) -> Language {
         Lang::Ts => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         Lang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
         Lang::Swift => tree_sitter_swift::LANGUAGE.into(),
+        Lang::Go => tree_sitter_go::LANGUAGE.into(),
     }
 }
 
@@ -37,6 +40,15 @@ fn grammar(lang: Lang) -> Language {
 /// (tree-sitter recovers), so partial agent output is fine.
 pub fn hits(lang: Lang, src: &str, query: &str) -> Result<Vec<usize>> {
     hits_within(lang, src, query, &[])
+}
+
+pub fn sexp(lang: Lang, src: &str) -> Result<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&grammar(lang))?;
+    let tree = parser
+        .parse(src, None)
+        .ok_or_else(|| anyhow!("parse failed"))?;
+    Ok(tree.root_node().to_sexp())
 }
 
 const FUNCTION_KINDS: [&str; 5] = [
@@ -243,7 +255,20 @@ mod tests {
         assert_eq!(lang_of(Path::new("a.rs")), Some(Lang::Rust));
         assert_eq!(lang_of(Path::new("a.py")), Some(Lang::Python));
         assert_eq!(lang_of(Path::new("a.pyi")), Some(Lang::Python));
-        assert_eq!(lang_of(Path::new("a.go")), None);
+        assert_eq!(lang_of(Path::new("a.go")), Some(Lang::Go));
+        assert_eq!(lang_of(Path::new("a.rb")), None);
+    }
+
+    #[test]
+    fn go_identifiers_skip_strings_and_comments() {
+        let src = "// comment_word\nvar userName = \"string_word\"\nfunc CalculateTotal() {\n    return userName\n}\n";
+        let ids = identifiers(Lang::Go, src).unwrap();
+        let names: Vec<_> = ids.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"userName"));
+        assert!(names.contains(&"CalculateTotal"));
+        assert!(!names
+            .iter()
+            .any(|n| n.contains("comment_word") || n.contains("string_word")));
     }
 
     #[test]

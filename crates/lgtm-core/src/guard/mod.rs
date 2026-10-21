@@ -5,6 +5,7 @@ pub mod dead_code;
 pub mod deps;
 pub mod duplicate;
 pub mod fragility;
+pub mod go;
 pub mod python;
 pub mod security;
 pub mod swift;
@@ -76,6 +77,7 @@ pub fn registry() -> &'static [&'static dyn Guard] {
         &web::WebGuard,
         &swift::SwiftGuard,
         &python::PythonGuard,
+        &go::GoGuard,
     ]
 }
 
