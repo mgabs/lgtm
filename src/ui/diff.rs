@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn render_body(frame: &mut Frame, area: Rect, app: &App) {
+pub(crate) fn render_body(frame: &mut Frame, area: Rect, app: &mut App) {
     if app.active_view == ActiveView::AuditReport {
         render_audit_report_view(frame, area, app);
         return;
@@ -256,10 +256,10 @@ pub(crate) fn pad_or_truncate_spans(
     out
 }
 
-pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
+pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
     let current_file = app.snapshot.files.get(app.selected_file_idx);
 
-    let (title, content_lines) = if !app.git_engine.is_git_repo() {
+    let (title, content_lines, active_cursor_row) = if !app.git_engine.is_git_repo() {
         (
             " Not a Git Repository ".to_string(),
             vec![
@@ -294,10 +294,12 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                     Style::default().fg(Color::White),
                 )),
             ],
+            None,
         )
     } else {
         match current_file {
             Some(file) => {
+                let mut active_cursor_row: Option<usize> = None;
                 let file_alerts: Vec<&crate::guard::GuardAlert> = app
                     .alerts
                     .iter()
@@ -405,6 +407,9 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                 ),
                                 style,
                             )]));
+                            if is_cursor_in_hunk && active_cursor_row.is_none() {
+                                active_cursor_row = Some(lines.len() - 1);
+                            }
                             line_counter += hunk_len;
                             continue;
                         }
@@ -418,6 +423,37 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
 
                         let mut h_idx = 0;
                         while h_idx < hunk.lines.len() {
+                            if let Some(range) = App::is_line_in_folded_block(hunk, h_idx) {
+                                if App::is_first_line_of_folded_block(hunk, h_idx) == Some(range) {
+                                    let is_cursor = line_counter == app.cursor_line_idx;
+                                    let style = if is_cursor {
+                                        Style::default()
+                                            .bg(Color::Indexed(237))
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::BOLD)
+                                    } else {
+                                        Style::default()
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::BOLD)
+                                    };
+                                    let count = range.end_line.saturating_sub(range.start_line) + 1;
+                                    let snippet = hunk.lines[h_idx].content.trim();
+                                    lines.push(Line::from(vec![Span::styled( // lgtm:ignore
+                                        format!(
+                                            "  ▶ [Folded AST Block (L{}-L{}, {} lines): {} | zo/za to expand]",
+                                            range.start_line, range.end_line, count, snippet
+                                        ),
+                                        style,
+                                    )]));
+                                    if is_cursor && active_cursor_row.is_none() {
+                                        active_cursor_row = Some(lines.len() - 1);
+                                    }
+                                }
+                                line_counter += 1;
+                                h_idx += 1;
+                                continue;
+                            }
+
                             let line = &hunk.lines[h_idx];
                             match line.line_type {
                                 LineType::Context => {
@@ -486,6 +522,9 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                     row_spans.extend(pad_or_truncate_spans(right_spans, col_width));
 
                                     lines.push(Line::from(row_spans));
+                                    if is_cursor && active_cursor_row.is_none() {
+                                        active_cursor_row = Some(lines.len() - 1);
+                                    }
                                     line_counter += 1;
                                     h_idx += 1;
                                 }
@@ -617,6 +656,9 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                         ));
 
                                         lines.push(Line::from(row_spans));
+                                        if is_cursor && active_cursor_row.is_none() {
+                                            active_cursor_row = Some(lines.len() - 1);
+                                        }
                                         line_counter += 1;
                                     }
                                 }
@@ -650,6 +692,9 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                                 ),
                                 style,
                             )]));
+                            if is_cursor_in_hunk && active_cursor_row.is_none() {
+                                active_cursor_row = Some(lines.len() - 1);
+                            }
                             line_counter += hunk_len;
                             continue;
                         }
@@ -664,6 +709,36 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                         let pairs = find_intra_line_pairs(&hunk.lines);
 
                         for (h_line_idx, dline) in hunk.lines.iter().enumerate() {
+                            if let Some(range) = App::is_line_in_folded_block(hunk, h_line_idx) {
+                                if App::is_first_line_of_folded_block(hunk, h_line_idx) == Some(range) {
+                                    let is_cursor = line_counter == app.cursor_line_idx;
+                                    let style = if is_cursor {
+                                        Style::default()
+                                            .bg(Color::Indexed(237))
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::BOLD)
+                                    } else {
+                                        Style::default()
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::BOLD)
+                                    };
+                                    let count = range.end_line.saturating_sub(range.start_line) + 1;
+                                    let snippet = dline.content.trim();
+                                    lines.push(Line::from(vec![Span::styled( // lgtm:ignore
+                                        format!(
+                                            "  ▶ [Folded AST Block (L{}-L{}, {} lines): {} | zo/za to expand]",
+                                            range.start_line, range.end_line, count, snippet
+                                        ),
+                                        style,
+                                    )]));
+                                    if is_cursor && active_cursor_row.is_none() {
+                                        active_cursor_row = Some(lines.len() - 1);
+                                    }
+                                }
+                                line_counter += 1;
+                                continue;
+                            }
+
                             let is_cursor = line_counter == app.cursor_line_idx;
                             let in_visual = app.is_in_visual_selection(line_counter);
 
@@ -814,6 +889,9 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                             }
 
                             lines.push(Line::from(line_spans));
+                            if is_cursor && active_cursor_row.is_none() {
+                                active_cursor_row = Some(lines.len() - 1);
+                            }
 
                             // Render inline alerts directly beneath this code line
                             for alert in matching_alerts {
@@ -889,7 +967,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                         }
                     }
                 }
-                (title, lines)
+                (title, lines, active_cursor_row)
             }
             None => (
                 " Working Tree Clean ".to_string(),
@@ -930,13 +1008,24 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
                     Line::from("  • Ctrl-s       Compile & send batch review prompt to agent"),
                     Line::from("  • w / W        Jump to next / previous safety alert"),
                     Line::from("  • Enter        Inject file:line reference into agent pane"),
+                    Line::from("  • za / zc / zo Toggle / close / open AST block or hunk fold"),
+                    Line::from("  • zM / zR      Fold all / unfold all hunks"),
                     Line::from("  • v            Mark file reviewed and fold"),
                     Line::from("  • p            Select target tmux pane"),
                     Line::from("  • q            Quit"),
                 ],
+                None,
             ),
         }
     };
+
+    let inner_height = area.height.saturating_sub(2) as usize;
+    update_diff_scroll_offset(
+        &mut app.diff_scroll_offset,
+        content_lines.len(),
+        inner_height,
+        active_cursor_row,
+    );
 
     let paragraph = Paragraph::new(content_lines)
         .block(
@@ -951,11 +1040,32 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(paragraph, area);
 }
 
+fn update_diff_scroll_offset(
+    scroll_offset: &mut usize,
+    content_len: usize,
+    inner_height: usize,
+    active_cursor_row: Option<usize>,
+) {
+    if inner_height == 0 {
+        return;
+    }
+    if content_len <= inner_height {
+        *scroll_offset = 0;
+        return;
+    }
+    if let Some(cursor_row) = active_cursor_row {
+        *scroll_offset = (*scroll_offset)
+            .min(cursor_row)
+            .max(cursor_row.saturating_sub(inner_height - 1));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(unused_imports)]
     use super::*;
     use crate::app::App;
+    use crate::model::*;
     use crossbeam_channel::unbounded;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
@@ -999,5 +1109,138 @@ mod tests {
         let truncated = pad_or_truncate_spans(long_spans, 8);
         let trunc_chars: usize = truncated.iter().map(|s| s.content.chars().count()).sum();
         assert_eq!(trunc_chars, 8);
+    }
+
+    #[test]
+    fn test_render_diff_view_auto_scrolls_to_active_line() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.git_engine = lgtm_core::git::GitEngine::new(".");
+        let lines: Vec<DiffLine> = (0..50)
+            .map(|i| DiffLine {
+                line_type: LineType::Context,
+                content: format!("println!(\"line {}\");", i),
+                old_line_num: Some(i + 1),
+                new_line_num: Some(i + 1),
+            })
+            .collect();
+
+        let hunk = DiffHunk {
+            header: "@@ -1,50 +1,50 @@".into(),
+            old_start: 1,
+            old_lines: 50,
+            new_start: 1,
+            new_lines: 50,
+            lines,
+            is_folded: false,
+            folded_blocks: Vec::new(),
+        };
+
+        let file = FileDiff {
+            old_path: None,
+            new_path: std::path::PathBuf::from("main.rs"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![hunk],
+            is_folded: false,
+            is_reviewed: false,
+        };
+
+        app.snapshot = DiffSnapshot::new(vec![file]);
+        app.selected_file_idx = 0;
+        app.cursor_line_idx = 0;
+        app.diff_scroll_offset = 0;
+
+        let backend = TestBackend::new(80, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        // 1. Initial render at line 0: diff_scroll_offset should be 0
+        terminal
+            .draw(|f| {
+                render_diff_view(f, f.area(), &mut app);
+            })
+            .unwrap();
+        assert_eq!(app.diff_scroll_offset, 0);
+
+        // 2. Move cursor down past the screen: cursor_line_idx = 25
+        app.cursor_line_idx = 25;
+        terminal
+            .draw(|f| {
+                render_diff_view(f, f.area(), &mut app);
+            })
+            .unwrap();
+        assert!(app.diff_scroll_offset > 0);
+        let inner_height = 10;
+        let active_row = 26; // 1 hunk header + 25 lines
+        assert!(active_row >= app.diff_scroll_offset);
+        assert!(active_row < app.diff_scroll_offset + inner_height);
+
+        // 3. Move cursor up above the screen: cursor_line_idx = 2
+        app.cursor_line_idx = 2;
+        terminal
+            .draw(|f| {
+                render_diff_view(f, f.area(), &mut app);
+            })
+            .unwrap();
+        let active_row_up = 3;
+        assert!(active_row_up >= app.diff_scroll_offset);
+        assert!(active_row_up < app.diff_scroll_offset + inner_height);
+    }
+
+    #[test]
+    fn test_render_diff_view_auto_scrolls_in_split_view() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.git_engine = lgtm_core::git::GitEngine::new(".");
+        app.is_split_view = true;
+        let lines: Vec<DiffLine> = (0..50)
+            .map(|i| DiffLine {
+                line_type: LineType::Context,
+                content: format!("println!(\"line {}\");", i),
+                old_line_num: Some(i + 1),
+                new_line_num: Some(i + 1),
+            })
+            .collect();
+
+        let hunk = DiffHunk {
+            header: "@@ -1,50 +1,50 @@".into(),
+            old_start: 1,
+            old_lines: 50,
+            new_start: 1,
+            new_lines: 50,
+            lines,
+            is_folded: false,
+            folded_blocks: Vec::new(),
+        };
+
+        let file = FileDiff {
+            old_path: None,
+            new_path: std::path::PathBuf::from("main.rs"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![hunk],
+            is_folded: false,
+            is_reviewed: false,
+        };
+
+        app.snapshot = DiffSnapshot::new(vec![file]);
+        app.selected_file_idx = 0;
+        app.cursor_line_idx = 30;
+        app.diff_scroll_offset = 0;
+
+        let backend = TestBackend::new(100, 15);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|f| {
+                render_diff_view(f, f.area(), &mut app);
+            })
+            .unwrap();
+
+        assert!(app.diff_scroll_offset > 0);
+        let inner_height = 13;
+        let active_row = 31; // 1 hunk header + 30 lines
+        assert!(active_row >= app.diff_scroll_offset);
+        assert!(active_row < app.diff_scroll_offset + inner_height);
     }
 }

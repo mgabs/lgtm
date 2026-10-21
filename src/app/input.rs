@@ -28,12 +28,18 @@ impl App {
                     self.cursor_to_top();
                     return;
                 }
-                (']', KeyCode::Char('f')) | (']', KeyCode::Char(']')) => {
+                (']', KeyCode::Char(']')) => {
+                    self.next_file();
+                    self.pending_leader = Some(']');
+                    return;
+                }
+                (']', KeyCode::Char('f')) => {
                     self.next_file();
                     return;
                 }
                 (']', KeyCode::Char('[')) => {
                     self.prev_file();
+                    self.pending_leader = Some('[');
                     return;
                 }
                 (']', KeyCode::Char('u')) => {
@@ -60,12 +66,18 @@ impl App {
                     self.jump_thread(false);
                     return;
                 }
-                ('[', KeyCode::Char('f')) | ('[', KeyCode::Char('[')) => {
+                ('[', KeyCode::Char('[')) => {
+                    self.prev_file();
+                    self.pending_leader = Some('[');
+                    return;
+                }
+                ('[', KeyCode::Char('f')) => {
                     self.prev_file();
                     return;
                 }
                 ('[', KeyCode::Char(']')) => {
                     self.next_file();
+                    self.pending_leader = Some(']');
                     return;
                 }
                 ('[', KeyCode::Char('u')) => {
@@ -94,6 +106,10 @@ impl App {
                 }
                 ('z', KeyCode::Char('b')) => {
                     self.cursor_to_bottom_of_view();
+                    return;
+                }
+                ('z', KeyCode::Char('a')) => {
+                    self.toggle_fold_at_cursor();
                     return;
                 }
                 ('z', KeyCode::Char('c')) => {
@@ -175,7 +191,11 @@ impl App {
                     return;
                 }
                 (' ', KeyCode::Char('r')) | (' ', KeyCode::Char('R')) => {
-                    self.toggle_resolve_current_comment();
+                    if self.thread_at_cursor().is_some() {
+                        self.toggle_resolve_thread_at_cursor();
+                    } else {
+                        self.toggle_resolve_current_comment();
+                    }
                     return;
                 }
                 (' ', KeyCode::Char('d')) => {
@@ -266,7 +286,12 @@ impl App {
                 self.open_commit_modal();
             }
             (_, KeyCode::Char('r')) => {
-                if let Some(idx) = self.comment_idx_at_cursor() {
+                if let Some(t_idx) = self.thread_at_cursor() {
+                    self.thread_selected_idx = t_idx;
+                    self.command.input = format!("thread reply {} ", t_idx + 1);
+                    self.command.history_idx = None;
+                    self.active_view = ActiveView::CommandLine;
+                } else if let Some(idx) = self.comment_idx_at_cursor() {
                     self.start_reply_to_comment(idx);
                 } else {
                     self.comment_input.clear();
@@ -274,7 +299,11 @@ impl App {
                 }
             }
             (_, KeyCode::Char('R')) => {
-                self.toggle_resolve_current_comment();
+                if self.thread_at_cursor().is_some() {
+                    self.toggle_resolve_thread_at_cursor();
+                } else {
+                    self.toggle_resolve_current_comment();
+                }
             }
             (_, KeyCode::Char('A')) => {
                 self.approve_gate();
@@ -292,10 +321,16 @@ impl App {
                 self.cursor_to_bottom();
             }
             (_, KeyCode::Char(']')) => {
-                self.next_file();
+                self.pending_leader = Some(']');
+                self.status_message = Some(
+                    "] (f/]: file, h: hunk, c: comment, w: alert, u: unreviewed, t: thread)".into(),
+                );
             }
             (_, KeyCode::Char('[')) => {
-                self.prev_file();
+                self.pending_leader = Some('[');
+                self.status_message = Some(
+                    "[ (f/[: file, h: hunk, c: comment, w: alert, u: unreviewed, t: thread)".into(),
+                );
             }
             (_, KeyCode::Char(' ')) => {
                 self.pending_leader = Some(' ');
@@ -376,10 +411,19 @@ impl App {
                 self.pending_leader = Some('z');
             }
             (_, KeyCode::Char('p')) => {
-                if let Ok(panes) = IpcBridge::list_tmux_panes() {
-                    self.pane_picker.list = panes;
-                    self.pane_picker.selected_idx = 0;
-                    self.active_view = ActiveView::PanePicker;
+                let kind = self.resolved_sink_kind();
+                match IpcBridge::list_panes(kind) {
+                    Ok(panes) if !panes.is_empty() => {
+                        self.pane_picker.list = panes;
+                        self.pane_picker.selected_idx = 0;
+                        self.active_view = ActiveView::PanePicker;
+                    }
+                    _ => {
+                        self.status_message = Some(format!(
+                            "No targets detected for {} sink (configure with :sink <name>)",
+                            kind
+                        ));
+                    }
                 }
             }
             (KeyModifiers::CONTROL, KeyCode::Char('f')) | (_, KeyCode::PageDown) => {

@@ -571,6 +571,40 @@ pub(crate) fn run_baseline_update(repo_path: &Path, prune: bool) -> Result<i32> 
     Ok(0)
 }
 
+pub(crate) fn run_hook_command(repo_path: &Path, action: &str) -> Result<i32> {
+    let engine = git::GitEngine::new(repo_path);
+    if !engine.is_git_repo() {
+        eprintln!("lgtm hook: Not a git repository");
+        return Ok(1);
+    }
+    match action {
+        "install" => {
+            let path = engine.install_pre_commit_hook()?;
+            println!("Installed LGTM pre-commit hook at {}", path.display());
+            Ok(0)
+        }
+        "uninstall" => {
+            let removed = engine.uninstall_pre_commit_hook()?;
+            if removed {
+                println!("Uninstalled LGTM pre-commit hook");
+            } else {
+                println!("No LGTM pre-commit hook found to uninstall");
+            }
+            Ok(0)
+        }
+        "status" => {
+            let installed = engine.pre_commit_hook_status()?;
+            if installed {
+                println!("LGTM pre-commit hook is installed and active");
+            } else {
+                println!("LGTM pre-commit hook is not installed");
+            }
+            Ok(0)
+        }
+        _ => anyhow::bail!("Unknown hook action: {}", action),
+    }
+}
+
 pub(crate) fn run_gate(repo_path: &Path, timeout_secs: u64, message: Option<&str>) -> Result<i32> {
     let git = git::GitEngine::new(repo_path);
     if !git.is_git_repo() {
@@ -585,7 +619,7 @@ pub(crate) fn run_gate(repo_path: &Path, timeout_secs: u64, message: Option<&str
     }
 
     let lgtm_dir = repo_path.join(".lgtm");
-    let _ = std::fs::create_dir_all(&lgtm_dir);
+    let _ = std::fs::create_dir_all(&lgtm_dir); // lgtm:ignore
     let gate_file = lgtm_dir.join("gate.json");
 
     let gate_state = serde_json::json!({
@@ -615,7 +649,7 @@ pub(crate) fn run_gate(repo_path: &Path, timeout_secs: u64, message: Option<&str
 
     loop {
         if start.elapsed() > timeout {
-            let _ = std::fs::remove_file(&gate_file);
+            let _ = std::fs::remove_file(&gate_file); // lgtm:ignore
             eprintln!(
                 "⏱️ lgtm gate timed out after {}s waiting for review.",
                 timeout_secs
@@ -629,13 +663,29 @@ pub(crate) fn run_gate(repo_path: &Path, timeout_secs: u64, message: Option<&str
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                 match val.get("status").and_then(|s| s.as_str()) {
                     Some("approved") => {
-                        let _ = std::fs::remove_file(&gate_file);
-                        println!("✅ lgtm gate: Changes approved by human reviewer!");
+                        let feedback = val
+                            .get("feedback")
+                            .and_then(|f| f.as_str())
+                            .map(|s| s.to_string());
+                        let _ = std::fs::remove_file(&gate_file); // lgtm:ignore
+                        if let Some(fb) = feedback {
+                            println!("✅ lgtm gate: Changes approved by human reviewer with directives:\n{}", fb);
+                        } else {
+                            println!("✅ lgtm gate: Changes approved by human reviewer!");
+                        }
                         return Ok(0);
                     }
                     Some("rejected") => {
-                        let _ = std::fs::remove_file(&gate_file);
-                        eprintln!("❌ lgtm gate: Changes rejected by human reviewer.");
+                        let feedback = val
+                            .get("feedback")
+                            .and_then(|f| f.as_str())
+                            .map(|s| s.to_string());
+                        let _ = std::fs::remove_file(&gate_file); // lgtm:ignore
+                        if let Some(fb) = feedback {
+                            eprintln!("❌ lgtm gate: Changes rejected by human reviewer:\n{}", fb);
+                        } else {
+                            eprintln!("❌ lgtm gate: Changes rejected by human reviewer.");
+                        }
                         return Ok(1);
                     }
                     _ => {}
@@ -668,14 +718,14 @@ mod tests {
     fn ci_rev_checks_committed_diff_and_errors_on_bad_rev() {
         let dir = test_dir("ci-rev");
         let git = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
-                .args(["-c", "user.email=a@b", "-c", "user.name=a"])
+            let mut cmd = std::process::Command::new("git");
+            cmd.args(["-c", "user.email=a@b", "-c", "user.name=a"])
                 .args(args)
-                .current_dir(&dir)
-                .output()
-                .unwrap()
-                .status
-                .success();
+                .current_dir(&dir);
+            for var in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"] {
+                cmd.env_remove(var);
+            }
+            let ok = cmd.output().unwrap().status.success();
             assert!(ok, "git {args:?}");
         };
         git(&["init", "-q"]);
@@ -830,5 +880,20 @@ mod tests {
         std::fs::write(&f, r#"{"version":9,"target":"feat"}"#).unwrap();
         assert!(run_review(&tmp, "import", f.to_str()).is_err());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_headless_hook_command() {
+        let tmp = std::env::temp_dir().join(format!("lgtm-hook-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
+        lgtm_core::git2::Repository::init(&tmp).unwrap();
+
+        assert_eq!(run_hook_command(&tmp, "status").unwrap(), 0);
+        assert_eq!(run_hook_command(&tmp, "install").unwrap(), 0);
+        assert_eq!(run_hook_command(&tmp, "status").unwrap(), 0);
+        assert_eq!(run_hook_command(&tmp, "uninstall").unwrap(), 0);
+        assert_eq!(run_hook_command(&tmp, "status").unwrap(), 0);
+
+        let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
     }
 }

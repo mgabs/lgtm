@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 
@@ -9,6 +10,8 @@ pub enum Lang {
     Ts,
     Tsx,
     Swift,
+    Go,
+    Java,
 }
 
 /// JS/JSX parse with the TSX grammar, which is a superset.
@@ -19,6 +22,8 @@ pub fn lang_of(path: &Path) -> Option<Lang> {
         "ts" | "mts" | "cts" => Some(Lang::Ts),
         "swift" => Some(Lang::Swift),
         "tsx" | "jsx" | "js" | "mjs" | "cjs" => Some(Lang::Tsx),
+        "go" => Some(Lang::Go),
+        "java" => Some(Lang::Java),
         _ => None,
     }
 }
@@ -30,6 +35,8 @@ fn grammar(lang: Lang) -> Language {
         Lang::Ts => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         Lang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
         Lang::Swift => tree_sitter_swift::LANGUAGE.into(),
+        Lang::Go => tree_sitter_go::LANGUAGE.into(),
+        Lang::Java => tree_sitter_java::LANGUAGE.into(),
     }
 }
 
@@ -37,6 +44,89 @@ fn grammar(lang: Lang) -> Language {
 /// (tree-sitter recovers), so partial agent output is fine.
 pub fn hits(lang: Lang, src: &str, query: &str) -> Result<Vec<usize>> {
     hits_within(lang, src, query, &[])
+}
+
+pub fn sexp(lang: Lang, src: &str) -> Result<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&grammar(lang))?;
+    let tree = parser
+        .parse(src, None) // lgtm:ignore
+        .ok_or_else(|| anyhow!("parse failed"))?;
+    Ok(tree.root_node().to_sexp())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AstBlock {
+    pub start_row: usize,
+    pub end_row: usize,
+    pub kind: String,
+}
+
+const FOLD_BLOCK_KINDS: &[&str] = &[
+    "function_item",
+    "impl_item",
+    "struct_item",
+    "enum_item",
+    "trait_item",
+    "mod_item",
+    "function_definition",
+    "class_definition",
+    "with_statement",
+    "try_statement",
+    "function_declaration",
+    "function_expression",
+    "arrow_function",
+    "method_definition",
+    "class_declaration",
+    "interface_declaration",
+    "statement_block",
+    "object_type",
+    "code_block",
+    "method_declaration",
+    "constructor_declaration",
+    "type_declaration",
+    "block",
+    "compound_statement",
+    "if_statement",
+    "for_statement",
+    "for_in_statement",
+    "while_statement",
+    "match_expression",
+    "switch_statement",
+];
+
+/// Extracts multi-line foldable AST blocks (functions, classes, blocks, control flows)
+/// sorted by start_row ascending and longest span first.
+pub fn fold_blocks(lang: Lang, src: &str) -> Result<Vec<AstBlock>> {
+    let mut parser = Parser::new();
+    parser.set_language(&grammar(lang))?;
+    let tree = parser
+        .parse(src, None) // lgtm:ignore
+        .ok_or_else(|| anyhow!("parse failed"))?;
+    let mut blocks = Vec::new();
+    let mut stack = vec![tree.root_node()];
+    while let Some(n) = stack.pop() {
+        let s_row = n.start_position().row;
+        let e_row = n.end_position().row;
+        if e_row > s_row && FOLD_BLOCK_KINDS.contains(&n.kind()) {
+            blocks.push(AstBlock {
+                start_row: s_row,
+                end_row: e_row,
+                kind: n.kind().to_string(),
+            });
+        }
+        let mut cur = n.walk();
+        for child in n.children(&mut cur) {
+            stack.push(child);
+        }
+    }
+    blocks.sort_by(|a, b| {
+        a.start_row
+            .cmp(&b.start_row)
+            .then_with(|| b.end_row.cmp(&a.end_row))
+    });
+    blocks.dedup_by(|a, b| a.start_row == b.start_row && a.end_row == b.end_row);
+    Ok(blocks)
 }
 
 const FUNCTION_KINDS: [&str; 5] = [
@@ -243,7 +333,21 @@ mod tests {
         assert_eq!(lang_of(Path::new("a.rs")), Some(Lang::Rust));
         assert_eq!(lang_of(Path::new("a.py")), Some(Lang::Python));
         assert_eq!(lang_of(Path::new("a.pyi")), Some(Lang::Python));
-        assert_eq!(lang_of(Path::new("a.go")), None);
+        assert_eq!(lang_of(Path::new("a.go")), Some(Lang::Go));
+        assert_eq!(lang_of(Path::new("a.java")), Some(Lang::Java));
+        assert_eq!(lang_of(Path::new("a.rb")), None);
+    }
+
+    #[test]
+    fn go_identifiers_skip_strings_and_comments() {
+        let src = "// comment_word\nvar userName = \"string_word\"\nfunc CalculateTotal() {\n    return userName\n}\n";
+        let ids = identifiers(Lang::Go, src).unwrap();
+        let names: Vec<_> = ids.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"userName"));
+        assert!(names.contains(&"CalculateTotal"));
+        assert!(!names
+            .iter()
+            .any(|n| n.contains("comment_word") || n.contains("string_word")));
     }
 
     #[test]
@@ -269,5 +373,44 @@ mod tests {
         assert!(!names
             .iter()
             .any(|n| n.contains("comment_word") || n.contains("docstring_word")));
+    }
+
+    #[test]
+    fn fold_blocks_extracts_multiline_ranges() {
+        let rust_src = "fn compute(a: i32) -> i32 {\n    let b = a * 2;\n    if b > 5 {\n        b + 1\n    } else {\n        b - 1\n    }\n}\n";
+        let blocks = fold_blocks(Lang::Rust, rust_src).unwrap();
+        assert!(!blocks.is_empty());
+        assert_eq!(blocks[0].start_row, 0);
+        assert_eq!(blocks[0].end_row, 7);
+
+        let py_src = "def process(items):\n    for item in items:\n        print(item)\n";
+        let py_blocks = fold_blocks(Lang::Python, py_src).unwrap();
+        assert!(!py_blocks.is_empty());
+        assert_eq!(py_blocks[0].start_row, 0);
+        assert_eq!(py_blocks[0].end_row, 2);
+
+        let go_src = "func Handler(w ResponseWriter, r *Request) {\n    if r.Method == \"POST\" {\n        doPost()\n    }\n}\n";
+        let go_blocks = fold_blocks(Lang::Go, go_src).unwrap();
+        assert!(!go_blocks.is_empty());
+        assert_eq!(go_blocks[0].start_row, 0);
+        assert_eq!(go_blocks[0].end_row, 4);
+
+        let java_src = "public class OrderService {\n    public void processOrder() {\n        doProcess();\n    }\n}\n";
+        let java_blocks = fold_blocks(Lang::Java, java_src).unwrap();
+        assert!(!java_blocks.is_empty());
+        assert_eq!(java_blocks[0].start_row, 0);
+        assert_eq!(java_blocks[0].end_row, 4);
+    }
+
+    #[test]
+    fn java_identifiers_skip_strings_and_comments() {
+        let src = "// commentWord\nString userName = \"stringWord\";\nprocessOrder(userName);\n";
+        let ids = identifiers(Lang::Java, src).unwrap();
+        let names: Vec<_> = ids.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"userName"));
+        assert!(names.contains(&"processOrder"));
+        assert!(!names
+            .iter()
+            .any(|n| n.contains("commentWord") || n.contains("stringWord")));
     }
 }

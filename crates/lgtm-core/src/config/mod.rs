@@ -33,6 +33,8 @@ pub struct LgtmConfig {
     pub severity: BTreeMap<String, String>,
     pub ignore: Ignore,
     pub baseline: BaselineConfig,
+    pub editor: Option<String>,
+    pub agent_sink: Option<String>,
     #[serde(skip)]
     pub sources: BTreeMap<String, String>,
     #[serde(skip)]
@@ -113,13 +115,23 @@ fn unknown_keys(t: &toml::Table, prefix: &str, out: &mut Vec<String>) {
         } else {
             format!("{prefix}.{k}")
         };
-        let known = ["thresholds", "severity", "ignore", "baseline"].contains(&path.as_str())
+        let known = [
+            "thresholds",
+            "severity",
+            "ignore",
+            "baseline",
+            "editor",
+            "agent_sink",
+        ]
+        .contains(&path.as_str())
             || [
                 "thresholds.complexity_increase",
                 "ignore.paths",
                 "ignore.rules",
                 "baseline.file",
                 "baseline.allow_critical",
+                "editor",
+                "agent_sink",
             ]
             .contains(&path.as_str())
             || FREE.iter().any(|f| path.starts_with(&format!("{f}.")));
@@ -182,6 +194,12 @@ impl LgtmConfig {
             self.baseline.allow_critical.to_string(),
         );
         line(&mut o, "ignore.paths", format!("{:?}", self.ignore.paths));
+        if let Some(ref ed) = self.editor {
+            line(&mut o, "editor", format!("{ed:?}"));
+        }
+        if let Some(ref sink) = self.agent_sink {
+            line(&mut o, "agent_sink", format!("{sink:?}"));
+        }
         for (r, l) in &self.severity {
             line(&mut o, &format!("severity.{r}"), format!("{l:?}"));
         }
@@ -272,5 +290,15 @@ mod tests {
     #[test]
     fn user_path_respects_disable() {
         assert!(user_config_path(true).is_none());
+    }
+
+    #[test]
+    fn test_editor_config_option() {
+        let d = dir("editor");
+        std::fs::write(d.join(REPO_FILE), "editor = \"vscode\"\n").unwrap();
+        let c = LgtmConfig::load(&d, None).unwrap();
+        assert_eq!(c.editor.as_deref(), Some("vscode"));
+        assert!(c.warnings.is_empty());
+        assert!(c.show().contains("editor = \"vscode\"  (repo)"));
     }
 }

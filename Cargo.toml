@@ -2,7 +2,7 @@
 members = ["crates/lgtm-core", "crates/lgtm-mcp", "crates/lgtm-ast"]
 
 [workspace.package]
-version = "0.9.1"
+version = "1.0.0"
 edition = "2021"
 authors = ["lgtm contributors"]
 
@@ -30,6 +30,7 @@ authors.workspace = true
 [dependencies]
 lgtm-core.workspace = true
 lgtm-mcp.workspace = true
+lgtm-ast.workspace = true
 ratatui = "0.30.2"
 crossterm = { version = "0.28.1", features = ["event-stream"] }
 similar = { version = "2.6.0", features = ["inline"] }

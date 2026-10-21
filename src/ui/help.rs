@@ -262,7 +262,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  o / e            ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open current file:line in $EDITOR (nvim, vim, vscode)"),
+                    Span::raw("Open current file:line in editor (default: nvim, config: :editor <name>)"),
                 ]),
             ],
         ),
@@ -323,7 +323,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  p (or <Space>p)  ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open tmux pane selector to target specific agent session"),
+                    Span::raw("Open pane selector for terminal multiplexer (tmux, zellij, wezterm, kitty)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  <Space>y / yr    ", Style::default().fg(Color::Cyan)),
@@ -530,7 +530,11 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :pane [id]           ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Select or set target tmux agent pane ID (e.g. :pane %2)"),
+                    Span::raw("Select or set target agent pane ID for active multiplexer"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :sink [name]         ", Style::default().fg(Color::Cyan)),
+                    Span::raw("View or set active agent sink (tmux, zellij, wezterm, kitty, clipboard, auto)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :c, :directives      ", Style::default().fg(Color::Cyan)),
@@ -623,7 +627,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  e / o                ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open current issue file and line in external editor ($EDITOR)"),
+                    Span::raw("Open current issue file:line in editor (default: nvim, config: :editor <name>)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  w / E                ", Style::default().fg(Color::Cyan)),

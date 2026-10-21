@@ -8,7 +8,8 @@ pub fn command_description(cmd: &str) -> &'static str {
         "h" | "help" | "?" => "Open help modal",
         "pr" => "Review GitHub PR diff (:pr <num>)",
         "prs" => "Open interactive GitHub PR picker",
-        "pane" | "panes" => "Select target tmux agent pane",
+        "pane" | "panes" => "Select target agent pane (tmux, zellij, wezterm, kitty)",
+        "sink" => "Set or view agent steering sink (:sink [tmux|zellij|wezterm|kitty|clipboard])",
         "f" | "files" | "find" => "Open fuzzy file picker",
         "tree" | "drawer" | "sidebar" => "Toggle file tree sidebar",
         "sp" | "split" | "vsp" | "vsplit" => "Toggle split / unified view",
@@ -22,11 +23,13 @@ pub fn command_description(cmd: &str) -> &'static str {
         "checks" => "Refresh CI check status for the open PR",
         "threads" => "List remote review threads for the open PR",
         "hidden" => "List suppressed and baselined findings",
+        "hook" => "Manage Git pre-commit hook (:hook [install|uninstall|status])",
         "audit" | "issues" => {
             "Audit the whole codebase (not just the diff) for security & architecture issues"
         }
         "scan" => "Scan changed files, or the whole codebase with `:scan repo`",
         "risk" => "Re-scan diff for security & test risks",
+        "editor" => "Set or view external editor (:editor [nvim|vim|vi|vscode|code|cursor])",
         "e" | "edit" | "reload" => "Reload diff from disk / PR",
         "clear" => "Clear all review directives",
         "clear-resolved" => "Remove all resolved review directives",

@@ -33,62 +33,44 @@ impl FullRepoScanner {
         root_dir: &Path,
         cfg: &crate::config::LgtmConfig,
     ) -> Result<(Vec<FileDiff>, Vec<GuardAlert>)> {
-        let mut files = Vec::new();
-        let mut all_alerts = Vec::new();
+        let mut source_files = collect_source_files(root_dir);
+        source_files.sort();
+        source_files.dedup();
 
-        let source_files = collect_source_files(root_dir);
+        if source_files.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
 
-        for path in source_files {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                let rel_path = path.strip_prefix(root_dir).unwrap_or(&path).to_path_buf();
-                let mut in_test_block = false;
-                let lines: Vec<DiffLine> = content
-                    .lines()
-                    .enumerate()
-                    .map(|(idx, line)| {
-                        let trimmed = line.trim();
-                        if trimmed.contains("#[cfg(test)]") {
-                            in_test_block = true;
+        let num_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(16);
+
+        let batch_size = source_files.len().div_ceil(num_threads).max(1);
+        let batches = source_files.chunks(batch_size); // lgtm:ignore
+        let results: Vec<(Vec<FileDiff>, Vec<GuardAlert>)> = std::thread::scope(|s| {
+            let mut handles = Vec::new();
+            for batch in batches {
+                handles.push(s.spawn(move || {
+                    let mut thread_files = Vec::with_capacity(batch.len());
+                    let mut thread_alerts = Vec::new();
+                    for path in batch {
+                        if let Some((diff, alerts)) = process_single_file(root_dir, path) {
+                            thread_alerts.extend(alerts);
+                            thread_files.push(diff);
                         }
-                        let content_str = if in_test_block && !trimmed.contains("lgtm:ignore") {
-                            format!("{} // lgtm:ignore", line)
-                        } else {
-                            line.to_string()
-                        };
-                        DiffLine {
-                            line_type: LineType::Addition,
-                            content: content_str,
-                            old_line_num: None,
-                            new_line_num: Some((idx + 1) as u32),
-                        }
-                    })
-                    .collect();
-
-                let hunk = DiffHunk {
-                    header: format!("@@ -0,0 +1,{} @@", lines.len()),
-                    old_start: 0,
-                    old_lines: 0,
-                    new_start: 1,
-                    new_lines: lines.len() as u32,
-                    lines,
-                    is_folded: false,
-                };
-
-                let file_diff = FileDiff {
-                    old_path: None,
-                    new_path: rel_path,
-                    change_type: ChangeType::Added,
-                    additions: content.lines().count(),
-                    deletions: 0,
-                    hunks: vec![hunk],
-                    is_folded: false,
-                    is_reviewed: false,
-                };
-
-                let alerts = SecurityAndTestGuard::scan_file(&file_diff);
-                all_alerts.extend(alerts);
-                files.push(file_diff);
+                    }
+                    (thread_files, thread_alerts)
+                }));
             }
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+
+        let mut files = Vec::with_capacity(source_files.len());
+        let mut all_alerts = Vec::new();
+        for (thread_files, thread_alerts) in results {
+            files.extend(thread_files);
+            all_alerts.extend(thread_alerts);
         }
 
         crate::guard::assign_fingerprints(&mut all_alerts, &files);
@@ -223,10 +205,167 @@ impl FullRepoScanner {
     }
 }
 
+fn process_single_file(root_dir: &Path, path: &Path) -> Option<(FileDiff, Vec<GuardAlert>)> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let rel_path = path.strip_prefix(root_dir).unwrap_or(path).to_path_buf();
+    let mut in_test_block = false;
+    let lines: Vec<DiffLine> = content
+        .lines()
+        .enumerate()
+        .map(|(idx, line)| {
+            let trimmed = line.trim();
+            if trimmed.contains("#[cfg(test)]") {
+                in_test_block = true;
+            }
+            let content_str = if in_test_block && !trimmed.contains("lgtm:ignore") {
+                format!("{} // lgtm:ignore", line)
+            } else {
+                line.to_string()
+            };
+            DiffLine {
+                line_type: LineType::Addition,
+                content: content_str,
+                old_line_num: None,
+                new_line_num: Some((idx + 1) as u32),
+            }
+        })
+        .collect();
+
+    let hunk = DiffHunk {
+        header: format!("@@ -0,0 +1,{} @@", lines.len()),
+        old_start: 0,
+        old_lines: 0,
+        new_start: 1,
+        new_lines: lines.len() as u32,
+        lines,
+        is_folded: false,
+        folded_blocks: Vec::new(),
+    };
+
+    let file_diff = FileDiff {
+        old_path: None,
+        new_path: rel_path,
+        change_type: ChangeType::Added,
+        additions: content.lines().count(),
+        deletions: 0,
+        hunks: vec![hunk],
+        is_folded: false,
+        is_reviewed: false,
+    };
+
+    let alerts = SecurityAndTestGuard::scan_file(&file_diff);
+    Some((file_diff, alerts))
+}
+
 fn collect_source_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
+
+    // Prefer git index & status discovery when available: fast and respects .gitignore
+    if let Ok(repo) = git2::Repository::discover(dir) {
+        if let Some(workdir) = repo.workdir() {
+            if let Ok(index) = repo.index() {
+                for entry in index.iter() {
+                    if let Ok(path_str) = std::str::from_utf8(&entry.path) {
+                        let full_path = workdir.join(path_str);
+                        if full_path.starts_with(dir) {
+                            if let Some(name) = full_path.file_name().and_then(|n| n.to_str()) {
+                                if is_source_file(name) && !is_ignored_file_name(name) {
+                                    if let Ok(meta) = std::fs::symlink_metadata(&full_path) {
+                                        if meta.is_file() && meta.len() <= 500_000 {
+                                            files.push(full_path);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut status_opts = git2::StatusOptions::new();
+            status_opts.include_untracked(true);
+            status_opts.recurse_untracked_dirs(true);
+            if let Ok(statuses) = repo.statuses(Some(&mut status_opts)) {
+                for entry in statuses.iter() {
+                    let status = entry.status();
+                    if status.contains(git2::Status::WT_NEW) {
+                        if let Some(path_str) = entry.path() {
+                            let full_path = workdir.join(path_str);
+                            if full_path.starts_with(dir) {
+                                if let Some(name) = full_path.file_name().and_then(|n| n.to_str()) {
+                                    if is_source_file(name) && !is_ignored_file_name(name) {
+                                        if let Ok(meta) = std::fs::symlink_metadata(&full_path) {
+                                            if meta.is_file() && meta.len() <= 500_000 {
+                                                files.push(full_path);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !files.is_empty() {
+                return files;
+            }
+        }
+    }
+
+    // Fallback to recursive filesystem traversal
     collect_files_recursive(dir, &mut files);
     files
+}
+
+fn is_ignored_directory(name: &str) -> bool {
+    matches!(
+        name,
+        "target"
+            | "node_modules"
+            | "dist"
+            | "build"
+            | "vendor"
+            | "tmp"
+            | "fixtures"
+            | "testdata"
+            | "venv"
+            | ".venv"
+            | "env"
+            | "__pycache__"
+            | "site-packages"
+            | "Pods"
+            | "Carthage"
+            | "coverage"
+            | "bin"
+            | "obj"
+            | "pkg"
+            | "out"
+            | ".next"
+            | ".nuxt"
+            | ".turbo"
+            | ".cache"
+            | ".cargo"
+            | ".git"
+    )
+}
+
+fn is_ignored_file_name(name: &str) -> bool {
+    matches!(
+        name,
+        "Cargo.lock"
+            | "package-lock.json"
+            | "yarn.lock"
+            | "pnpm-lock.yaml"
+            | "composer.lock"
+            | "Pipfile.lock"
+            | "poetry.lock"
+    ) || name.ends_with(".min.js")
+        || name.ends_with(".min.css")
+        || name.ends_with(".bundle.js")
+        || name.ends_with(".bundle.css")
+        || name.ends_with(".map")
+        || name.ends_with(".sarif")
 }
 
 fn collect_files_recursive(dir: &Path, acc: &mut Vec<PathBuf>) {
@@ -235,26 +374,32 @@ fn collect_files_recursive(dir: &Path, acc: &mut Vec<PathBuf>) {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
 
-            // Skip hidden directories and build artifacts
+            // Skip hidden directories (except .env files)
             if name.starts_with('.') && name != ".env" {
                 continue;
             }
-            if name == "target"
-                || name == "node_modules"
-                || name == "dist"
-                || name == "build"
-                || name == "vendor"
-                || name == "tmp"
-                || name == "fixtures"
-                || name == "testdata"
-            {
+            if is_ignored_directory(&name) {
                 continue;
             }
 
-            if path.is_dir() {
+            // Never follow symlinks to avoid circular recursion or traversing outside workspace
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+
+            if file_type.is_dir() {
                 collect_files_recursive(&path, acc);
-            } else if path.is_file() && is_source_file(&name) {
-                acc.push(path);
+            } else if file_type.is_file() && is_source_file(&name) && !is_ignored_file_name(&name) {
+                if let Ok(meta) = entry.metadata() {
+                    // Skip massive generated or minified source files exceeding 500KB
+                    if meta.len() <= 500_000 {
+                        acc.push(path);
+                    }
+                }
             }
         }
     }
@@ -283,6 +428,7 @@ fn is_source_file(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn test_is_source_file() {
@@ -291,5 +437,41 @@ mod tests {
         assert!(is_source_file(".env.production"));
         assert!(!is_source_file("image.png"));
         assert!(!is_source_file("binary.exe"));
+    }
+
+    #[test]
+    fn test_is_ignored_directory_and_files() {
+        assert!(is_ignored_directory("node_modules"));
+        assert!(is_ignored_directory(".venv"));
+        assert!(is_ignored_directory("target"));
+        assert!(!is_ignored_directory("src"));
+
+        assert!(is_ignored_file_name("Cargo.lock"));
+        assert!(is_ignored_file_name("package-lock.json"));
+        assert!(is_ignored_file_name("app.min.js"));
+        assert!(is_ignored_file_name("bundle.map"));
+        assert!(!is_ignored_file_name("main.rs"));
+    }
+
+    #[test]
+    fn test_collect_files_avoids_symlink_loops() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "pub fn foo() {}").unwrap();
+
+        // Create a circular directory symlink: src/loop -> src
+        #[cfg(unix)]
+        {
+            let link = src.join("loop");
+            let _ = std::os::unix::fs::symlink(&src, link); // lgtm:ignore
+        }
+
+        let mut files = Vec::new();
+        collect_files_recursive(root, &mut files);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap(), "lib.rs");
     }
 }

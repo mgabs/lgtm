@@ -7,8 +7,11 @@ authors.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+serde.workspace = true
 tree-sitter = "0.25"
 tree-sitter-rust = "0.23"
 tree-sitter-python = "0.23"
 tree-sitter-swift = "0.7"
 tree-sitter-typescript = "0.23"
+tree-sitter-go = "0.25"
+tree-sitter-java = "0.23"

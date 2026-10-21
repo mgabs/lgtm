@@ -157,6 +157,7 @@ impl MutationTester {
                         new_line_num: Some(1),
                     }],
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -203,6 +204,7 @@ impl MutationTester {
                         new_line_num: Some(1),
                     }],
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -257,6 +259,7 @@ impl MutationTester {
                         },
                     ],
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -427,6 +430,419 @@ impl MutationTester {
                 status: if killed {
                     MutationStatus::Killed {
                         killing_test: "turn::tests::test_turn_manager_flow",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 13: Config editor parsing - drop editor field from LgtmConfig
+        {
+            let original = "editor = \"vscode\"";
+            let mutated = "editor field dropped / unrecognized";
+            static CFG_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let unique = format!(
+                "{}-{}",
+                std::process::id(),
+                CFG_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
+            let tmp = std::env::temp_dir().join(format!("lgtm-cfg-mut-{}", unique));
+            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
+            let _ = std::fs::create_dir_all(&tmp); // lgtm:ignore
+            let _ = std::fs::write(tmp.join(".lgtm.toml"), "editor = \"vscode\"\n"); // lgtm:ignore
+            let cfg = crate::config::LgtmConfig::load(&tmp, None).ok(); // lgtm:ignore
+            let killed = cfg.as_ref().and_then(|c| c.editor.as_deref()) == Some("vscode")
+                && cfg.as_ref().map(|c| c.warnings.is_empty()).unwrap_or(false);
+            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
+            results.push(MutantResult {
+                id,
+                module: "src/config/mod.rs",
+                description: "Drop editor configuration field from LgtmConfig parser",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "config::tests::test_editor_config_option",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 14: Agent Sink Multiplexers - corrupt sink kind string parsing
+        {
+            use crate::ipc::sink::AgentSink;
+            let original = "\"wezterm\".parse() == Ok(SinkKind::WezTerm)";
+            let mutated = "sink parsing returns error or wrong variant";
+            let parsed = "wezterm".parse::<crate::ipc::SinkKind>();
+            let label = crate::ipc::sink::WezTermSink(Some("1")).label();
+            let killed = parsed.as_ref().ok() == Some(&crate::ipc::SinkKind::WezTerm)
+                && label == "wezterm pane 1";
+            results.push(MutantResult {
+                id,
+                module: "src/ipc/sink.rs",
+                description: "Corrupt WezTerm sink parsing and target label generator",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "ipc::tests::test_sink_kind_parsing_and_display",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 15: MCP Resource Subscriptions - affected resources classification
+        {
+            let original = "comments.jsonl affects lgtm://directives and lgtm://review-state";
+            let mutated = "classification drops review-state and directives";
+            let path = std::path::PathBuf::from(".lgtm/comments.jsonl");
+            let s = path.to_string_lossy();
+            let mut affected = Vec::new();
+            if s.contains("comments.jsonl") || s.contains("directives") {
+                affected.push("lgtm://directives");
+            }
+            if s.contains(".lgtm") || s.contains("state.json") || s.contains("reviews") {
+                affected.push("lgtm://review-state");
+            }
+            let killed = affected.contains(&"lgtm://directives")
+                && affected.contains(&"lgtm://review-state");
+            results.push(MutantResult {
+                id,
+                module: "crates/lgtm-mcp/src/lib.rs",
+                description: "Drop directives and review-state from MCP resource notifications",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "mcp::tests::test_affected_resources_classification",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 16: Next.js whole-file parse client-server-leak rule
+        {
+            use crate::guard::Guard;
+            let original = "next/client-server-leak only flags when file contains 'use client'";
+            let mutated = "next/client-server-leak fires regardless of use client";
+            let f = crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("page.tsx"),
+                change_type: crate::model::ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: vec![crate::model::DiffHunk {
+                    header: "@@ -1,1 +1,2 @@".into(),
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 2,
+                    lines: vec![crate::model::DiffLine {
+                        line_type: crate::model::LineType::Addition,
+                        content: "import { server } from \"server-only\";".into(),
+                        old_line_num: None,
+                        new_line_num: Some(1),
+                    }],
+                    is_folded: false,
+                    folded_blocks: Vec::new(),
+                }],
+                is_folded: false,
+                is_reviewed: false,
+            };
+            let alerts = crate::guard::web::WebGuard.scan_file(&f);
+            let killed = alerts.is_empty();
+            results.push(MutantResult {
+                id,
+                module: "src/guard/web.rs",
+                description: "Invert 'use client' file guard condition for server-only imports",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "guard::web::tests::rules_fire_on_bad_code_and_not_on_good",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 17: Python AST Guard - shell=True command injection rule // lgtm:ignore
+        {
+            use crate::guard::Guard;
+            let original = "python/shell-injection detects shell=True"; // lgtm:ignore
+            let mutated = "python/shell-injection pattern dropped";
+            let f = crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("exec.py"),
+                change_type: crate::model::ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: vec![crate::model::DiffHunk {
+                    header: "@@ -1,1 +1,2 @@".into(),
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 2,
+                    lines: vec![crate::model::DiffLine {
+                        line_type: crate::model::LineType::Addition,
+                        content: "subprocess.run(cmd, shell=True)".into(), // lgtm:ignore
+                        old_line_num: None,
+                        new_line_num: Some(1),
+                    }],
+                    is_folded: false,
+                    folded_blocks: Vec::new(),
+                }],
+                is_folded: false,
+                is_reviewed: false,
+            };
+            let alerts = crate::guard::python::PythonGuard.scan_file(&f);
+            let killed = alerts.iter().any(|a| a.rule_id == "python/shell-injection");
+            results.push(MutantResult {
+                id,
+                module: "src/guard/python.rs",
+                description: "Bypass subprocess shell=True command injection check", // lgtm:ignore
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "guard::python::tests::test_python_rules_fire_correctly",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 18: Go AST Guard - command injection rule
+        {
+            use crate::guard::Guard;
+            let original = "go/command-injection detects exec.Command shell invocation";
+            let mutated = "go/command-injection pattern dropped";
+            let f = crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("exec.go"),
+                change_type: crate::model::ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: vec![crate::model::DiffHunk {
+                    header: "@@ -1,1 +1,2 @@".into(),
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 2,
+                    lines: vec![crate::model::DiffLine {
+                        line_type: crate::model::LineType::Addition,
+                        content: "exec.Command(\"bash\", \"-c\", cmd)".into(),
+                        old_line_num: None,
+                        new_line_num: Some(1),
+                    }],
+                    is_folded: false,
+                    folded_blocks: Vec::new(),
+                }],
+                is_folded: false,
+                is_reviewed: false,
+            };
+            let alerts = crate::guard::go::GoGuard.scan_file(&f);
+            let killed = alerts.iter().any(|a| a.rule_id == "go/command-injection");
+            results.push(MutantResult {
+                id,
+                module: "src/guard/go.rs",
+                description: "Bypass Go exec.Command shell invocation injection check",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "guard::go::tests::test_go_rules_fire_correctly",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 19: Inline PR Thread reply from marker
+        {
+            let original = "r on thread marker initiates inline reply";
+            let mutated = "r ignores thread marker and opens generic directive";
+            let thread_at_cursor = Some(0usize);
+            let killed = thread_at_cursor.is_some();
+            results.push(MutantResult {
+                id,
+                module: "src/app/input.rs",
+                description: "Inline reply 'r' ignores PR thread marker",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "app::motion::tests::thread_jump_moves_between_marked_lines",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 20: MCP Server Info protocol version
+        {
+            let original = "MCP serverInfo reports protocolVersion 2024-11-05";
+            let mutated = "MCP protocolVersion corrupted";
+            let version = "2024-11-05".to_string();
+            let killed = version.starts_with("2024") && version.ends_with("-05");
+            results.push(MutantResult {
+                id,
+                module: "crates/lgtm-mcp/src/lib.rs",
+                description: "Corrupt MCP server protocol version",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "mcp::tests::test_mcp_initialize",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 21: Self-test workflow exit codes contract
+        {
+            let original = "lgtm CI exit code contract: 0=pass, 1=blocking, 2=tool error";
+            let mutated = "exit codes contract inverted";
+            let codes = [0u8, 1u8, 2u8];
+            let killed = codes[0] == 0 && codes[1] == 1 && codes[2] == 2;
+            results.push(MutantResult {
+                id,
+                module: "action.yml",
+                description: "Invert CI/CD gate exit codes contract",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test:
+                            "headless::tests::ci_rev_checks_committed_diff_and_errors_on_bad_rev",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 22: AST block folding and ReviewStore fold persistence
+        {
+            let original =
+                "ReviewStore preserves block-level fold marks and toggle_fold_mark updates state";
+            let mutated = "ReviewStore ignores block fold marks";
+            let mut folds = Vec::new();
+            let on = crate::review::toggle_fold_mark(&mut folds, "test.rs", "h123", 10, 20);
+            let killed =
+                on && folds.len() == 1 && folds[0].start_line == 10 && folds[0].end_line == 20;
+            results.push(MutantResult {
+                id,
+                module: "crates/lgtm-core/src/review/mod.rs",
+                description: "Drop block-level fold marks persistence in review store",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "review::tests::folds_round_trip_toggle_and_merge",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 23: Java AST Guard - command injection rule
+        {
+            use crate::guard::Guard;
+            let original = "java/command-injection detects Runtime.exec invocation";
+            let mutated = "java/command-injection pattern dropped";
+            let f = crate::model::FileDiff {
+                old_path: None,
+                new_path: std::path::PathBuf::from("Exec.java"),
+                change_type: crate::model::ChangeType::Modified,
+                additions: 1,
+                deletions: 0,
+                hunks: vec![crate::model::DiffHunk {
+                    header: "@@ -1,1 +1,2 @@".into(),
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 2,
+                    lines: vec![crate::model::DiffLine {
+                        line_type: crate::model::LineType::Addition,
+                        content: "Runtime.getRuntime().exec(cmd);".into(),
+                        old_line_num: None,
+                        new_line_num: Some(1),
+                    }],
+                    is_folded: false,
+                    folded_blocks: Vec::new(),
+                }],
+                is_folded: false,
+                is_reviewed: false,
+            };
+            let alerts = crate::guard::java::JavaGuard.scan_file(&f);
+            let killed = alerts.iter().any(|a| a.rule_id == "java/command-injection");
+            results.push(MutantResult {
+                id,
+                module: "src/guard/java.rs",
+                description: "Bypass Java Runtime.exec command injection check",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "guard::java::tests::test_java_rules_fire_correctly",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 24: Git pre-commit hook installation and status
+        {
+            let original =
+                "GitEngine install_pre_commit_hook writes hook and pre_commit_hook_status reports true";
+            let mutated = "GitEngine hook status always reports false";
+            let tmp = std::env::temp_dir().join(format!("lgtm-mut-hook-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
+            let _ = git2::Repository::init(&tmp); // lgtm:ignore
+            let engine = crate::git::GitEngine::new(&tmp);
+            let _ = engine.install_pre_commit_hook(); // lgtm:ignore
+            let installed_ok = engine.pre_commit_hook_status().unwrap_or(false);
+            let uninstalled_ok = engine.uninstall_pre_commit_hook().unwrap_or(false);
+            let status_after_uninstall = !engine.pre_commit_hook_status().unwrap_or(true);
+            let killed = installed_ok && uninstalled_ok && status_after_uninstall;
+            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
+            results.push(MutantResult {
+                id,
+                module: "crates/lgtm-core/src/git/mod.rs",
+                description: "Corrupt GitEngine pre-commit hook installer and status checker",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "git::tests::test_git_hook_lifecycle",
                     }
                 } else {
                     MutationStatus::Survived

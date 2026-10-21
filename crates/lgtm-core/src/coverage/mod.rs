@@ -296,6 +296,7 @@ end_of_record
                 },
             ],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         diff.files.push(FileDiff {
@@ -367,6 +368,7 @@ end_of_record
                 },
             ],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         diff.files.push(FileDiff {

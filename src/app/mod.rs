@@ -23,7 +23,7 @@ mod pr;
 mod staging;
 mod state;
 #[cfg(test)]
-mod test_util;
+pub(crate) mod test_util;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
@@ -76,6 +76,7 @@ pub struct App {
     pub is_split_view: bool,
     pub active_view: ActiveView,
     pub agent_pane: Option<String>,
+    pub agent_sink_kind: Option<crate::ipc::SinkKind>,
     pub status_message: Option<String>,
     pub should_quit: bool,
 
@@ -111,6 +112,9 @@ pub struct App {
 
     // Active Git Revision
     pub active_revision: Option<String>,
+
+    // Editor configuration override
+    pub editor_override: Option<String>,
 
     // Alert navigation index
     pub selected_alert_idx: usize,
@@ -254,10 +258,12 @@ impl App {
             is_split_view: false,
             active_view: ActiveView::Diff,
             agent_pane,
+            agent_sink_kind: None,
             status_message: initial_status,
             should_quit: false,
             pr: PrState::new(explicit_pr),
             active_revision: explicit_rev,
+            editor_override: None,
             file_picker: FilePicker::default(),
             pane_picker: PanePicker::default(),
             comment_input: String::new(),
@@ -376,6 +382,39 @@ impl App {
         None
     }
 
+    pub fn gate_directives_feedback(&self) -> Option<String> {
+        let open_directives: Vec<String> = self
+            .comments
+            .iter()
+            .filter(|c| !c.is_resolved && !c.orphaned)
+            .map(|c| {
+                let mut d = format!(
+                    "{}:{} DIRECTIVE: {}",
+                    c.file_path, c.target_line_no, c.comment_text
+                );
+                for reply in &c.replies {
+                    d.push_str(&format!("\n↳ Reply: {}", reply));
+                }
+                d
+            })
+            .collect();
+        if open_directives.is_empty() {
+            None
+        } else {
+            Some(open_directives.join("\n"))
+        }
+    }
+
+    pub fn resolved_editor(&self) -> String {
+        self.editor_override
+            .clone()
+            .or_else(|| self.config.editor.clone())
+            .or_else(|| std::env::var("LGTM_EDITOR").ok())
+            .or_else(|| std::env::var("VISUAL").ok())
+            .or_else(|| std::env::var("EDITOR").ok())
+            .unwrap_or_else(|| "nvim".to_string())
+    }
+
     pub fn approve_gate(&mut self) {
         let gate_file = self.git_engine.repo_path.join(".lgtm/gate.json");
         if gate_file.exists() {
@@ -383,11 +422,12 @@ impl App {
                 if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(obj) = val.as_object_mut() {
                         obj.insert("status".to_string(), serde_json::json!("approved"));
+                        if let Some(fb) = self.gate_directives_feedback() {
+                            obj.insert("feedback".to_string(), serde_json::json!(fb));
+                        }
                     }
-                    let _ = std::fs::write(
-                        &gate_file,
-                        serde_json::to_string_pretty(&val).unwrap_or_default(),
-                    );
+                    let json_out = serde_json::to_string_pretty(&val).unwrap_or_default();
+                    let _ = std::fs::write(&gate_file, json_out); // lgtm:ignore
                     self.status_message =
                         Some("✅ Approved agent gate! Agent unblocked.".to_string());
                     return;
@@ -402,15 +442,26 @@ impl App {
         if gate_file.exists() {
             if let Ok(content) = std::fs::read_to_string(&gate_file) {
                 if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let feedback = self.gate_directives_feedback();
                     if let Some(obj) = val.as_object_mut() {
                         obj.insert("status".to_string(), serde_json::json!("rejected"));
+                        if let Some(ref fb) = feedback {
+                            obj.insert("feedback".to_string(), serde_json::json!(fb));
+                        }
                     }
-                    let _ = std::fs::write(
-                        &gate_file,
-                        serde_json::to_string_pretty(&val).unwrap_or_default(),
-                    );
+                    let json_out = serde_json::to_string_pretty(&val).unwrap_or_default();
+                    let _ = std::fs::write(&gate_file, json_out); // lgtm:ignore
+                    let sink = self.agent_sink();
+                    let msg = if let Some(ref fb) = feedback {
+                        format!("❌ Rejected agent gate:\n{}", fb)
+                    } else {
+                        "❌ Rejected agent gate.".to_string()
+                    };
+                    let _ = sink.send(&msg);
+                    let label = sink.label();
+                    drop(sink);
                     self.status_message =
-                        Some("❌ Rejected agent gate! Agent notified.".to_string());
+                        Some(format!("❌ Rejected agent gate! Delivered to {}", label));
                     return;
                 }
             }
@@ -450,5 +501,77 @@ impl App {
             "No Prompt Found".to_string(),
             "No prompt context found.\n\nTo provide agent prompt context:\n- Pass message with `lgtm gate -m '<prompt>'`\n- Write prompt to `.lgtm/prompt.txt`\n- Or commit with a descriptive message.".to_string(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_util::create_test_app;
+    use crate::comment::CommentAnchor;
+
+    #[test]
+    fn test_gate_feedback_includes_directive() {
+        let mut app = create_test_app();
+        let gate_dir = app.git_engine.repo_path.join(".lgtm");
+        let _ = std::fs::create_dir_all(&gate_dir);
+        let gate_file = gate_dir.join("gate.json");
+        std::fs::write(&gate_file, r#"{"status": "waiting"}"#).unwrap();
+
+        app.comments.push(CommentAnchor {
+            file_path: "src/auth.rs".into(),
+            target_line_no: 42,
+            target_code: "password.verify()".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "Enforce rate limiting on auth attempts".into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            orphaned: false,
+            track: Default::default(),
+        });
+
+        app.reject_gate();
+
+        let updated: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&gate_file).unwrap()).unwrap();
+        assert_eq!(updated.get("status").unwrap(), "rejected");
+        let fb = updated.get("feedback").unwrap().as_str().unwrap();
+        assert!(fb.contains("src/auth.rs:42 DIRECTIVE: Enforce rate limiting on auth attempts"));
+    }
+
+    #[test]
+    fn test_approve_gate_feedback_includes_directive() {
+        let mut app = create_test_app();
+        let gate_dir = app.git_engine.repo_path.join(".lgtm");
+        let _ = std::fs::create_dir_all(&gate_dir);
+        let gate_file = gate_dir.join("gate.json");
+        std::fs::write(&gate_file, r#"{"status": "waiting"}"#).unwrap();
+
+        app.comments.push(CommentAnchor {
+            file_path: "src/auth.rs".into(),
+            target_line_no: 10,
+            target_code: "foo()".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "Add unit test".into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            remote_id: None,
+            orphaned: false,
+            track: Default::default(),
+        });
+
+        app.approve_gate();
+
+        let updated: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&gate_file).unwrap()).unwrap();
+        assert_eq!(updated.get("status").unwrap(), "approved");
+        let fb = updated.get("feedback").unwrap().as_str().unwrap();
+        assert!(fb.contains("src/auth.rs:10 DIRECTIVE: Add unit test"));
     }
 }

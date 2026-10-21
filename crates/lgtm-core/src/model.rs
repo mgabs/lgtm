@@ -38,6 +38,14 @@ pub struct DiffLine {
     pub new_line_num: Option<u32>,
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
+pub struct BlockRange {
+    pub start_line: u32,
+    pub end_line: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct DiffHunk {
     pub header: String,
@@ -48,6 +56,8 @@ pub struct DiffHunk {
     pub lines: Vec<DiffLine>,
     #[serde(default)]
     pub is_folded: bool,
+    #[serde(default)]
+    pub folded_blocks: Vec<BlockRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

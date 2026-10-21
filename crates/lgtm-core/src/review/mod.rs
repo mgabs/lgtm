@@ -42,6 +42,14 @@ pub struct ReviewComment {
     pub remote_thread: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FoldMark {
+    pub file: String,
+    pub hunk_hash: String,
+    pub start_line: u32,
+    pub end_line: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ReviewState {
     pub version: u32,
@@ -50,6 +58,8 @@ pub struct ReviewState {
     pub hunks: Vec<HunkMark>,
     #[serde(default)]
     pub comments: Vec<ReviewComment>,
+    #[serde(default)]
+    pub folds: Vec<FoldMark>,
 }
 
 /// Hash of the whitespace-normalized changed lines; ignores context, headers and line numbers.
@@ -149,7 +159,51 @@ pub fn set_file(marks: &mut Vec<HunkMark>, file: &FileDiff, reviewed: bool, now:
     }
 }
 
-/// Merge `other` into `base`: hunk marks by (file, hash), comments by (file, code, text).
+/// Toggle a fold mark for an AST block inside a hunk.
+/// Returns true if folded, false if unfolded.
+pub fn toggle_fold_mark(
+    folds: &mut Vec<FoldMark>,
+    file: &str,
+    hunk_hash: &str,
+    start_line: u32,
+    end_line: u32,
+) -> bool {
+    if let Some(pos) = folds.iter().position(|f| {
+        f.file == file
+            && f.hunk_hash == hunk_hash
+            && f.start_line == start_line
+            && f.end_line == end_line
+    }) {
+        folds.remove(pos);
+        false
+    } else {
+        folds.push(FoldMark {
+            file: file.to_string(),
+            hunk_hash: hunk_hash.to_string(),
+            start_line,
+            end_line,
+        });
+        true
+    }
+}
+
+/// Retrieve the folded block ranges for a specific hunk in a file.
+pub fn load_hunk_folds(
+    folds: &[FoldMark],
+    file_name: &str,
+    hunk_hash: &str,
+) -> Vec<crate::model::BlockRange> {
+    folds
+        .iter()
+        .filter(|f| f.file == file_name && f.hunk_hash == hunk_hash)
+        .map(|f| crate::model::BlockRange {
+            start_line: f.start_line,
+            end_line: f.end_line,
+        })
+        .collect()
+}
+
+/// Merge `other` into `base`: hunk marks by (file, hash), comments by (file, code, text), folds by (file, hash, start, end).
 /// Returns conflicts (same comment, different resolution); local values win.
 pub fn merge(base: &mut ReviewState, other: ReviewState) -> Vec<String> {
     for m in other.hunks {
@@ -159,6 +213,16 @@ pub fn merge(base: &mut ReviewState, other: ReviewState) -> Vec<String> {
             .any(|b| b.file == m.file && b.content_hash == m.content_hash)
         {
             base.hunks.push(m);
+        }
+    }
+    for f in other.folds {
+        if !base.folds.iter().any(|b| {
+            b.file == f.file
+                && b.hunk_hash == f.hunk_hash
+                && b.start_line == f.start_line
+                && b.end_line == f.end_line
+        }) {
+            base.folds.push(f);
         }
     }
     let mut conflicts = Vec::new();

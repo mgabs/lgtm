@@ -160,13 +160,40 @@ impl App {
                     self.agent_pane = Some(pane_id.to_string());
                     self.status_message = Some(format!("Target agent pane set to {}", pane_id));
                     self.active_view = ActiveView::Diff;
-                } else if let Ok(panes) = IpcBridge::list_tmux_panes() {
-                    self.pane_picker.list = panes;
-                    self.pane_picker.selected_idx = 0;
-                    self.active_view = ActiveView::PanePicker;
                 } else {
-                    self.status_message = Some("No tmux session running".to_string());
-                    self.active_view = ActiveView::Diff;
+                    let kind = self.resolved_sink_kind();
+                    match IpcBridge::list_panes(kind) {
+                        Ok(panes) if !panes.is_empty() => {
+                            self.pane_picker.list = panes;
+                            self.pane_picker.selected_idx = 0;
+                            self.active_view = ActiveView::PanePicker;
+                        }
+                        _ => {
+                            self.status_message =
+                                Some(format!("No active targets detected for {} sink", kind));
+                            self.active_view = ActiveView::Diff;
+                        }
+                    }
+                }
+            }
+            "sink" => {
+                if let Some(name) = args.first() {
+                    match name.parse::<crate::ipc::SinkKind>() {
+                        Ok(kind) => {
+                            self.agent_sink_kind = Some(kind);
+                            self.status_message =
+                                Some(format!("Configured agent steering sink: {}", kind));
+                        }
+                        Err(err) => {
+                            self.status_message = Some(err.to_string());
+                        }
+                    }
+                } else {
+                    let current = self.resolved_sink_kind();
+                    self.status_message = Some(format!(
+                        "Current agent sink: {} (configure with :sink <tmux|zellij|wezterm|kitty|clipboard|dummy>)",
+                        current
+                    ));
                 }
             }
             "f" | "files" | "find" => {
@@ -364,6 +391,18 @@ impl App {
                 ));
                 self.active_view = ActiveView::Diff;
             }
+            "editor" => {
+                if let Some(name) = args.first() {
+                    self.editor_override = Some(name.to_string());
+                    self.status_message = Some(format!("Configured editor: {}", name));
+                } else {
+                    let current = self.resolved_editor();
+                    self.status_message = Some(format!(
+                        "Current editor: {} (set with :editor <name>)",
+                        current
+                    ));
+                }
+            }
             "reload" | "e" | "edit" => {
                 if let Some(pr_num) = self.pr.current_number {
                     if let Ok(snap) = crate::diff_source::DiffSource::snapshot(
@@ -440,11 +479,55 @@ impl App {
                 self.yank_reference_to_clipboard();
                 self.active_view = ActiveView::Diff;
             }
+            "hook" => {
+                let action = args.first().copied().unwrap_or("status");
+                self.status_message = Some(Self::run_hook_action(&self.git_engine, action));
+                self.active_view = ActiveView::Diff;
+            }
             _ => {
                 self.status_message = Some(format!("Unknown command: :{}", cmd_name));
                 self.active_view = ActiveView::Diff;
             }
         }
+    }
+
+    fn run_hook_action(git_engine: &crate::git::GitEngine, action: &str) -> String {
+        if action == "install" {
+            return git_engine
+                .install_pre_commit_hook()
+                .map(|p| format!("Installed pre-commit hook at {}", p.display()))
+                .unwrap_or_else(|e| format!("Failed to install pre-commit hook: {}", e));
+        }
+        if action == "uninstall" {
+            return git_engine
+                .uninstall_pre_commit_hook()
+                .map(|removed| {
+                    if removed {
+                        "Uninstalled pre-commit hook"
+                    } else {
+                        "No LGTM pre-commit hook found to uninstall"
+                    }
+                    .to_string()
+                })
+                .unwrap_or_else(|e| format!("Failed to uninstall pre-commit hook: {}", e));
+        }
+        if action == "status" {
+            return git_engine
+                .pre_commit_hook_status()
+                .map(|active| {
+                    if active {
+                        "Pre-commit hook is installed and active"
+                    } else {
+                        "Pre-commit hook is not installed"
+                    }
+                    .to_string()
+                })
+                .unwrap_or_else(|e| format!("Failed to check hook status: {}", e));
+        }
+        format!(
+            "Unknown hook action '{}'. Usage: :hook [install|uninstall|status]",
+            action
+        )
     }
 
     pub fn jump_to_line(&mut self, target_line_no: u32) {
@@ -508,6 +591,33 @@ mod tests {
 
         app.execute_command(":comments");
         assert_eq!(app.active_view, ActiveView::CommentList);
+
+        app.execute_command(":editor vscode");
+        assert_eq!(app.resolved_editor(), "vscode");
+        assert_eq!(
+            app.status_message,
+            Some("Configured editor: vscode".to_string())
+        );
+
+        app.execute_command(":editor");
+        assert!(app.status_message.as_ref().unwrap().contains("vscode"));
+
+        app.execute_command(":sink zellij");
+        assert_eq!(app.agent_sink_kind, Some(crate::ipc::SinkKind::Zellij));
+        assert_eq!(
+            app.status_message,
+            Some("Configured agent steering sink: zellij".to_string())
+        );
+
+        app.execute_command(":sink");
+        assert!(app.status_message.as_ref().unwrap().contains("zellij"));
+
+        app.execute_command(":sink /dev/null");
+        assert_eq!(app.agent_sink_kind, Some(crate::ipc::SinkKind::Dummy));
+        assert_eq!(
+            app.status_message,
+            Some("Configured agent steering sink: dummy".to_string())
+        );
     }
 
     #[test]
@@ -547,11 +657,13 @@ mod tests {
         app_e.command.autocomplete_next();
         assert_eq!(
             app_e.command.completions,
-            vec!["e", "edit", "exit", "export"]
+            vec!["e", "edit", "editor", "exit", "export"]
         );
         assert_eq!(app_e.command.input, "e");
         app_e.command.autocomplete_next();
         assert_eq!(app_e.command.input, "edit");
+        app_e.command.autocomplete_next();
+        assert_eq!(app_e.command.input, "editor");
         app_e.command.autocomplete_next();
         assert_eq!(app_e.command.input, "exit");
 
@@ -597,6 +709,7 @@ mod tests {
             new_lines: 3,
             lines,
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let file = FileDiff {
             old_path: None,
@@ -863,6 +976,7 @@ mod tests {
                     new_line_num: Some(3),
                 }],
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,
@@ -1006,5 +1120,69 @@ mod tests {
         app.active_view = ActiveView::Diff;
         app.execute_command(":thread view");
         assert_eq!(app.active_view, ActiveView::ThreadView);
+    }
+
+    #[test]
+    fn test_execute_command_hook() {
+        let mut app = create_test_app();
+        // create_test_app uses a temp dir without git repo initially
+        app.execute_command("hook status");
+        assert!(app
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Failed to check hook status"));
+
+        // Now initialize a real git repository in a temp dir
+        let tmp = std::env::temp_dir().join(format!(
+            "lgtm-hook-cmd-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        lgtm_core::git2::Repository::init(&tmp).unwrap();
+        app.git_engine = crate::git::GitEngine::new(&tmp);
+
+        app.execute_command("hook status");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Pre-commit hook is not installed")
+        );
+
+        app.execute_command("hook install");
+        assert!(app
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Installed pre-commit hook"));
+
+        app.execute_command("hook status");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Pre-commit hook is installed and active")
+        );
+
+        app.execute_command("hook uninstall");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Uninstalled pre-commit hook")
+        );
+
+        app.execute_command("hook uninstall");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No LGTM pre-commit hook found to uninstall")
+        );
+
+        app.execute_command("hook unknown");
+        assert!(app
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Unknown hook action"));
+
+        let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
     }
 }

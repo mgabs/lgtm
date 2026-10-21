@@ -5,6 +5,9 @@ pub mod dead_code;
 pub mod deps;
 pub mod duplicate;
 pub mod fragility;
+pub mod go;
+pub mod java;
+pub mod python;
 pub mod security;
 pub mod swift;
 pub mod symbols;
@@ -74,6 +77,9 @@ pub fn registry() -> &'static [&'static dyn Guard] {
         &dead_code::DeadCodeGuard,
         &web::WebGuard,
         &swift::SwiftGuard,
+        &python::PythonGuard,
+        &go::GoGuard,
+        &java::JavaGuard,
     ]
 }
 
@@ -625,7 +631,10 @@ mod tests {
                 "api_drift",
                 "dead_code",
                 "web",
-                "swift"
+                "swift",
+                "python",
+                "go",
+                "java",
             ]
         );
     }
@@ -669,6 +678,7 @@ mod tests {
                     },
                 ],
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,
@@ -716,6 +726,7 @@ mod tests {
                     },
                 ],
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,
@@ -779,6 +790,7 @@ mod tests {
                     },
                 ],
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,
@@ -826,6 +838,7 @@ mod tests {
                 new_lines: 35,
                 lines,
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,

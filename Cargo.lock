@@ -920,13 +920,14 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "lgtm"
-version = "0.9.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
  "crossbeam-channel",
  "crossterm 0.28.1",
  "fuzzy-matcher",
+ "lgtm-ast",
  "lgtm-core",
  "lgtm-mcp",
  "ratatui",
@@ -936,10 +937,13 @@ dependencies = [
 
 [[package]]
 name = "lgtm-ast"
-version = "0.9.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
+ "serde",
  "tree-sitter",
+ "tree-sitter-go",
+ "tree-sitter-java",
  "tree-sitter-python",
  "tree-sitter-rust",
  "tree-sitter-swift",
@@ -948,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "lgtm-core"
-version = "0.9.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -965,9 +969,10 @@ dependencies = [
 
 [[package]]
 name = "lgtm-mcp"
-version = "0.9.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
+ "crossbeam-channel",
  "lgtm-core",
  "serde",
  "serde_json",
@@ -2193,6 +2198,26 @@ dependencies = [
  "regex-syntax",
  "serde_json",
  "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-go"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8560a4d2f835cc0d4d2c2e03cbd0dde2f6114b43bc491164238d333e28b16ea"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-java"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0aa6cbcdc8c679b214e616fd3300da67da0e492e066df01bcf5a5921a71e90d6"
+dependencies = [
+ "cc",
  "tree-sitter-language",
 ]
 

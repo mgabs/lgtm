@@ -2,28 +2,97 @@ use anyhow::Result;
 use lgtm_core::git::GitEngine;
 use lgtm_core::guard::SecurityAndTestGuard;
 use lgtm_core::model::DiffSnapshot;
+use lgtm_core::watcher::{RepoWatcher, WatcherMessage};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
-use std::path::Path;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 pub struct McpServer {
     git_engine: GitEngine,
-    subscriptions: Mutex<HashSet<String>>,
+    repo_path: PathBuf,
+    subscriptions: Arc<Mutex<HashSet<String>>>,
 }
 
 impl McpServer {
     pub fn new<P: AsRef<Path>>(repo_path: P) -> Self {
+        let path = repo_path.as_ref().to_path_buf();
         Self {
-            git_engine: GitEngine::new(repo_path),
-            subscriptions: Mutex::new(HashSet::new()),
+            git_engine: GitEngine::new(&path),
+            repo_path: path,
+            subscriptions: Arc::new(Mutex::new(HashSet::new())),
         }
+    }
+
+    /// Helper to classify which resource URIs are affected by a set of changed paths.
+    pub fn affected_resources(paths: &[PathBuf]) -> Vec<&'static str> {
+        let mut affected = HashSet::new();
+        // Almost any code or directory change touches diff and findings
+        if !paths.is_empty() {
+            affected.insert("lgtm://diff");
+            affected.insert("lgtm://findings");
+        }
+        for p in paths {
+            let s = p.to_string_lossy();
+            if s.contains("comments.jsonl") || s.contains("directives") {
+                affected.insert("lgtm://directives");
+            }
+            if s.contains(".lgtm") || s.contains("state.json") || s.contains("reviews") {
+                affected.insert("lgtm://review-state");
+                affected.insert("lgtm://directives");
+            }
+        }
+        let mut res: Vec<&'static str> = affected.into_iter().collect();
+        res.sort();
+        res
     }
 
     pub fn run_stdio(&self) -> Result<()> {
         let stdin = io::stdin();
-        let mut stdout = io::stdout();
+        let stdout = Arc::new(Mutex::new(io::stdout()));
+
+        // Start background watcher if repo_path exists and is a directory
+        let (watcher_tx, watcher_rx) = crossbeam_channel::unbounded();
+        let _watcher = if self.repo_path.is_dir() {
+            RepoWatcher::spawn(&self.repo_path, watcher_tx, 300).ok()
+        } else {
+            None
+        };
+
+        // Background notifier thread: listens for watcher file changes, debounces & coalesces URIs,
+        // checks active subscriptions, and writes notifications under stdout lock.
+        let subs_clone = Arc::clone(&self.subscriptions);
+        let stdout_clone = Arc::clone(&stdout);
+        let _notifier_handle = std::thread::spawn(move || {
+            while let Ok(msg) = watcher_rx.recv() {
+                let paths = match msg {
+                    WatcherMessage::FilesChanged(paths) => paths,
+                    WatcherMessage::Error(_) => continue,
+                };
+                let affected = Self::affected_resources(&paths);
+                let subs = match subs_clone.lock() {
+                    Ok(guard) => guard.clone(),
+                    Err(_) => continue,
+                };
+
+                for uri in affected {
+                    if subs.contains(uri) {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "notifications/resources/updated",
+                            "params": {
+                                "uri": uri
+                            }
+                        });
+                        if let Ok(mut out) = stdout_clone.lock() {
+                            let _ = writeln!(out, "{}", notification); // lgtm:ignore
+                            let _ = out.flush(); // lgtm:ignore
+                        }
+                    }
+                }
+            }
+        });
 
         for line in stdin.lock().lines() {
             let line = line?;
@@ -42,8 +111,10 @@ impl McpServer {
                             "message": format!("Parse error: {}", err)
                         }
                     });
-                    writeln!(stdout, "{}", err_response)?;
-                    stdout.flush()?;
+                    if let Ok(mut out) = stdout.lock() {
+                        writeln!(out, "{}", err_response)?;
+                        out.flush()?;
+                    }
                     continue;
                 }
             };
@@ -62,8 +133,10 @@ impl McpServer {
 
             let response = self.handle_request(method, &params, id.clone());
             if let Some(resp) = response {
-                writeln!(stdout, "{}", resp)?;
-                stdout.flush()?;
+                if let Ok(mut out) = stdout.lock() {
+                    writeln!(out, "{}", resp)?;
+                    out.flush()?;
+                }
             }
         }
 
@@ -750,5 +823,18 @@ mod tests {
             .lock()
             .unwrap()
             .contains("lgtm://directives"));
+    }
+
+    #[test]
+    fn test_affected_resources_classification() {
+        let code_path = PathBuf::from("src/main.rs");
+        let aff1 = McpServer::affected_resources(&[code_path]);
+        assert!(aff1.contains(&"lgtm://diff"));
+        assert!(aff1.contains(&"lgtm://findings"));
+
+        let comments_path = PathBuf::from(".lgtm/comments.jsonl");
+        let aff2 = McpServer::affected_resources(&[comments_path]);
+        assert!(aff2.contains(&"lgtm://directives"));
+        assert!(aff2.contains(&"lgtm://review-state"));
     }
 }

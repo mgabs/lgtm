@@ -8,7 +8,7 @@
 > **Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner built in Rust.**
 > *"Because code shouldn't ship until it actually looks good to you."*
 
-`lgtm` is a keyboard-driven diff reviewer and security guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It pairs Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST/hunk folding, an interactive Commit Forge, GitHub PR review, and direct `#ref` injection into `tmux` agent panes or system clipboards.
+`lgtm` is a keyboard-driven diff reviewer and security guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It pairs Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST/hunk folding, an interactive Commit Forge, GitHub PR review, and direct `#ref` injection into `tmux`, `zellij`, `wezterm`, `kitty` agent panes or system clipboards.
 
 ```
 ┌── Files (35 cols) ─────────┬── Diff: src/guard/mod.rs ────────────────────────┐
@@ -45,7 +45,7 @@
   - **Identifier Hallucination / Typo Guard**: Flags 1-2 character Levenshtein distance typos against repository symbol index.
   - **Dead Function Addition (YAGNI)**: Identifies newly added functions with 0 usages across the project.
   - **Breaking Public API Drift**: Detects changes to `pub` signatures, struct fields, or trait definitions.
-  - **Security & Test Guard**: Flags SQLi, command injection, hardcoded secrets, TLS/auth bypass, and test neutering (deleted asserts, skipped tests, mock inflation, self-assertions).
+  - **Security & Test Guard**: Flags SQLi, command injection, hardcoded secrets, TLS/auth bypass, and test neutering (deleted asserts, skipped tests, mock inflation, self-assertions). Supported AST languages: Rust, TypeScript/JavaScript, Python, Swift, Go, and Java.
 - **Syntax & Hunk Folding**: Vim-style folding (`zc`, `zo`, `za`, `zM`, `zR`, `zm`, `zr`) to collapse or expand unchanged lines, clean files, or reviewed hunks.
 - **Interactive Commit Forge (`C` / `:commit`)**: Craft conventional commits (`feat:`, `fix:`, `refactor:`, etc.) directly from staged hunks with automated diff-aware commit message synthesis.
 - **Tabbed Interactive Help Modal (`?` / `h`)**: 7 discrete documentation tabs covering Overview & Modes, Motions, Directives, Staging & Forge, Folding, Guardrails, and Ex-Commands & CI.
@@ -56,6 +56,7 @@
 - **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and instant report export (`w` / `:export`).
 - **Headless CI & Security Gates**:
   - `lgtm check`: Pre-commit / CI gate that blocks builds on critical security vulnerabilities or complexity spikes.
+  - `lgtm hook [install|uninstall|status]`: Automates setup of `.git/hooks/pre-commit` to gate commits locally.
   - `lgtm gate`: Blocks autonomous agents until human approves or rejects via TUI.
   - `lgtm scan`: Generates full Markdown audit reports or SARIF 2.1.0 output for GitHub Security Code Scanning.
 - **Zero-Crash Non-Git Fallback**: Graceful fallback and file diff scanning even outside git repositories.
@@ -123,7 +124,7 @@ lgtm commit -m "feat: core diff engine"
 | `{` / `}` | Jump to previous / next paragraph (blank lines / hunk headers) |
 | `Ctrl-d` / `Ctrl-u` | Scroll half-page down / up |
 | `Ctrl-f` / `Ctrl-b` / `PgDn` / `PgUp` | Scroll full-page down / up |
-| `]f` / `[f` or `]` / `[` | Jump to next / previous file |
+| `]f` / `[f` (or `]]` / `[[`) | Jump to next / previous changed file (chainable) |
 | `]h` / `[h` | Jump to next / previous hunk |
 | `]c` / `[c` | Jump to next / previous comment / directive |
 | `]w` / `[w` | Jump to next / previous security / quality alert |
@@ -168,11 +169,11 @@ lgtm commit -m "feat: core diff engine"
 | `x` | Discard changes in current hunk (or delete directive if on comment line) |
 | `<Space>l` / `:c` | Open Review Directives list drawer |
 | `v` | Mark current file as reviewed (persisted in `.lgtm/state.json`) |
-| `o` / `e` | Open current file and line in `$EDITOR` / `$VISUAL` (e.g. `nvim +line file`) |
+| `o` / `e` | Open active file at cursor line in external editor (default: `nvim`, configurable: `vscode`, `vim`, etc.) |
 | `Tab` | Toggle 35-column file drawer / sidebar |
 | `d` | Toggle split-view / unified diff view |
-| `p` | Select target `tmux` pane for agent steering |
-| `Enter` | Inject reference `#ref file:line [rule] <alert> | DIRECTIVE: <text>` into active `tmux` pane |
+| `p` | Select target agent pane (`tmux`, `zellij`, `wezterm`, `kitty`) for agent steering |
+| `Enter` | Inject reference `#ref file:line [rule] <alert> | DIRECTIVE: <text>` into active agent pane |
 | `Ctrl-s` | Compile and export all review directives to agent / `.lgtm/review.md` |
 | `?` / `h` | Toggle multi-tab help modal (`1`-`7` or `[`/`]` to switch tabs) |
 | `q` | Quit |
@@ -199,10 +200,12 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:clear-resolved` — Purge all resolved directives while preserving active ones
 - `:resolve [all]` / `:unresolve [all]` — Toggle directive resolved state
 - `:f` / `:files` / `:find` — Open fuzzy file finder
-- `:pane` / `:panes` — Open `tmux` target pane selector
+- `:pane` / `:panes` — Open target pane selector for active terminal multiplexer
+- `:sink [name]` — View or configure active agent steering sink (`tmux`, `zellij`, `wezterm`, `kitty`, `clipboard`, `auto`)
 - `:sp` / `:split` / `:vsp` — Toggle split / unified view
 - `:tree` / `:drawer` / `:sidebar` — Toggle file tree drawer
 - `:risk` — Re-scan current diff for security & test risks
+- `:editor [name]` — View or configure active editor (`nvim`, `vim`, `vi`, `vscode`, `code`, `cursor`, `helix`)
 - `:scan [repo]` — Scan diff for issues (or `:scan repo` for full codebase)
 - `:audit` / `:issues` — Audit whole codebase for security & architectural findings
 - `:filter <1|2|3|crit|high|all>` / `:sev` — Filter audit issues by severity
@@ -214,6 +217,54 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:y` / `:yank` — Yank current code line
 - `:yr` / `:ref` — Yank `#ref file:line` to clipboard
 - `:<line_number>` — Jump directly to line number (e.g. `:42`)
+
+---
+
+## Agent Setup & MCP Client Configuration
+
+`lgtm` embeds a Model Context Protocol (MCP) server over standard I/O for AI agents:
+
+### Claude Code (`~/.claude/claude_desktop_config.json` or `.mcp.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["mcp", "--repo", "."]
+    }
+  }
+}
+```
+
+### Cursor (`.cursor/mcp.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["serve", "--mcp"]
+    }
+  }
+}
+```
+
+### Windsurf (`~/.codeium/windsurf/mcp_config.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### Aider (`.aider.conf.yml`)
+```yaml
+lint-cmd: "lgtm check --strict"
+test-cmd: "cargo test"
+```
 
 ---
 

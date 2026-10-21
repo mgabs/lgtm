@@ -195,6 +195,7 @@ fn main() -> ExitCode {
                 if let Err(e) = run_tui(
                     repo_path,
                     cli.agent_pane,
+                    cli.agent_sink,
                     cli.debounce,
                     None,
                     Some(first.to_string()),
@@ -219,6 +220,7 @@ fn main() -> ExitCode {
             if let Err(e) = run_tui(
                 repo_path,
                 cli.agent_pane,
+                cli.agent_sink,
                 cli.debounce,
                 Some(number),
                 None,
@@ -317,6 +319,7 @@ fn main() -> ExitCode {
             if let Err(e) = run_tui(
                 repo_path,
                 cli.agent_pane,
+                cli.agent_sink,
                 cli.debounce,
                 None,
                 None,
@@ -359,6 +362,7 @@ fn main() -> ExitCode {
                 if let Err(e) = run_tui(
                     repo_path,
                     cli.agent_pane,
+                    cli.agent_sink,
                     cli.debounce,
                     None,
                     None,
@@ -453,11 +457,23 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some(Commands::Hook { action, repo }) => {
+            let target = repo.unwrap_or(cli.repo);
+            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            match headless::run_hook_command(&repo_path, &action) {
+                Ok(code) => ExitCode::from(code as u8),
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some(Commands::Diff { revision }) | Some(Commands::Status { revision }) => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
             if let Err(e) = run_tui(
                 repo_path,
                 cli.agent_pane,
+                cli.agent_sink,
                 cli.debounce,
                 cli.pr,
                 revision,
@@ -470,7 +486,15 @@ fn main() -> ExitCode {
         }
         Some(Commands::Review { .. }) | None => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
-            if let Err(e) = run_tui(repo_path, cli.agent_pane, cli.debounce, cli.pr, None, None) {
+            if let Err(e) = run_tui(
+                repo_path,
+                cli.agent_pane,
+                cli.agent_sink,
+                cli.debounce,
+                cli.pr,
+                None,
+                None,
+            ) {
                 eprintln!("Error running lgtm: {}", e);
                 return ExitCode::from(1);
             }
@@ -482,6 +506,7 @@ fn main() -> ExitCode {
 fn run_tui(
     repo_path: PathBuf,
     agent_pane: Option<String>,
+    agent_sink: Option<String>,
     debounce: u64,
     pr_number: Option<u64>,
     revision: Option<String>,
@@ -509,6 +534,11 @@ fn run_tui(
 
     // Initialize application state (handles non-git directory, PR mode, and revision diffs cleanly)
     let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number, revision);
+    if let Some(sink_str) = agent_sink {
+        if let Ok(kind) = sink_str.parse() {
+            app.agent_sink_kind = Some(kind);
+        }
+    }
 
     match start_audit {
         Some(AuditStartMode::FullRepo) => {

@@ -111,10 +111,15 @@ pub(crate) fn render_pane_picker(frame: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
+    let title = format!(
+        " Select Target Agent Pane [{}] (Enter to select, Esc to close) ",
+        app.resolved_sink_kind()
+    );
+
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Select Target tmux Pane (Enter to select, Esc to close) ")
+            .title(title)
             .border_style(Style::default().fg(Color::Yellow)),
     );
 

@@ -6,7 +6,7 @@ branding:
 
 inputs:
   version:
-    description: "lgtm release version without the leading v (for example 0.8.2)."
+    description: "lgtm release version without the leading v (for example 1.0.0)."
     required: true
   base:
     description: "Base ref to diff against. Defaults to the pull request base branch."

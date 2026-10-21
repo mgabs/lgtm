@@ -43,6 +43,46 @@ impl App {
         self.active_view = ActiveView::ThreadView;
     }
 
+    pub fn thread_at_cursor(&self) -> Option<usize> {
+        let file = self.snapshot.files.get(self.selected_file_idx)?;
+        let path = file.display_name();
+        let lno = self.current_line_number()?;
+        self.threads
+            .iter()
+            .position(|t| t.path == path && t.line == Some(lno))
+    }
+
+    pub fn toggle_resolve_thread_at_cursor(&mut self) -> bool {
+        let Some(idx) = self.thread_at_cursor() else {
+            return false;
+        };
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return false;
+        };
+        let t = &self.threads[idx];
+        let thread_id = t.id.clone();
+        let next_resolved = !t.resolved;
+        let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+        match forge.set_resolved(pr, &thread_id, next_resolved) {
+            Ok(()) => {
+                if let Some(t_mut) = self.threads.get_mut(idx) {
+                    t_mut.resolved = next_resolved;
+                }
+                self.status_message = Some(if next_resolved {
+                    "✅ Thread marked resolved".into()
+                } else {
+                    "💬 Thread marked active".into()
+                });
+                true
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to update thread: {e}"));
+                false
+            }
+        }
+    }
+
     pub fn open_comment_list(&mut self) {
         self.comments = self.comment_store.load_comments();
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
@@ -462,24 +502,48 @@ impl App {
         .ok()
     }
 
-    /// Reload marks for the current target and refresh each file's reviewed flag.
+    /// Reload marks for the current target and refresh each file's reviewed flag and folds.
     pub fn load_marks(&mut self) {
-        self.marks = self
+        let state = self
             .marks_store()
             .and_then(|s| s.load().ok())
-            .map(|st| st.hunks)
             .unwrap_or_default();
+        self.marks = state.hunks;
         for f in &mut self.snapshot.files {
             f.is_reviewed = lgtm_core::review::file_reviewed(&self.marks, f);
+            let name = f.display_name();
+            for hunk in f.hunks.iter_mut() {
+                let hash = lgtm_core::review::hunk_hash(hunk);
+                let saved_folds = lgtm_core::review::load_hunk_folds(&state.folds, &name, &hash);
+                if !saved_folds.is_empty() {
+                    hunk.folded_blocks = saved_folds;
+                }
+            }
         }
     }
 
-    fn save_marks(&mut self) {
+    pub fn save_marks(&mut self) {
         let Some(store) = self.marks_store() else {
             return;
         };
         let mut st = store.load().unwrap_or_default();
         st.hunks = self.marks.clone();
+        let mut folds = Vec::new();
+        for f in &self.snapshot.files {
+            let name = f.display_name();
+            for hunk in &f.hunks {
+                let hash = lgtm_core::review::hunk_hash(hunk);
+                for range in &hunk.folded_blocks {
+                    folds.push(lgtm_core::review::FoldMark {
+                        file: name.clone(),
+                        hunk_hash: hash.clone(),
+                        start_line: range.start_line,
+                        end_line: range.end_line,
+                    });
+                }
+            }
+        }
+        st.folds = folds;
         if store.save(&st).is_err() {
             self.status_message = Some("Failed to save review marks".to_string());
         }
@@ -644,6 +708,7 @@ mod tests {
             new_lines: 1,
             lines,
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let file = FileDiff {
             old_path: None,
@@ -694,6 +759,7 @@ mod tests {
                 })
                 .collect(),
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let file = FileDiff {
@@ -771,7 +837,7 @@ mod tests {
         assert!(app.comments.is_empty());
 
         // Test open_comment_list and Enter key navigation
-        let anchor2 = CommentAnchor {
+        let second_anchor = CommentAnchor {
             file_path: "src/lib.rs".into(),
             target_line_no: 5,
             target_code: "line 5".into(),
@@ -786,7 +852,7 @@ mod tests {
             orphaned: false,
             track: Default::default(),
         };
-        let _ = app.comment_store.add_comment(&anchor2);
+        let _ = app.comment_store.add_comment(&second_anchor); // lgtm:ignore
         app.cursor_line_idx = 4;
         app.open_comment_list();
         assert_eq!(app.active_view, ActiveView::CommentList);

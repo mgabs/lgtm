@@ -136,7 +136,7 @@ lgtm
 | `f` / `Ctrl-p` | Fuzzy Finder | Open fuzzy file switcher popup to jump to any file |
 | `Tab` | Drawer Sidebar | Toggle 35-column changed file list on the left |
 | `d` | Split View Toggle | Toggle between Unified Diff and Side-by-Side Dual Pane Diff |
-| `o` / `e` | Open in `$EDITOR` | Open current file and line in Neovim, Vim, or VS Code |
+| `o` / `e` | Open in Editor | Open current file and line in configured editor (default: `nvim`, configurable: `:editor <name>` or config `editor = "vscode"`) |
 | `?` / `h` | **Help Modal** | Open 7-tab interactive documentation modal |
 | `q` | Quit | Exit `lgtm` |
 
@@ -164,15 +164,17 @@ lgtm
 
 ### Syntax-Aware AST & Hunk Folding
 
-When reviewing large pull requests or AI-generated changes, noise files (lockfiles, generated schema, boilerplate) distract from core logic. Use Vim-style folding to collapse and isolate diffs:
+When reviewing large pull requests or AI-generated changes, noise files (lockfiles, generated schema, boilerplate) distract from core logic. Use Vim-style folding with AST block awareness to collapse and isolate diffs:
 
 | Fold Key | Action |
 |---|---|
-| `zc` | Fold current hunk under cursor into compact header (`▶ @@ ... @@ [Folded]`) |
-| `zo` | Unfold current hunk under cursor to expand diff lines |
-| `za` | Toggle fold state of current hunk |
-| `zM` / `zm` | Fold **ALL** hunks across the current file / diff |
-| `zR` / `zr` | Unfold **ALL** hunks across the current file / diff |
+| `za` | Toggle AST block fold (function, class, inner loop/block) or hunk under cursor |
+| `zc` | Close (fold) innermost AST block or hunk under cursor |
+| `zo` | Open (unfold) AST block or hunk under cursor |
+| `zM` / `zm` | Fold **ALL** hunks and blocks across the diff |
+| `zR` / `zr` | Unfold **ALL** hunks and blocks across the diff |
+
+Folds use a visible-rows indirection for cursor motion (`j`, `k`, `G`, `gg`, `Ctrl-d`, `Ctrl-u`), ensuring smooth navigation that hops directly over folded ranges without getting stuck. Block folds persist across sessions in the review store (`.lgtm/reviews/<target>.json`).
 
 ---
 
@@ -196,8 +198,8 @@ To minimize typing during fast pairing sessions, use instant directive chords:
 #### 3. Injecting Directives to AI Agent Panes
 - **`Enter`**: Context-aware agent injection. If the cursor line has an active security/quality alert or human directive, formats and dispatches `#ref <file>:<line> [<rule_id>] <alert> | DIRECTIVE: <text>`. If neither is present, sends the clean `#ref <file>:<line>`.
 - **`X` / `:reject`**: 1-key reject & re-prompt. Reverts the current hunk from the working tree and dispatches `REVERTED hunk in <file>:<line>, reason: <directive/alert>` to your agent's pane or clipboard.
-- **`Ctrl-s` / `:review`**: Compiles all active directives into a structured batch prompt and blasts it into the agent's pane or copies it to clipboard via OSC 52.
-- **`p` / `<Space>p`**: Opens `tmux` pane selector modal to choose which pane receives steering messages.
+- **`Ctrl-s` / `:review`**: Compiles all active directives into a structured batch prompt and blasts it into the active agent pane (`tmux`, `zellij`, `wezterm`, `kitty`) or copies it to clipboard via OSC 52.
+- **`p` / `<Space>p`**: Opens pane selector modal for current terminal multiplexer to choose which pane receives steering messages.
 - **`<Space>y` / `yr`**: Yanks `#ref <file>:<line>` to system clipboard.
 - **`v` / `R`**: Marks a directive as resolved (`✓ RESOLVED`).
 
@@ -249,7 +251,7 @@ Once you have staged your verified hunks (`s` / `S`), press **`C`** (or type **`
 ### AST-based web rules
 Identifier typo detection (`typo/identifier`) reads real identifiers from the AST, so strings and comments are ignored. Cognitive complexity (`cx/complexity-spike`) also uses the AST for TS/JS/Swift hunks (branch cost = 1 + nesting, `else if` adds no depth); other languages keep the text heuristic.
 
-`lgtm-ast` parses JS/TS/JSX/TSX with tree-sitter and guards query syntax nodes instead of text. Only matches on added lines are reported. Each hunk's new-side lines are parsed as a fragment, so rules needing whole-file context are not possible yet. Rules (added lines only):
+`lgtm-ast` parses JS/TS/JSX/TSX with tree-sitter and guards query syntax nodes instead of text. Only matches on added lines are reported. Context-aware rules (like `"use client"` leaks) leverage whole-file directive detection. Rules (added lines only):
 
 | Rule | Severity | Flags |
 |---|---|---|
@@ -259,6 +261,8 @@ Identifier typo detection (`typo/identifier`) reads real identifiers from the AS
 | `next/public-secret` | Critical | `process.env.NEXT_PUBLIC_*` with SECRET/TOKEN/PASSWORD/PRIVATE/API_KEY |
 | `web/hook-conditional` | High | `useX()` inside if/loop/ternary (within one function) |
 | `web/ts-escape` | Warn | `@ts-ignore` / `@ts-nocheck` |
+| `next/client-server-leak` | High | Server-only modules or private env read in `"use client"` files |
+| `next/action-unvalidated` | High | Next.js Server Action (`"use server"`) without validation |
 
 Swift (`.swift`, same engine):
 
@@ -272,7 +276,31 @@ Swift (`.swift`, same engine):
 | `test/xctskip` | Warn | `XCTSkip` |
 | `swift/empty-catch` | Warn | `catch { }` |
 
-Not yet: ATS disabled (`NSAllowsArbitraryLoads` lives in a plist, not Swift), permissive `WKWebView`. Web: `"use client"` boundary leaks and unvalidated server actions (need whole-file context).
+Python (`.py` / `.pyi`, same engine):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `python/eval-exec` | Critical | Dynamic code execution (`eval(...)`, `exec(...)`) |
+| `python/shell-injection` | Critical | Subprocess invocation with `shell = True` |
+| `python/unsafe-pickle` | Critical | Unsafe deserialization via `pickle.load` or `pickle.loads` |
+| `python/bare-except` | Warn | Bare `except:` catching system exits and `KeyboardInterrupt` |
+
+Go (`.go`, same engine):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `go/sql-concat` | Critical | SQL query execution with `fmt.Sprintf` / concatenation |
+| `go/command-injection` | Critical | `exec.Command` invoked with shell binary (`sh`, `bash`, `zsh`) |
+| `go/unhandled-error` | Warn | Ignored error assigned to blank identifier (`_`) |
+
+Java (`.java`, same engine):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `java/sql-injection` | Critical | Raw SQL in `executeQuery` / `executeUpdate` instead of PreparedStatement |
+| `java/command-injection` | Critical | Invoking `Runtime.getRuntime().exec(...)` with raw external commands |
+| `java/unsafe-deserialization` | High | Remote code execution hazard via `ObjectInputStream.readObject()` |
+| `java/empty-catch` | Warn | Empty catch block swallowing exceptions without logging or rethrow |
 
 ### Identifier Hallucination & Typo Guard
 - **What it checks**: Extracts project-wide symbol identifiers (variable names, functions, structs, methods).
@@ -344,19 +372,51 @@ lgtm serve --mcp
 lgtm mcp
 ```
 
-### Configuration with Claude Code / Cursor / Windsurf
-Add `lgtm` to your MCP client configuration (`~/.claude/claude_desktop_config.json` or `.cursor/mcp.json`):
+### Configuration with Claude Code / Cursor / Windsurf / Aider
 
+#### Claude Code (`~/.claude/claude_desktop_config.json` or project `.mcp.json`)
 ```json
 {
   "mcpServers": {
     "lgtm": {
       "command": "lgtm",
-      "args": ["serve", "--mcp", "--repo", "/path/to/your/repo"]
+      "args": ["mcp", "--repo", "."]
     }
   }
 }
 ```
+
+#### Cursor (`.cursor/mcp.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["serve", "--mcp"]
+    }
+  }
+}
+```
+
+#### Windsurf (`~/.codeium/windsurf/mcp_config.json`)
+```json
+{
+  "mcpServers": {
+    "lgtm": {
+      "command": "lgtm",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+#### Aider (`.aider.conf.yml` or CLI)
+```yaml
+# In .aider.conf.yml:
+lint-cmd: "lgtm check --strict"
+test-cmd: "cargo test"
+```
+Or start Aider in one tmux/zellij/wezterm pane and `lgtm` in the other for real-time steering via `Enter` or chords (`ca`, `cs`, `cr`, `cp`, `cw`).
 
 ### Available MCP Tools
 
@@ -374,7 +434,7 @@ Add `lgtm` to your MCP client configuration (`~/.claude/claude_desktop_config.js
 **Claims:** an agent calls `lgtm_resolve_directive` to say it handled a directive. lgtm only stores the claim and checks it against the diff (shown as a verdict such as `claimed but not changed` in the directive list). Only the human resolves. MCP writes are limited to directives and claims; it never stages, commits, posts or edits code. `lgtm_scan_changes` keeps its seen fingerprints in `.lgtm/last_scan.json`.
 
 ### MCP Live Resources & Subscriptions
-Agents can discover and subscribe to real-time review resources via standard MCP protocol (`resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`):
+Agents can discover and subscribe to real-time review resources via standard MCP protocol (`resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`). A background filesystem watcher automatically emits `notifications/resources/updated` whenever repository files or directives change, debouncing events and serializing messages safely under a locked stdout:
 
 | Resource URI | MIME Type | Description |
 |---|---|---|
@@ -459,7 +519,7 @@ When in Codebase Audit Mode (`ActiveView::AuditReport`):
 - `2`: Filter to `[🟠 HIGH]` and `[🔴 CRIT]` issues.
 - `3` / `a`: Show all issues (`Critical`, `High`, `Warn`).
 - `Enter`: Inject violation remediation directive directly to agent `tmux` pane / OSC 52 clipboard.
-- `e` / `o`: Open violation file and line number directly in `$EDITOR`.
+- `e` / `o`: Open violation file and line number directly in configured editor (default: `nvim`).
 - `w` / `E`: Export full repository audit report to `lgtm-report.md`.
 - `Esc`: Return to diff review mode.
 - `:w [path]`: Export report to a custom Markdown path.
@@ -514,8 +574,8 @@ permissions: { contents: read, security-events: write }
 steps:
   - uses: actions/checkout@v4
     with: { fetch-depth: 0 }
-  - uses: mgabs/lgtm@v0.8.2
-    with: { version: "0.8.2" }
+  - uses: mgabs/lgtm@v1.0.0
+    with: { version: "1.0.0" }
 ```
 
 Inputs: `version` (required), `base`, `strict`, `upload-sarif`. Outputs: `exit-code`, `new-findings`.
@@ -541,8 +601,10 @@ steps:
 **pre-commit hook** (`.git/hooks/pre-commit`, checks the working tree):
 
 ```bash
-#!/bin/sh
-exec lgtm check
+# Manage pre-commit hook automatically:
+lgtm hook install     # writes .git/hooks/pre-commit and chmod +x
+lgtm hook status      # verifies hook presence and active state
+lgtm hook uninstall   # cleanly removes hook
 ```
 
 ### Azure DevOps pull requests
@@ -558,7 +620,7 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 | `:pr post --yes`: inline comments become threads on the new-side line, the rest one general thread; `:thread reply`, `resolve` (status `fixed`), `unresolve` (`active`) | |
 | Review submit: `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` only comments (body posted as a thread) | |
 
-After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line.
+After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line. Jump between thread lines with `]t`/`[t`, and trigger inline reply or toggle resolution directly on the marked line with `r` or `R`.
 
 Speed: `:prs`, `:checks` and `:threads` run in the background (the status line shows "Loading..."), and Azure reads call the REST API with `curl` using one `az account get-access-token` per session (about 30 minutes, memory only; the token goes to curl through a private temp file, never the command line). Results are cached for 5 minutes and any write (post, reply, resolve, vote) clears the cache. If `curl` or the token fails, lgtm falls back to `az repos` / `az devops invoke` (slower, same result).
 
@@ -581,7 +643,8 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:pr <number>` | — | Fetch and review GitHub pull request diff directly (e.g. `:pr 42`) |
 | `:prs` | — | Open interactive GitHub PR picker modal |
 | `:f` | `:files`, `:find` | Open fuzzy file switcher popup |
-| `:pane [id]` | `:panes` | Select or set target `tmux` agent pane ID (e.g. `:pane %2`) |
+| `:pane [id]` | `:panes` | Select or set target agent pane ID (`tmux`, `zellij`, `wezterm`, `kitty`) |
+| `:sink [name]` | — | View or set active agent steering sink (`tmux`, `zellij`, `wezterm`, `kitty`, `clipboard`, `auto`) |
 | `:sp` | `:split`, `:vsp` | Toggle Unified Diff vs Side-by-Side Dual Pane Diff |
 | `:tree` | `:drawer`, `:sidebar` | Toggle file tree sidebar |
 | `:c` | `:comments`, `:directives`, `:todo` | Open review directives management drawer |
@@ -601,6 +664,7 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:reject` | — | Reject & revert hunk under cursor and re-prompt agent with reason |
 | `:reject-all` | `:reject-gate` | Reject waiting agent breakpoint gate |
 | `:prompt` | `:context` | Open agent prompt context modal from gate, prompt log, or commit |
+| `:hook [install\|uninstall\|status]` | — | Manage Git pre-commit hook directly from the TUI |
 | `:y` | `:yank` | Yank current code line to clipboard |
 | `:yr` | `:ref` | Yank `#ref file:line` to clipboard |
 | `:d` | `:del`, `:delete` | Delete directive anchored on current line |
@@ -649,6 +713,7 @@ debounce_ms = 300
 |---|---|
 | `lgtm` / `diff` / `status` / `review` | Launch interactive diff reviewer TUI (default) |
 | `lgtm gate [--timeout <s>] [-m <msg>]` | Human-in-the-loop breakpoint gate; halts until approved/rejected in TUI |
+| `lgtm hook [install\|uninstall\|status]` | Install, uninstall, or inspect the LGTM Git pre-commit hook |
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
 | `lgtm init` / `--init` | Create `.lgtm/config.toml` |
 | `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via `gh`, Azure DevOps via `az`) |

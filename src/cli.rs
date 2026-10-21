@@ -22,6 +22,10 @@ pub struct Cli {
     #[arg(short = 'p', long = "agent-pane")]
     pub agent_pane: Option<String>,
 
+    /// Multiplexer agent steering sink: tmux, zellij, wezterm, kitty, clipboard, dummy (default: auto)
+    #[arg(long = "agent-sink")]
+    pub agent_sink: Option<String>,
+
     /// Review a specific GitHub pull request by number (e.g. --pr 16)
     #[arg(long = "pr")]
     pub pr: Option<u64>,
@@ -224,6 +228,15 @@ pub enum Commands {
         mcp: bool,
         /// Target repository path
         #[arg(short, long, default_value = ".")]
+        repo: Option<PathBuf>,
+    },
+    /// Manage Git pre-commit hooks (install, uninstall, status)
+    Hook {
+        /// Hook action: install, uninstall, or status
+        #[arg(value_parser = ["install", "uninstall", "status"])]
+        action: String,
+        /// Target repository path
+        #[arg(short, long)]
         repo: Option<PathBuf>,
     },
     /// Unrecognized git command passthrough

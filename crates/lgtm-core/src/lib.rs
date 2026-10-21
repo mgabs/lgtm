@@ -18,3 +18,5 @@ pub mod scan;
 pub mod turn;
 pub mod verify;
 pub mod watcher;
+
+pub use git2;
