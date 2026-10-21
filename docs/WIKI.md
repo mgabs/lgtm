@@ -274,7 +274,14 @@ Swift (`.swift`, same engine):
 | `test/xctskip` | Warn | `XCTSkip` |
 | `swift/empty-catch` | Warn | `catch { }` |
 
-Not yet: ATS disabled (`NSAllowsArbitraryLoads` lives in a plist, not Swift), permissive `WKWebView`. Web: `"use client"` boundary leaks and unvalidated server actions (need whole-file context).
+Python (`.py` / `.pyi`, same engine):
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `python/eval-exec` | Critical | Dynamic code execution (`eval(...)`, `exec(...)`) |
+| `python/shell-injection` | Critical | Subprocess invocation with `shell=True` |
+| `python/unsafe-pickle` | Critical | Unsafe deserialization via `pickle.load` or `pickle.loads` |
+| `python/bare-except` | Warn | Bare `except:` catching system exits and `KeyboardInterrupt` |
 
 ### Identifier Hallucination & Typo Guard
 - **What it checks**: Extracts project-wide symbol identifiers (variable names, functions, structs, methods).

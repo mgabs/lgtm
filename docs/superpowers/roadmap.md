@@ -2,7 +2,7 @@
 
 Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A5, E1–E4, E6 done; R6 and E5 dropped. D1–D3, F1–F3, G1–G5 done on `rel.0.8.2`. Pending: A6, D4, E7–E8, E5′.
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A5, E1–E4, E6–E7 done; R6 and E5 dropped. D1–D3, F1–F3, G1–G5 done on `rel.0.8.2`. Pending: A6, D4, E8, E5′.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
@@ -72,7 +72,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | E4 ✅ | Complexity and symbol guards on AST for TS/JS/Swift. Test-neutering stays line-based: its rules are one-line patterns, so the AST adds little | M | E1 |
 | E5 ❌ | TUI folding on AST. Dropped: fold state is per hunk and cursor motion indexes hunk lines, so in-hunk blocks would touch every motion path for a feature unverifiable without interactive use. Revisit on demand | S | E1 |
 | E6 ✅ | Whole-file parse mode in `lgtm-ast`; `"use client"` leak and server-action validation rules. Diff hunks only select which findings to keep | M | E2 |
-| E7 | Python grammar: AST complexity and identifiers, a few rules (`eval`/`exec`, `subprocess shell=True`, `pickle.loads`, bare `except`) | M | E1 |
+| E7 ✅ | Python grammar: AST complexity and identifiers, a few rules (`eval`/`exec`, `subprocess shell=True`, `pickle.loads`, bare `except`) | M | E1 |
 | E8 | Go, then Java grammars: complexity and identifiers first, rules on demand | M | E7 |
 | E5′ | Block-level folding (revisit E5): fold state keyed by AST block range inside a hunk; needs a visible-rows indirection for cursor motion. Do it after F1 so folds can persist in the review store | M | E1, F1 |
 
