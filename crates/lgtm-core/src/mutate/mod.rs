@@ -829,7 +829,10 @@ impl MutationTester {
             let _ = git2::Repository::init(&tmp);
             let engine = crate::git::GitEngine::new(&tmp);
             let _ = engine.install_pre_commit_hook();
-            let killed = engine.pre_commit_hook_status().unwrap_or(false);
+            let installed_ok = engine.pre_commit_hook_status().unwrap_or(false);
+            let uninstalled_ok = engine.uninstall_pre_commit_hook().unwrap_or(false);
+            let status_after_uninstall = !engine.pre_commit_hook_status().unwrap_or(true);
+            let killed = installed_ok && uninstalled_ok && status_after_uninstall;
             let _ = std::fs::remove_dir_all(&tmp);
             results.push(MutantResult {
                 id,

@@ -479,6 +479,55 @@ impl App {
                 self.yank_reference_to_clipboard();
                 self.active_view = ActiveView::Diff;
             }
+            "hook" => {
+                let action = args.first().copied().unwrap_or("status");
+                match action {
+                    "install" => match self.git_engine.install_pre_commit_hook() {
+                        Ok(p) => {
+                            self.status_message =
+                                Some(format!("Installed pre-commit hook at {}", p.display()))
+                        }
+                        Err(e) => {
+                            self.status_message =
+                                Some(format!("Failed to install pre-commit hook: {}", e))
+                        }
+                    },
+                    "uninstall" => match self.git_engine.uninstall_pre_commit_hook() {
+                        Ok(true) => {
+                            self.status_message = Some("Uninstalled pre-commit hook".to_string())
+                        }
+                        Ok(false) => {
+                            self.status_message =
+                                Some("No LGTM pre-commit hook found to uninstall".to_string())
+                        }
+                        Err(e) => {
+                            self.status_message =
+                                Some(format!("Failed to uninstall pre-commit hook: {}", e))
+                        }
+                    },
+                    "status" => match self.git_engine.pre_commit_hook_status() {
+                        Ok(true) => {
+                            self.status_message =
+                                Some("Pre-commit hook is installed and active".to_string())
+                        }
+                        Ok(false) => {
+                            self.status_message =
+                                Some("Pre-commit hook is not installed".to_string())
+                        }
+                        Err(e) => {
+                            self.status_message =
+                                Some(format!("Failed to check hook status: {}", e))
+                        }
+                    },
+                    other => {
+                        self.status_message = Some(format!(
+                            "Unknown hook action '{}'. Usage: :hook [install|uninstall|status]",
+                            other
+                        ))
+                    }
+                }
+                self.active_view = ActiveView::Diff;
+            }
             _ => {
                 self.status_message = Some(format!("Unknown command: :{}", cmd_name));
                 self.active_view = ActiveView::Diff;
@@ -1076,5 +1125,69 @@ mod tests {
         app.active_view = ActiveView::Diff;
         app.execute_command(":thread view");
         assert_eq!(app.active_view, ActiveView::ThreadView);
+    }
+
+    #[test]
+    fn test_execute_command_hook() {
+        let mut app = create_test_app();
+        // create_test_app uses a temp dir without git repo initially
+        app.execute_command("hook status");
+        assert!(app
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Failed to check hook status"));
+
+        // Now initialize a real git repository in a temp dir
+        let tmp = std::env::temp_dir().join(format!(
+            "lgtm-hook-cmd-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&tmp);
+        let _ = lgtm_core::git2::Repository::init(&tmp).unwrap();
+        app.git_engine = crate::git::GitEngine::new(&tmp);
+
+        app.execute_command("hook status");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Pre-commit hook is not installed")
+        );
+
+        app.execute_command("hook install");
+        assert!(app
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Installed pre-commit hook"));
+
+        app.execute_command("hook status");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Pre-commit hook is installed and active")
+        );
+
+        app.execute_command("hook uninstall");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Uninstalled pre-commit hook")
+        );
+
+        app.execute_command("hook uninstall");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No LGTM pre-commit hook found to uninstall")
+        );
+
+        app.execute_command("hook unknown");
+        assert!(app
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Unknown hook action"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

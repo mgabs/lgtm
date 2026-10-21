@@ -664,6 +664,7 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:reject` | — | Reject & revert hunk under cursor and re-prompt agent with reason |
 | `:reject-all` | `:reject-gate` | Reject waiting agent breakpoint gate |
 | `:prompt` | `:context` | Open agent prompt context modal from gate, prompt log, or commit |
+| `:hook [install\|uninstall\|status]` | — | Manage Git pre-commit hook directly from the TUI |
 | `:y` | `:yank` | Yank current code line to clipboard |
 | `:yr` | `:ref` | Yank `#ref file:line` to clipboard |
 | `:d` | `:del`, `:delete` | Delete directive anchored on current line |
@@ -712,6 +713,7 @@ debounce_ms = 300
 |---|---|
 | `lgtm` / `diff` / `status` / `review` | Launch interactive diff reviewer TUI (default) |
 | `lgtm gate [--timeout <s>] [-m <msg>]` | Human-in-the-loop breakpoint gate; halts until approved/rejected in TUI |
+| `lgtm hook [install\|uninstall\|status]` | Install, uninstall, or inspect the LGTM Git pre-commit hook |
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
 | `lgtm init` / `--init` | Create `.lgtm/config.toml` |
 | `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via `gh`, Azure DevOps via `az`) |

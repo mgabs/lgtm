@@ -23,6 +23,7 @@ pub fn command_description(cmd: &str) -> &'static str {
         "checks" => "Refresh CI check status for the open PR",
         "threads" => "List remote review threads for the open PR",
         "hidden" => "List suppressed and baselined findings",
+        "hook" => "Manage Git pre-commit hook (:hook [install|uninstall|status])",
         "audit" | "issues" => {
             "Audit the whole codebase (not just the diff) for security & architecture issues"
         }

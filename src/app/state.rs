@@ -76,6 +76,7 @@ impl CommandLine {
             "h",
             "help",
             "hidden",
+            "hook",
             "inject",
             "issues",
             "lgtm",
