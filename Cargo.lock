@@ -968,6 +968,7 @@ name = "lgtm-mcp"
 version = "0.9.1"
 dependencies = [
  "anyhow",
+ "crossbeam-channel",
  "lgtm-core",
  "serde",
  "serde_json",

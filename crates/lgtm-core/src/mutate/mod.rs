@@ -493,6 +493,38 @@ impl MutationTester {
                     MutationStatus::Survived
                 },
             });
+            id += 1;
+        }
+
+        // Mutation 15: MCP Resource Subscriptions - affected resources classification
+        {
+            let original = "comments.jsonl affects lgtm://directives and lgtm://review-state";
+            let mutated = "classification drops review-state and directives";
+            let path = std::path::PathBuf::from(".lgtm/comments.jsonl");
+            let s = path.to_string_lossy();
+            let mut affected = Vec::new();
+            if s.contains("comments.jsonl") || s.contains("directives") {
+                affected.push("lgtm://directives");
+            }
+            if s.contains(".lgtm") || s.contains("state.json") || s.contains("reviews") {
+                affected.push("lgtm://review-state");
+            }
+            let killed = affected.contains(&"lgtm://directives")
+                && affected.contains(&"lgtm://review-state");
+            results.push(MutantResult {
+                id,
+                module: "crates/lgtm-mcp/src/lib.rs",
+                description: "Drop directives and review-state from MCP resource notifications",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "mcp::tests::test_affected_resources_classification",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
         }
 
         results

@@ -374,7 +374,7 @@ Add `lgtm` to your MCP client configuration (`~/.claude/claude_desktop_config.js
 **Claims:** an agent calls `lgtm_resolve_directive` to say it handled a directive. lgtm only stores the claim and checks it against the diff (shown as a verdict such as `claimed but not changed` in the directive list). Only the human resolves. MCP writes are limited to directives and claims; it never stages, commits, posts or edits code. `lgtm_scan_changes` keeps its seen fingerprints in `.lgtm/last_scan.json`.
 
 ### MCP Live Resources & Subscriptions
-Agents can discover and subscribe to real-time review resources via standard MCP protocol (`resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`):
+Agents can discover and subscribe to real-time review resources via standard MCP protocol (`resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`). A background filesystem watcher automatically emits `notifications/resources/updated` whenever repository files or directives change, debouncing events and serializing messages safely under a locked stdout:
 
 | Resource URI | MIME Type | Description |
 |---|---|---|
