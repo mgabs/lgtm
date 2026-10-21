@@ -34,6 +34,7 @@ pub struct LgtmConfig {
     pub ignore: Ignore,
     pub baseline: BaselineConfig,
     pub editor: Option<String>,
+    pub agent_sink: Option<String>,
     #[serde(skip)]
     pub sources: BTreeMap<String, String>,
     #[serde(skip)]
@@ -114,8 +115,15 @@ fn unknown_keys(t: &toml::Table, prefix: &str, out: &mut Vec<String>) {
         } else {
             format!("{prefix}.{k}")
         };
-        let known = ["thresholds", "severity", "ignore", "baseline", "editor"]
-            .contains(&path.as_str())
+        let known = [
+            "thresholds",
+            "severity",
+            "ignore",
+            "baseline",
+            "editor",
+            "agent_sink",
+        ]
+        .contains(&path.as_str())
             || [
                 "thresholds.complexity_increase",
                 "ignore.paths",
@@ -123,6 +131,7 @@ fn unknown_keys(t: &toml::Table, prefix: &str, out: &mut Vec<String>) {
                 "baseline.file",
                 "baseline.allow_critical",
                 "editor",
+                "agent_sink",
             ]
             .contains(&path.as_str())
             || FREE.iter().any(|f| path.starts_with(&format!("{f}.")));
@@ -187,6 +196,9 @@ impl LgtmConfig {
         line(&mut o, "ignore.paths", format!("{:?}", self.ignore.paths));
         if let Some(ref ed) = self.editor {
             line(&mut o, "editor", format!("{ed:?}"));
+        }
+        if let Some(ref sink) = self.agent_sink {
+            line(&mut o, "agent_sink", format!("{sink:?}"));
         }
         for (r, l) in &self.severity {
             line(&mut o, &format!("severity.{r}"), format!("{l:?}"));

@@ -104,6 +104,7 @@ impl CommandLine {
             "send",
             "sev",
             "sidebar",
+            "sink",
             "sp",
             "split",
             "submit",

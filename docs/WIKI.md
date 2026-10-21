@@ -196,8 +196,8 @@ To minimize typing during fast pairing sessions, use instant directive chords:
 #### 3. Injecting Directives to AI Agent Panes
 - **`Enter`**: Context-aware agent injection. If the cursor line has an active security/quality alert or human directive, formats and dispatches `#ref <file>:<line> [<rule_id>] <alert> | DIRECTIVE: <text>`. If neither is present, sends the clean `#ref <file>:<line>`.
 - **`X` / `:reject`**: 1-key reject & re-prompt. Reverts the current hunk from the working tree and dispatches `REVERTED hunk in <file>:<line>, reason: <directive/alert>` to your agent's pane or clipboard.
-- **`Ctrl-s` / `:review`**: Compiles all active directives into a structured batch prompt and blasts it into the agent's pane or copies it to clipboard via OSC 52.
-- **`p` / `<Space>p`**: Opens `tmux` pane selector modal to choose which pane receives steering messages.
+- **`Ctrl-s` / `:review`**: Compiles all active directives into a structured batch prompt and blasts it into the active agent pane (`tmux`, `zellij`, `wezterm`, `kitty`) or copies it to clipboard via OSC 52.
+- **`p` / `<Space>p`**: Opens pane selector modal for current terminal multiplexer to choose which pane receives steering messages.
 - **`<Space>y` / `yr`**: Yanks `#ref <file>:<line>` to system clipboard.
 - **`v` / `R`**: Marks a directive as resolved (`✓ RESOLVED`).
 
@@ -581,7 +581,8 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:pr <number>` | — | Fetch and review GitHub pull request diff directly (e.g. `:pr 42`) |
 | `:prs` | — | Open interactive GitHub PR picker modal |
 | `:f` | `:files`, `:find` | Open fuzzy file switcher popup |
-| `:pane [id]` | `:panes` | Select or set target `tmux` agent pane ID (e.g. `:pane %2`) |
+| `:pane [id]` | `:panes` | Select or set target agent pane ID (`tmux`, `zellij`, `wezterm`, `kitty`) |
+| `:sink [name]` | — | View or set active agent steering sink (`tmux`, `zellij`, `wezterm`, `kitty`, `clipboard`, `auto`) |
 | `:sp` | `:split`, `:vsp` | Toggle Unified Diff vs Side-by-Side Dual Pane Diff |
 | `:tree` | `:drawer`, `:sidebar` | Toggle file tree sidebar |
 | `:c` | `:comments`, `:directives`, `:todo` | Open review directives management drawer |

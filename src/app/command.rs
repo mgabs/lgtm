@@ -160,13 +160,40 @@ impl App {
                     self.agent_pane = Some(pane_id.to_string());
                     self.status_message = Some(format!("Target agent pane set to {}", pane_id));
                     self.active_view = ActiveView::Diff;
-                } else if let Ok(panes) = IpcBridge::list_tmux_panes() {
-                    self.pane_picker.list = panes;
-                    self.pane_picker.selected_idx = 0;
-                    self.active_view = ActiveView::PanePicker;
                 } else {
-                    self.status_message = Some("No tmux session running".to_string());
-                    self.active_view = ActiveView::Diff;
+                    let kind = self.resolved_sink_kind();
+                    match IpcBridge::list_panes(kind) {
+                        Ok(panes) if !panes.is_empty() => {
+                            self.pane_picker.list = panes;
+                            self.pane_picker.selected_idx = 0;
+                            self.active_view = ActiveView::PanePicker;
+                        }
+                        _ => {
+                            self.status_message =
+                                Some(format!("No active targets detected for {} sink", kind));
+                            self.active_view = ActiveView::Diff;
+                        }
+                    }
+                }
+            }
+            "sink" => {
+                if let Some(name) = args.first() {
+                    match name.parse::<crate::ipc::SinkKind>() {
+                        Ok(kind) => {
+                            self.agent_sink_kind = Some(kind);
+                            self.status_message =
+                                Some(format!("Configured agent steering sink: {}", kind));
+                        }
+                        Err(err) => {
+                            self.status_message = Some(err.to_string());
+                        }
+                    }
+                } else {
+                    let current = self.resolved_sink_kind();
+                    self.status_message = Some(format!(
+                        "Current agent sink: {} (configure with :sink <tmux|zellij|wezterm|kitty|clipboard>)",
+                        current
+                    ));
                 }
             }
             "f" | "files" | "find" => {
@@ -530,6 +557,16 @@ mod tests {
 
         app.execute_command(":editor");
         assert!(app.status_message.as_ref().unwrap().contains("vscode"));
+
+        app.execute_command(":sink zellij");
+        assert_eq!(app.agent_sink_kind, Some(crate::ipc::SinkKind::Zellij));
+        assert_eq!(
+            app.status_message,
+            Some("Configured agent steering sink: zellij".to_string())
+        );
+
+        app.execute_command(":sink");
+        assert!(app.status_message.as_ref().unwrap().contains("zellij"));
     }
 
     #[test]

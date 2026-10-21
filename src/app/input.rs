@@ -394,10 +394,19 @@ impl App {
                 self.pending_leader = Some('z');
             }
             (_, KeyCode::Char('p')) => {
-                if let Ok(panes) = IpcBridge::list_tmux_panes() {
-                    self.pane_picker.list = panes;
-                    self.pane_picker.selected_idx = 0;
-                    self.active_view = ActiveView::PanePicker;
+                let kind = self.resolved_sink_kind();
+                match IpcBridge::list_panes(kind) {
+                    Ok(panes) if !panes.is_empty() => {
+                        self.pane_picker.list = panes;
+                        self.pane_picker.selected_idx = 0;
+                        self.active_view = ActiveView::PanePicker;
+                    }
+                    _ => {
+                        self.status_message = Some(format!(
+                            "No targets detected for {} sink (configure with :sink <name>)",
+                            kind
+                        ));
+                    }
                 }
             }
             (KeyModifiers::CONTROL, KeyCode::Char('f')) | (_, KeyCode::PageDown) => {

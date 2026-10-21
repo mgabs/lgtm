@@ -439,13 +439,20 @@ impl MutationTester {
         {
             let original = "editor = \"vscode\"";
             let mutated = "editor field dropped / unrecognized";
-            let tmp = std::env::temp_dir().join(format!("lgtm-cfg-mut-{}", std::process::id()));
+            static CFG_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let unique = format!(
+                "{}-{}",
+                std::process::id(),
+                CFG_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
+            let tmp = std::env::temp_dir().join(format!("lgtm-cfg-mut-{}", unique));
             let _ = std::fs::remove_dir_all(&tmp);
             let _ = std::fs::create_dir_all(&tmp);
             let _ = std::fs::write(tmp.join(".lgtm.toml"), "editor = \"vscode\"\n");
             let cfg = crate::config::LgtmConfig::load(&tmp, None).ok();
             let killed = cfg.as_ref().and_then(|c| c.editor.as_deref()) == Some("vscode")
                 && cfg.as_ref().map(|c| c.warnings.is_empty()).unwrap_or(false);
+            let _ = std::fs::remove_dir_all(&tmp);
             results.push(MutantResult {
                 id,
                 module: "src/config/mod.rs",
@@ -455,6 +462,32 @@ impl MutationTester {
                 status: if killed {
                     MutationStatus::Killed {
                         killing_test: "config::tests::editor_config_option",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 14: Agent Sink Multiplexers - corrupt sink kind string parsing
+        {
+            use crate::ipc::sink::AgentSink;
+            let original = "\"wezterm\".parse() == Ok(SinkKind::WezTerm)";
+            let mutated = "sink parsing returns error or wrong variant";
+            let parsed = "wezterm".parse::<crate::ipc::SinkKind>();
+            let label = crate::ipc::sink::WezTermSink(Some("1")).label();
+            let killed = parsed.as_ref().ok() == Some(&crate::ipc::SinkKind::WezTerm)
+                && label == "wezterm pane 1";
+            results.push(MutantResult {
+                id,
+                module: "src/ipc/sink.rs",
+                description: "Corrupt WezTerm sink parsing and target label generator",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "ipc::tests::test_sink_kind_parsing_and_display",
                     }
                 } else {
                     MutationStatus::Survived

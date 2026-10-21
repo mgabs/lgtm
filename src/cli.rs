@@ -22,6 +22,10 @@ pub struct Cli {
     #[arg(short = 'p', long = "agent-pane")]
     pub agent_pane: Option<String>,
 
+    /// Multiplexer agent steering sink: tmux, zellij, wezterm, kitty, clipboard (default: auto)
+    #[arg(long = "agent-sink")]
+    pub agent_sink: Option<String>,
+
     /// Review a specific GitHub pull request by number (e.g. --pr 16)
     #[arg(long = "pr")]
     pub pr: Option<u64>,

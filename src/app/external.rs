@@ -207,11 +207,34 @@ impl App {
         }
     }
 
+    pub fn resolved_sink_kind(&self) -> crate::ipc::SinkKind {
+        if let Some(kind) = self.agent_sink_kind {
+            if kind != crate::ipc::SinkKind::Auto {
+                return kind;
+            }
+        }
+        if let Some(ref sink_str) = self.config.agent_sink {
+            if let Ok(kind) = sink_str.parse() {
+                if kind != crate::ipc::SinkKind::Auto {
+                    return kind;
+                }
+            }
+        }
+        crate::ipc::IpcBridge::detect_sink()
+    }
+
     pub fn agent_sink(&self) -> Box<dyn crate::ipc::sink::AgentSink + '_> {
         use crate::ipc::sink::*;
-        match self.agent_pane.as_deref() {
-            Some(pane) => Box::new(TmuxSink(pane)),
-            None => Box::new(ClipboardSink),
+        let kind = self.resolved_sink_kind();
+        match kind {
+            crate::ipc::SinkKind::Tmux => match self.agent_pane.as_deref() {
+                Some(pane) => Box::new(TmuxSink(pane)),
+                None => Box::new(ClipboardSink),
+            },
+            crate::ipc::SinkKind::Zellij => Box::new(ZellijSink(self.agent_pane.as_deref())),
+            crate::ipc::SinkKind::WezTerm => Box::new(WezTermSink(self.agent_pane.as_deref())),
+            crate::ipc::SinkKind::Kitty => Box::new(KittySink(self.agent_pane.as_deref())),
+            crate::ipc::SinkKind::Clipboard | crate::ipc::SinkKind::Auto => Box::new(ClipboardSink),
         }
     }
 
@@ -508,5 +531,39 @@ mod tests {
         // Runtime :editor command override takes highest precedence
         app.editor_override = Some("helix".to_string());
         assert_eq!(app.resolved_editor(), "helix");
+    }
+
+    #[test]
+    fn test_agent_sink_resolution_and_labels() {
+        let mut app = setup_app_with_line(1);
+        // Default clipboard when not inside any multiplexer
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Clipboard);
+        assert_eq!(app.agent_sink().label(), "clipboard (OSC 52)");
+
+        // Zellij sink with active pane vs specific pane
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Zellij);
+        app.agent_pane = None;
+        assert_eq!(app.agent_sink().label(), "zellij active pane");
+        app.agent_pane = Some("1".to_string());
+        assert_eq!(app.agent_sink().label(), "zellij pane 1");
+
+        // WezTerm sink
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::WezTerm);
+        app.agent_pane = None;
+        assert_eq!(app.agent_sink().label(), "wezterm active pane");
+        app.agent_pane = Some("4".to_string());
+        assert_eq!(app.agent_sink().label(), "wezterm pane 4");
+
+        // Kitty sink
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Kitty);
+        app.agent_pane = None;
+        assert_eq!(app.agent_sink().label(), "kitty active window");
+        app.agent_pane = Some("7".to_string());
+        assert_eq!(app.agent_sink().label(), "kitty window 7");
+
+        // Tmux sink
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Tmux);
+        app.agent_pane = Some("%2".to_string());
+        assert_eq!(app.agent_sink().label(), "pane %2");
     }
 }

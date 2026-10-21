@@ -8,7 +8,7 @@
 > **Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner built in Rust.**
 > *"Because code shouldn't ship until it actually looks good to you."*
 
-`lgtm` is a keyboard-driven diff reviewer and security guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It pairs Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST/hunk folding, an interactive Commit Forge, GitHub PR review, and direct `#ref` injection into `tmux` agent panes or system clipboards.
+`lgtm` is a keyboard-driven diff reviewer and security guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It pairs Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST/hunk folding, an interactive Commit Forge, GitHub PR review, and direct `#ref` injection into `tmux`, `zellij`, `wezterm`, `kitty` agent panes or system clipboards.
 
 ```
 ┌── Files (35 cols) ─────────┬── Diff: src/guard/mod.rs ────────────────────────┐
@@ -171,8 +171,8 @@ lgtm commit -m "feat: core diff engine"
 | `o` / `e` | Open active file at cursor line in external editor (default: `nvim`, configurable: `vscode`, `vim`, etc.) |
 | `Tab` | Toggle 35-column file drawer / sidebar |
 | `d` | Toggle split-view / unified diff view |
-| `p` | Select target `tmux` pane for agent steering |
-| `Enter` | Inject reference `#ref file:line [rule] <alert> | DIRECTIVE: <text>` into active `tmux` pane |
+| `p` | Select target agent pane (`tmux`, `zellij`, `wezterm`, `kitty`) for agent steering |
+| `Enter` | Inject reference `#ref file:line [rule] <alert> | DIRECTIVE: <text>` into active agent pane |
 | `Ctrl-s` | Compile and export all review directives to agent / `.lgtm/review.md` |
 | `?` / `h` | Toggle multi-tab help modal (`1`-`7` or `[`/`]` to switch tabs) |
 | `q` | Quit |
@@ -199,7 +199,8 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:clear-resolved` — Purge all resolved directives while preserving active ones
 - `:resolve [all]` / `:unresolve [all]` — Toggle directive resolved state
 - `:f` / `:files` / `:find` — Open fuzzy file finder
-- `:pane` / `:panes` — Open `tmux` target pane selector
+- `:pane` / `:panes` — Open target pane selector for active terminal multiplexer
+- `:sink [name]` — View or configure active agent steering sink (`tmux`, `zellij`, `wezterm`, `kitty`, `clipboard`, `auto`)
 - `:sp` / `:split` / `:vsp` — Toggle split / unified view
 - `:tree` / `:drawer` / `:sidebar` — Toggle file tree drawer
 - `:risk` — Re-scan current diff for security & test risks

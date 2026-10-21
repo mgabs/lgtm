@@ -76,6 +76,7 @@ pub struct App {
     pub is_split_view: bool,
     pub active_view: ActiveView,
     pub agent_pane: Option<String>,
+    pub agent_sink_kind: Option<crate::ipc::SinkKind>,
     pub status_message: Option<String>,
     pub should_quit: bool,
 
@@ -257,6 +258,7 @@ impl App {
             is_split_view: false,
             active_view: ActiveView::Diff,
             agent_pane,
+            agent_sink_kind: None,
             status_message: initial_status,
             should_quit: false,
             pr: PrState::new(explicit_pr),

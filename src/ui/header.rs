@@ -92,10 +92,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    let agent_str = match &app.agent_pane {
-        Some(pane) => format!(" Target Pane: {} ", pane),
-        None => " Target: Clipboard (OSC 52) ".to_string(),
-    };
+    let agent_str = format!(" Target: {} ", app.agent_sink().label());
 
     let total_add = app.snapshot.total_additions;
     let total_del = app.snapshot.total_deletions;
