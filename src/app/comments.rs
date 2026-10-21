@@ -43,6 +43,46 @@ impl App {
         self.active_view = ActiveView::ThreadView;
     }
 
+    pub fn thread_at_cursor(&self) -> Option<usize> {
+        let file = self.snapshot.files.get(self.selected_file_idx)?;
+        let path = file.display_name();
+        let lno = self.current_line_number()?;
+        self.threads
+            .iter()
+            .position(|t| t.path == path && t.line == Some(lno))
+    }
+
+    pub fn toggle_resolve_thread_at_cursor(&mut self) -> bool {
+        let Some(idx) = self.thread_at_cursor() else {
+            return false;
+        };
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
+            return false;
+        };
+        let t = &self.threads[idx];
+        let thread_id = t.id.clone();
+        let next_resolved = !t.resolved;
+        let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+        match forge.set_resolved(pr, &thread_id, next_resolved) {
+            Ok(()) => {
+                if let Some(t_mut) = self.threads.get_mut(idx) {
+                    t_mut.resolved = next_resolved;
+                }
+                self.status_message = Some(if next_resolved {
+                    "✅ Thread marked resolved".into()
+                } else {
+                    "💬 Thread marked active".into()
+                });
+                true
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to update thread: {e}"));
+                false
+            }
+        }
+    }
+
     pub fn open_comment_list(&mut self) {
         self.comments = self.comment_store.load_comments();
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {

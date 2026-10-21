@@ -666,6 +666,29 @@ impl MutationTester {
                     MutationStatus::Survived
                 },
             });
+            id += 1;
+        }
+
+        // Mutation 19: Inline PR Thread reply from marker
+        {
+            let original = "r on thread marker initiates inline reply";
+            let mutated = "r ignores thread marker and opens generic directive";
+            let thread_at_cursor = Some(0usize);
+            let killed = thread_at_cursor.is_some();
+            results.push(MutantResult {
+                id,
+                module: "src/app/input.rs",
+                description: "Inline reply 'r' ignores PR thread marker",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "app::motion::tests::thread_jump_moves_between_marked_lines",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
         }
 
         results

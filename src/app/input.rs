@@ -187,7 +187,11 @@ impl App {
                     return;
                 }
                 (' ', KeyCode::Char('r')) | (' ', KeyCode::Char('R')) => {
-                    self.toggle_resolve_current_comment();
+                    if self.thread_at_cursor().is_some() {
+                        self.toggle_resolve_thread_at_cursor();
+                    } else {
+                        self.toggle_resolve_current_comment();
+                    }
                     return;
                 }
                 (' ', KeyCode::Char('d')) => {
@@ -278,7 +282,12 @@ impl App {
                 self.open_commit_modal();
             }
             (_, KeyCode::Char('r')) => {
-                if let Some(idx) = self.comment_idx_at_cursor() {
+                if let Some(t_idx) = self.thread_at_cursor() {
+                    self.thread_selected_idx = t_idx;
+                    self.command.input = format!("thread reply {} ", t_idx + 1);
+                    self.command.history_idx = None;
+                    self.active_view = ActiveView::CommandLine;
+                } else if let Some(idx) = self.comment_idx_at_cursor() {
                     self.start_reply_to_comment(idx);
                 } else {
                     self.comment_input.clear();
@@ -286,7 +295,11 @@ impl App {
                 }
             }
             (_, KeyCode::Char('R')) => {
-                self.toggle_resolve_current_comment();
+                if self.thread_at_cursor().is_some() {
+                    self.toggle_resolve_thread_at_cursor();
+                } else {
+                    self.toggle_resolve_current_comment();
+                }
             }
             (_, KeyCode::Char('A')) => {
                 self.approve_gate();

@@ -751,6 +751,13 @@ mod tests {
         assert_eq!(app.cursor_line_idx, 4);
         app.jump_thread(false);
         assert_eq!(app.cursor_line_idx, 1);
+
+        // Inline reply & resolve from marker
+        assert_eq!(app.thread_at_cursor(), Some(0));
+        let key_r = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE);
+        app.handle_diff_key(key_r);
+        assert_eq!(app.active_view, ActiveView::CommandLine);
+        assert_eq!(app.command.input, "thread reply 1 ");
     }
 
     #[test]

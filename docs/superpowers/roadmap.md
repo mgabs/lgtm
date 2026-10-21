@@ -90,7 +90,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 |---|---|---|---|
 | F1 ✅ | Re-anchor `comments.jsonl` comments on every reload (fuzzy code+context match, nearest line) and flag orphans via `orphaned`; storage stays `comments.jsonl` so directive ids and MCP stay stable. Comments on files outside the diff or on deleted lines are left alone | M | C1 |
 | F2 ✅ | Orphan UI: `⚠` marker and `:directives orphans`, jump to the nearest hunk, re-pin or delete. Directive recheck re-anchors instead of only re-hashing | S | F1 |
-| F3 ✅ (partial) | Markers `◆`/`◇` done with G3, `]t`/`[t` jump done; still open: reply/resolve from the marker (`:thread` covers it). Original scope: inline thread markers: map remote thread path/line to diff rows (reuse the `post` mapper), margin glyph (`◆` open, `✓` resolved), `]t`/`[t` to jump, reply and resolve from the marker | M | C4 |
+| F3 ✅ | Markers `◆`/`◇` done with G3, `]t`/`[t` jump done; inline reply/resolve directly from marker with `r`/`R` (`:thread` covers it) | M | C4 |
 
 Order: F1 → F2 → F3, then E6 → E7 → E8, then E5′. D1–D3 (CI step with `--rev` and the Action) stay first, since they unlock adoption.
 

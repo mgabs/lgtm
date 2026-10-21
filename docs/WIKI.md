@@ -575,7 +575,7 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 | `:pr post --yes`: inline comments become threads on the new-side line, the rest one general thread; `:thread reply`, `resolve` (status `fixed`), `unresolve` (`active`) | |
 | Review submit: `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` only comments (body posted as a thread) | |
 
-After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line.
+After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line. Jump between thread lines with `]t`/`[t`, and trigger inline reply or toggle resolution directly on the marked line with `r` or `R`.
 
 Speed: `:prs`, `:checks` and `:threads` run in the background (the status line shows "Loading..."), and Azure reads call the REST API with `curl` using one `az account get-access-token` per session (about 30 minutes, memory only; the token goes to curl through a private temp file, never the command line). Results are cached for 5 minutes and any write (post, reply, resolve, vote) clears the cache. If `curl` or the token fails, lgtm falls back to `az repos` / `az devops invoke` (slower, same result).
 
