@@ -157,6 +157,7 @@ impl MutationTester {
                         new_line_num: Some(1),
                     }],
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -203,6 +204,7 @@ impl MutationTester {
                         new_line_num: Some(1),
                     }],
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -257,6 +259,7 @@ impl MutationTester {
                         },
                     ],
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -552,6 +555,7 @@ impl MutationTester {
                         new_line_num: Some(1),
                     }],
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -599,6 +603,7 @@ impl MutationTester {
                         new_line_num: Some(1),
                     }],
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -646,6 +651,7 @@ impl MutationTester {
                         new_line_num: Some(1),
                     }],
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 }],
                 is_folded: false,
                 is_reviewed: false,
@@ -731,6 +737,32 @@ impl MutationTester {
                     MutationStatus::Killed {
                         killing_test:
                             "headless::tests::ci_rev_checks_committed_diff_and_errors_on_bad_rev",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
+            id += 1;
+        }
+
+        // Mutation 22: AST block folding and ReviewStore fold persistence
+        {
+            let original =
+                "ReviewStore preserves block-level fold marks and toggle_fold_mark updates state";
+            let mutated = "ReviewStore ignores block fold marks";
+            let mut folds = Vec::new();
+            let on = crate::review::toggle_fold_mark(&mut folds, "test.rs", "h123", 10, 20);
+            let killed =
+                on && folds.len() == 1 && folds[0].start_line == 10 && folds[0].end_line == 20;
+            results.push(MutantResult {
+                id,
+                module: "crates/lgtm-core/src/review/mod.rs",
+                description: "Drop block-level fold marks persistence in review store",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test: "review::tests::folds_round_trip_toggle_and_merge",
                     }
                 } else {
                     MutationStatus::Survived

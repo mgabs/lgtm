@@ -927,6 +927,7 @@ dependencies = [
  "crossbeam-channel",
  "crossterm 0.28.1",
  "fuzzy-matcher",
+ "lgtm-ast",
  "lgtm-core",
  "lgtm-mcp",
  "ratatui",
@@ -939,6 +940,7 @@ name = "lgtm-ast"
 version = "0.9.1"
 dependencies = [
  "anyhow",
+ "serde",
  "tree-sitter",
  "tree-sitter-go",
  "tree-sitter-python",

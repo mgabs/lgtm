@@ -629,7 +629,9 @@ mod tests {
                 "api_drift",
                 "dead_code",
                 "web",
-                "swift"
+                "swift",
+                "python",
+                "go",
             ]
         );
     }
@@ -673,6 +675,7 @@ mod tests {
                     },
                 ],
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,
@@ -720,6 +723,7 @@ mod tests {
                     },
                 ],
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,
@@ -783,6 +787,7 @@ mod tests {
                     },
                 ],
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,
@@ -830,6 +835,7 @@ mod tests {
                 new_lines: 35,
                 lines,
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,

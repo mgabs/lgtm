@@ -174,16 +174,114 @@ impl App {
         self.status_message = Some(format!("{}: {}", badge, title));
     }
 
+    pub fn is_line_in_folded_block(
+        hunk: &lgtm_core::model::DiffHunk,
+        line_idx: usize,
+    ) -> Option<lgtm_core::model::BlockRange> {
+        for range in &hunk.folded_blocks {
+            let line = &hunk.lines[line_idx];
+            let in_range = if let Some(n) = line.new_line_num {
+                n >= range.start_line && n <= range.end_line
+            } else {
+                let approx = hunk.new_start + line_idx as u32;
+                approx >= range.start_line && approx <= range.end_line
+            };
+            if in_range {
+                return Some(*range);
+            }
+        }
+        None
+    }
+
+    pub fn is_first_line_of_folded_block(
+        hunk: &lgtm_core::model::DiffHunk,
+        line_idx: usize,
+    ) -> Option<lgtm_core::model::BlockRange> {
+        let range = Self::is_line_in_folded_block(hunk, line_idx)?;
+        for prev in 0..line_idx {
+            if Self::is_line_in_folded_block(hunk, prev) == Some(range) {
+                return None;
+            }
+        }
+        Some(range)
+    }
+
+    pub fn visible_line_indices(&self) -> Vec<usize> {
+        let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
+            return Vec::new();
+        };
+        let mut visible = Vec::new();
+        let mut line_offset = 0;
+        for hunk in &file.hunks {
+            if hunk.lines.is_empty() {
+                continue;
+            }
+            if hunk.is_folded {
+                visible.push(line_offset);
+                line_offset += hunk.lines.len();
+                continue;
+            }
+            for (idx, _) in hunk.lines.iter().enumerate() {
+                let abs_idx = line_offset + idx;
+                if let Some(range) = Self::is_line_in_folded_block(hunk, idx) {
+                    if Self::is_first_line_of_folded_block(hunk, idx) == Some(range) {
+                        visible.push(abs_idx);
+                    }
+                } else {
+                    visible.push(abs_idx);
+                }
+            }
+            line_offset += hunk.lines.len();
+        }
+        visible
+    }
+
     pub fn cursor_down(&mut self) {
-        let total = self.current_file_line_count();
-        if total > 0 && self.cursor_line_idx + 1 < total {
-            self.cursor_line_idx += 1;
+        let visible = self.visible_line_indices();
+        if visible.is_empty() {
+            let total = self.current_file_line_count();
+            if total > 0 && self.cursor_line_idx + 1 < total {
+                self.cursor_line_idx += 1;
+            }
+            return;
+        }
+        match visible.binary_search(&self.cursor_line_idx) {
+            Ok(pos) => {
+                if pos + 1 < visible.len() {
+                    self.cursor_line_idx = visible[pos + 1];
+                }
+            }
+            Err(pos) => {
+                if pos < visible.len() {
+                    self.cursor_line_idx = visible[pos];
+                } else if let Some(&last) = visible.last() {
+                    self.cursor_line_idx = last;
+                }
+            }
         }
     }
 
     pub fn cursor_up(&mut self) {
-        if self.cursor_line_idx > 0 {
-            self.cursor_line_idx -= 1;
+        let visible = self.visible_line_indices();
+        if visible.is_empty() {
+            if self.cursor_line_idx > 0 {
+                self.cursor_line_idx -= 1;
+            }
+            return;
+        }
+        match visible.binary_search(&self.cursor_line_idx) {
+            Ok(pos) => {
+                if pos > 0 {
+                    self.cursor_line_idx = visible[pos - 1];
+                }
+            }
+            Err(pos) => {
+                if pos > 0 {
+                    self.cursor_line_idx = visible[pos - 1];
+                } else {
+                    self.cursor_line_idx = visible[0];
+                }
+            }
         }
     }
 
@@ -196,30 +294,54 @@ impl App {
     }
 
     pub fn cursor_to_top(&mut self) {
-        self.cursor_line_idx = 0;
+        let visible = self.visible_line_indices();
+        self.cursor_line_idx = visible.first().copied().unwrap_or(0);
         self.diff_scroll_offset = 0;
     }
 
     pub fn cursor_to_bottom(&mut self) {
-        let total = self.current_file_line_count();
-        if total > 0 {
-            self.cursor_line_idx = total - 1;
+        let visible = self.visible_line_indices();
+        if let Some(&last) = visible.last() {
+            self.cursor_line_idx = last;
+        } else {
+            let total = self.current_file_line_count();
+            if total > 0 {
+                self.cursor_line_idx = total - 1;
+            }
         }
     }
 
     pub fn page_down(&mut self, amount: usize) {
-        let total = self.current_file_line_count();
-        if total > 0 {
-            self.cursor_line_idx = (self.cursor_line_idx + amount).min(total - 1);
+        let visible = self.visible_line_indices();
+        if visible.is_empty() {
+            let total = self.current_file_line_count();
+            if total > 0 {
+                self.cursor_line_idx = (self.cursor_line_idx + amount).min(total - 1);
+            }
+            return;
         }
+        let current_pos = visible
+            .binary_search(&self.cursor_line_idx)
+            .unwrap_or_else(|p| p);
+        let next_pos = (current_pos + amount).min(visible.len() - 1);
+        self.cursor_line_idx = visible[next_pos];
     }
 
     pub fn page_up(&mut self, amount: usize) {
-        if self.cursor_line_idx >= amount {
-            self.cursor_line_idx -= amount;
-        } else {
-            self.cursor_line_idx = 0;
+        let visible = self.visible_line_indices();
+        if visible.is_empty() {
+            if self.cursor_line_idx >= amount {
+                self.cursor_line_idx -= amount;
+            } else {
+                self.cursor_line_idx = 0;
+            }
+            return;
         }
+        let current_pos = visible
+            .binary_search(&self.cursor_line_idx)
+            .unwrap_or_else(|p| p);
+        let next_pos = current_pos.saturating_sub(amount);
+        self.cursor_line_idx = visible[next_pos];
     }
 
     pub fn center_cursor(&mut self) {
@@ -671,6 +793,7 @@ mod tests {
             new_lines: 6,
             lines,
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let file = FileDiff {
             old_path: None,
@@ -723,6 +846,7 @@ mod tests {
             new_lines: 6,
             lines,
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         app.snapshot = DiffSnapshot::new(vec![FileDiff {
             old_path: None,
@@ -870,6 +994,7 @@ mod tests {
             new_lines: 4,
             lines,
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let file = FileDiff {
             old_path: None,
@@ -927,6 +1052,7 @@ mod tests {
                 },
             ],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let h2 = DiffHunk {
             header: "@@ -10,1 +10,2 @@".into(),
@@ -949,6 +1075,7 @@ mod tests {
                 },
             ],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let f1 = FileDiff {

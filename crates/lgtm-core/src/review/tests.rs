@@ -325,3 +325,59 @@ fn files_outside_the_diff_and_deleted_lines_are_left_alone() {
     assert!(!reanchor_anchors(&mut a, &[file("a.rs", vec![del])]));
     assert!(!a[0].orphaned);
 }
+
+#[test]
+fn folds_round_trip_toggle_and_merge() {
+    let f = file(
+        "src/lib.rs",
+        vec![hunk(1, &["fn foo() {", "    bar();", "}"])],
+    );
+    let h_hash = hunk_hash(&f.hunks[0]);
+    let mut folds = Vec::new();
+
+    // Toggle on
+    let on = toggle_fold_mark(&mut folds, "src/lib.rs", &h_hash, 1, 3);
+    assert!(on);
+    assert_eq!(folds.len(), 1);
+
+    // Load hunk folds
+    let loaded = load_hunk_folds(&folds, "src/lib.rs", &h_hash);
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].start_line, 1);
+    assert_eq!(loaded[0].end_line, 3);
+
+    // Save and load via ReviewStore
+    let d = tempfile::tempdir().unwrap();
+    let store = ReviewStore::open(d.path(), "test-branch").unwrap();
+    let state = ReviewState {
+        version: 1,
+        target: "test-branch".into(),
+        folds: folds.clone(),
+        ..Default::default()
+    };
+    store.save(&state).unwrap();
+
+    let reloaded = store.load().unwrap();
+    assert_eq!(reloaded.folds.len(), 1);
+    assert_eq!(reloaded.folds[0].start_line, 1);
+    assert_eq!(reloaded.folds[0].end_line, 3);
+
+    // Merge folds from another state
+    let mut base = ReviewState::default();
+    let other = ReviewState {
+        folds: vec![FoldMark {
+            file: "other.rs".into(),
+            hunk_hash: "hash123".into(),
+            start_line: 10,
+            end_line: 20,
+        }],
+        ..Default::default()
+    };
+    merge(&mut base, other);
+    assert_eq!(base.folds.len(), 1);
+
+    // Toggle off
+    let off = toggle_fold_mark(&mut folds, "src/lib.rs", &h_hash, 1, 3);
+    assert!(!off);
+    assert!(folds.is_empty());
+}

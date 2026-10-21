@@ -502,24 +502,48 @@ impl App {
         .ok()
     }
 
-    /// Reload marks for the current target and refresh each file's reviewed flag.
+    /// Reload marks for the current target and refresh each file's reviewed flag and folds.
     pub fn load_marks(&mut self) {
-        self.marks = self
+        let state = self
             .marks_store()
             .and_then(|s| s.load().ok())
-            .map(|st| st.hunks)
             .unwrap_or_default();
+        self.marks = state.hunks;
         for f in &mut self.snapshot.files {
             f.is_reviewed = lgtm_core::review::file_reviewed(&self.marks, f);
+            let name = f.display_name();
+            for hunk in f.hunks.iter_mut() {
+                let hash = lgtm_core::review::hunk_hash(hunk);
+                let saved_folds = lgtm_core::review::load_hunk_folds(&state.folds, &name, &hash);
+                if !saved_folds.is_empty() {
+                    hunk.folded_blocks = saved_folds;
+                }
+            }
         }
     }
 
-    fn save_marks(&mut self) {
+    pub fn save_marks(&mut self) {
         let Some(store) = self.marks_store() else {
             return;
         };
         let mut st = store.load().unwrap_or_default();
         st.hunks = self.marks.clone();
+        let mut folds = Vec::new();
+        for f in &self.snapshot.files {
+            let name = f.display_name();
+            for hunk in &f.hunks {
+                let hash = lgtm_core::review::hunk_hash(hunk);
+                for range in &hunk.folded_blocks {
+                    folds.push(lgtm_core::review::FoldMark {
+                        file: name.clone(),
+                        hunk_hash: hash.clone(),
+                        start_line: range.start_line,
+                        end_line: range.end_line,
+                    });
+                }
+            }
+        }
+        st.folds = folds;
         if store.save(&st).is_err() {
             self.status_message = Some("Failed to save review marks".to_string());
         }
@@ -684,6 +708,7 @@ mod tests {
             new_lines: 1,
             lines,
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let file = FileDiff {
             old_path: None,
@@ -734,6 +759,7 @@ mod tests {
                 })
                 .collect(),
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let file = FileDiff {

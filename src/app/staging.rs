@@ -220,16 +220,162 @@ impl App {
         }
     }
 
-    pub fn fold_current_hunk(&mut self) {
+    pub fn detect_blocks_in_hunk(
+        hunk: &DiffHunk,
+        lang: lgtm_ast::Lang,
+    ) -> Vec<lgtm_core::model::BlockRange> {
+        let src = hunk
+            .lines
+            .iter()
+            .map(|l| l.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Ok(blocks) = lgtm_ast::fold_blocks(lang, &src) {
+            blocks
+                .into_iter()
+                .filter_map(|b| {
+                    let start_ln = hunk
+                        .lines
+                        .get(b.start_row)
+                        .and_then(|l| l.new_line_num)
+                        .unwrap_or(hunk.new_start + b.start_row as u32);
+                    let end_ln = hunk
+                        .lines
+                        .get(b.end_row)
+                        .and_then(|l| l.new_line_num)
+                        .unwrap_or(hunk.new_start + b.end_row as u32);
+                    if end_ln > start_ln {
+                        Some(lgtm_core::model::BlockRange {
+                            start_line: start_ln,
+                            end_line: end_ln,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn toggle_fold_at_cursor(&mut self) {
+        let cursor = self.cursor_line_idx;
+        let file_path = self
+            .snapshot
+            .files
+            .get(self.selected_file_idx)
+            .map(|f| f.new_path.clone());
+        let lang = file_path.as_deref().and_then(lgtm_ast::lang_of);
+
         if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
             let mut line_offset = 0;
             for hunk in file.hunks.iter_mut() {
                 let hunk_len = hunk.lines.len();
-                if self.cursor_line_idx >= line_offset
-                    && self.cursor_line_idx < line_offset + hunk_len
-                {
+                if cursor >= line_offset && cursor < line_offset + hunk_len {
+                    let rel_idx = cursor - line_offset;
+                    if hunk.is_folded {
+                        hunk.is_folded = false;
+                        self.status_message = Some("Unfolded hunk".to_string());
+                        self.save_marks();
+                        return;
+                    }
+
+                    if let Some(folded) = Self::is_line_in_folded_block(hunk, rel_idx) {
+                        hunk.folded_blocks.retain(|b| *b != folded);
+                        self.status_message = Some(format!(
+                            "Unfolded AST block (L{}-L{})",
+                            folded.start_line, folded.end_line
+                        ));
+                        self.save_marks();
+                        return;
+                    }
+
+                    if let Some(l) = lang {
+                        let blocks = Self::detect_blocks_in_hunk(hunk, l);
+                        let cur_ln = hunk
+                            .lines
+                            .get(rel_idx)
+                            .and_then(|l| l.new_line_num)
+                            .unwrap_or(hunk.new_start + rel_idx as u32);
+                        let mut candidates: Vec<_> = blocks
+                            .into_iter()
+                            .filter(|b| {
+                                cur_ln >= b.start_line
+                                    && cur_ln <= b.end_line
+                                    && !hunk.folded_blocks.contains(b)
+                            })
+                            .collect();
+                        candidates.sort_by_key(|b| b.end_line - b.start_line);
+                        if let Some(best) = candidates.first() {
+                            hunk.folded_blocks.push(*best);
+                            self.status_message = Some(format!(
+                                "Folded AST block (L{}-L{})",
+                                best.start_line, best.end_line
+                            ));
+                            self.save_marks();
+                            return;
+                        }
+                    }
+
+                    hunk.is_folded = !hunk.is_folded;
+                    self.status_message = Some(if hunk.is_folded {
+                        "Folded hunk".to_string()
+                    } else {
+                        "Unfolded hunk".to_string()
+                    });
+                    self.save_marks();
+                    return;
+                }
+                line_offset += hunk_len;
+            }
+        }
+    }
+
+    pub fn fold_current_hunk(&mut self) {
+        let cursor = self.cursor_line_idx;
+        let file_path = self
+            .snapshot
+            .files
+            .get(self.selected_file_idx)
+            .map(|f| f.new_path.clone());
+        let lang = file_path.as_deref().and_then(lgtm_ast::lang_of);
+
+        if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
+            let mut line_offset = 0;
+            for hunk in file.hunks.iter_mut() {
+                let hunk_len = hunk.lines.len();
+                if cursor >= line_offset && cursor < line_offset + hunk_len {
+                    let rel_idx = cursor - line_offset;
+                    if let Some(l) = lang {
+                        let blocks = Self::detect_blocks_in_hunk(hunk, l);
+                        let cur_ln = hunk
+                            .lines
+                            .get(rel_idx)
+                            .and_then(|l| l.new_line_num)
+                            .unwrap_or(hunk.new_start + rel_idx as u32);
+                        let mut candidates: Vec<_> = blocks
+                            .into_iter()
+                            .filter(|b| {
+                                cur_ln >= b.start_line
+                                    && cur_ln <= b.end_line
+                                    && !hunk.folded_blocks.contains(b)
+                            })
+                            .collect();
+                        candidates.sort_by_key(|b| b.end_line - b.start_line);
+                        if let Some(best) = candidates.first() {
+                            hunk.folded_blocks.push(*best);
+                            self.status_message = Some(format!(
+                                "Folded AST block (L{}-L{})",
+                                best.start_line, best.end_line
+                            ));
+                            self.save_marks();
+                            return;
+                        }
+                    }
                     hunk.is_folded = true;
                     self.status_message = Some("Folded hunk".to_string());
+                    self.save_marks();
                     return;
                 }
                 line_offset += hunk_len;
@@ -237,27 +383,41 @@ impl App {
             if let Some(last_hunk) = file.hunks.last_mut() {
                 last_hunk.is_folded = true;
                 self.status_message = Some("Folded hunk".to_string());
+                self.save_marks();
             }
         }
     }
 
     pub fn unfold_current_hunk(&mut self) {
+        let cursor = self.cursor_line_idx;
         if let Some(file) = self.snapshot.files.get_mut(self.selected_file_idx) {
             let mut line_offset = 0;
             for hunk in file.hunks.iter_mut() {
                 let hunk_len = hunk.lines.len();
-                if self.cursor_line_idx >= line_offset
-                    && self.cursor_line_idx < line_offset + hunk_len
-                {
+                if cursor >= line_offset && cursor < line_offset + hunk_len {
+                    let rel_idx = cursor - line_offset;
+                    if let Some(folded) = Self::is_line_in_folded_block(hunk, rel_idx) {
+                        hunk.folded_blocks.retain(|b| *b != folded);
+                        self.status_message = Some(format!(
+                            "Unfolded AST block (L{}-L{})",
+                            folded.start_line, folded.end_line
+                        ));
+                        self.save_marks();
+                        return;
+                    }
                     hunk.is_folded = false;
+                    hunk.folded_blocks.clear();
                     self.status_message = Some("Unfolded hunk".to_string());
+                    self.save_marks();
                     return;
                 }
                 line_offset += hunk_len;
             }
             if let Some(last_hunk) = file.hunks.last_mut() {
                 last_hunk.is_folded = false;
+                last_hunk.folded_blocks.clear();
                 self.status_message = Some("Unfolded hunk".to_string());
+                self.save_marks();
             }
         }
     }
@@ -269,15 +429,18 @@ impl App {
             }
         }
         self.status_message = Some("Folded all hunks in diff".to_string());
+        self.save_marks();
     }
 
     pub fn unfold_all_hunks(&mut self) {
         for file in &mut self.snapshot.files {
             for hunk in &mut file.hunks {
                 hunk.is_folded = false;
+                hunk.folded_blocks.clear();
             }
         }
         self.status_message = Some("Unfolded all hunks in diff".to_string());
+        self.save_marks();
     }
 
     pub fn staged_files_count(&self) -> usize {
@@ -468,6 +631,7 @@ mod tests {
                 },
             ],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let hunk2 = DiffHunk {
             header: "@@ -10,2 +10,3 @@".into(),
@@ -482,6 +646,7 @@ mod tests {
                 new_line_num: Some(10),
             }],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let file = FileDiff {
@@ -545,6 +710,7 @@ mod tests {
                 new_line_num: Some(1),
             }],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let hunk2 = DiffHunk {
             header: "@@ -10,3 +10,3 @@".into(),
@@ -559,6 +725,7 @@ mod tests {
                 new_line_num: Some(10),
             }],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let file = FileDiff {
@@ -596,6 +763,101 @@ mod tests {
     }
 
     #[test]
+    fn test_ast_block_folding_and_visible_rows_motion() {
+        let mut app = create_test_app();
+        let code = [
+            "fn compute(a: i32) -> i32 {", // 0 (L1)
+            "    let b = a * 2;",          // 1 (L2)
+            "    if b > 10 {",             // 2 (L3)
+            "        let c = b + 1;",      // 3 (L4)
+            "        c * 2",               // 4 (L5)
+            "    } else {",                // 5 (L6)
+            "        0",                   // 6 (L7)
+            "    }",                       // 7 (L8)
+            "}",                           // 8 (L9)
+        ];
+        let lines: Vec<DiffLine> = code
+            .iter()
+            .enumerate()
+            .map(|(i, &c)| DiffLine {
+                line_type: LineType::Addition,
+                content: c.into(),
+                old_line_num: None,
+                new_line_num: Some((i + 1) as u32),
+            })
+            .collect();
+        let hunk = DiffHunk {
+            header: "@@ -0,0 +1,9 @@".into(),
+            old_start: 0,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: 9,
+            lines,
+            is_folded: false,
+            folded_blocks: Vec::new(),
+        };
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/compute.rs"),
+            change_type: ChangeType::Added,
+            additions: 9,
+            deletions: 0,
+            hunks: vec![hunk],
+            is_folded: false,
+            is_reviewed: false,
+        };
+        app.snapshot = DiffSnapshot::new(vec![file]);
+        app.selected_file_idx = 0;
+
+        // Initial visible lines: all 9 lines
+        assert_eq!(app.visible_line_indices(), (0..9).collect::<Vec<_>>());
+
+        // Position cursor on line 3 ("if b > 10 {") -> toggle_fold_at_cursor
+        app.cursor_line_idx = 2;
+        app.toggle_fold_at_cursor();
+
+        // Innermost AST block (then-block: L3-L6) is now folded!
+        let hunk = &app.snapshot.files[0].hunks[0];
+        assert_eq!(hunk.folded_blocks.len(), 1);
+        assert_eq!(hunk.folded_blocks[0].start_line, 3);
+        assert_eq!(hunk.folded_blocks[0].end_line, 6);
+
+        // Visible lines should now have 0, 1, 2 (fold marker), 6, 7, 8
+        let visible = app.visible_line_indices();
+        assert_eq!(visible, vec![0, 1, 2, 6, 7, 8]);
+
+        // Motion: moving down from fold marker (idx 2) skips lines 3-5 and lands on 6
+        app.cursor_line_idx = 2;
+        app.cursor_down();
+        assert_eq!(app.cursor_line_idx, 6);
+
+        // Motion: moving up from line 6 lands on fold marker 2
+        app.cursor_up();
+        assert_eq!(app.cursor_line_idx, 2);
+
+        // Unfold at cursor: toggling again unfolds the block
+        app.toggle_fold_at_cursor();
+        assert!(app.snapshot.files[0].hunks[0].folded_blocks.is_empty());
+        assert_eq!(app.visible_line_indices(), (0..9).collect::<Vec<_>>());
+
+        // Position cursor on line 0 ("fn compute...") -> toggle_fold_at_cursor folds entire function
+        app.cursor_line_idx = 0;
+        app.toggle_fold_at_cursor();
+        assert_eq!(app.snapshot.files[0].hunks[0].folded_blocks.len(), 1);
+        assert_eq!(
+            app.snapshot.files[0].hunks[0].folded_blocks[0].start_line,
+            1
+        );
+        assert_eq!(app.snapshot.files[0].hunks[0].folded_blocks[0].end_line, 9);
+        assert_eq!(app.visible_line_indices(), vec![0]);
+
+        // Unfold function
+        app.toggle_fold_at_cursor();
+        assert!(app.snapshot.files[0].hunks[0].folded_blocks.is_empty());
+        assert_eq!(app.visible_line_indices(), (0..9).collect::<Vec<_>>());
+    }
+
+    #[test]
     fn test_reject_hunk_and_reprompt_includes_directive() {
         use crate::comment::CommentAnchor;
         let mut app = create_test_app();
@@ -613,6 +875,7 @@ mod tests {
                 new_line_num: Some(1),
             }],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let file = FileDiff {
             old_path: None,

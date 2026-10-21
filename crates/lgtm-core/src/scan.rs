@@ -238,6 +238,7 @@ fn process_single_file(root_dir: &Path, path: &Path) -> Option<(FileDiff, Vec<Gu
         new_lines: lines.len() as u32,
         lines,
         is_folded: false,
+        folded_blocks: Vec::new(),
     };
 
     let file_diff = FileDiff {

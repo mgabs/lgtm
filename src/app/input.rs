@@ -108,6 +108,10 @@ impl App {
                     self.cursor_to_bottom_of_view();
                     return;
                 }
+                ('z', KeyCode::Char('a')) => {
+                    self.toggle_fold_at_cursor();
+                    return;
+                }
                 ('z', KeyCode::Char('c')) => {
                     self.fold_current_hunk();
                     return;

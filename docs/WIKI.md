@@ -164,15 +164,17 @@ lgtm
 
 ### Syntax-Aware AST & Hunk Folding
 
-When reviewing large pull requests or AI-generated changes, noise files (lockfiles, generated schema, boilerplate) distract from core logic. Use Vim-style folding to collapse and isolate diffs:
+When reviewing large pull requests or AI-generated changes, noise files (lockfiles, generated schema, boilerplate) distract from core logic. Use Vim-style folding with AST block awareness to collapse and isolate diffs:
 
 | Fold Key | Action |
 |---|---|
-| `zc` | Fold current hunk under cursor into compact header (`▶ @@ ... @@ [Folded]`) |
-| `zo` | Unfold current hunk under cursor to expand diff lines |
-| `za` | Toggle fold state of current hunk |
-| `zM` / `zm` | Fold **ALL** hunks across the current file / diff |
-| `zR` / `zr` | Unfold **ALL** hunks across the current file / diff |
+| `za` | Toggle AST block fold (function, class, inner loop/block) or hunk under cursor |
+| `zc` | Close (fold) innermost AST block or hunk under cursor |
+| `zo` | Open (unfold) AST block or hunk under cursor |
+| `zM` / `zm` | Fold **ALL** hunks and blocks across the diff |
+| `zR` / `zr` | Unfold **ALL** hunks and blocks across the diff |
+
+Folds use a visible-rows indirection for cursor motion (`j`, `k`, `G`, `gg`, `Ctrl-d`, `Ctrl-u`), ensuring smooth navigation that hops directly over folded ranges without getting stuck. Block folds persist across sessions in the review store (`.lgtm/reviews/<target>.json`).
 
 ---
 

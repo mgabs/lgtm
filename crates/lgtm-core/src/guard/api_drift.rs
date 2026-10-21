@@ -124,6 +124,7 @@ mod tests {
                     },
                 ],
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,

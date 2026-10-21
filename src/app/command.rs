@@ -658,6 +658,7 @@ mod tests {
             new_lines: 3,
             lines,
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
         let file = FileDiff {
             old_path: None,
@@ -924,6 +925,7 @@ mod tests {
                     new_line_num: Some(3),
                 }],
                 is_folded: false,
+                folded_blocks: Vec::new(),
             }],
             is_folded: false,
             is_reviewed: false,

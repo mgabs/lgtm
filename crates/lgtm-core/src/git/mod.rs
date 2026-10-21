@@ -185,6 +185,7 @@ impl GitEngine {
                         new_lines: hunk.new_lines(),
                         lines: Vec::new(),
                         is_folded: false,
+                        folded_blocks: Vec::new(),
                     });
                 }
             }
@@ -560,6 +561,7 @@ mod tests {
                 },
             ],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let file = FileDiff {
@@ -615,6 +617,7 @@ mod tests {
                 },
             ],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let file = FileDiff {
@@ -671,6 +674,7 @@ mod tests {
                 },
             ],
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let file = FileDiff {

@@ -152,6 +152,7 @@ impl PrEngine {
                     new_lines,
                     lines: Vec::new(),
                     is_folded: false,
+                    folded_blocks: Vec::new(),
                 });
             } else if let Some(ref mut hunk) = current_hunk {
                 if raw_line.starts_with('+') && !raw_line.starts_with("+++") {

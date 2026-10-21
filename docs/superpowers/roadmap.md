@@ -2,7 +2,7 @@
 
 Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. Pending: E5′.
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E5′, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. All roadmap items complete!
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
@@ -74,7 +74,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | E6 ✅ | Whole-file parse mode in `lgtm-ast`; `"use client"` leak and server-action validation rules. Diff hunks only select which findings to keep | M | E2 |
 | E7 ✅ | Python grammar: AST complexity and identifiers, a few rules (`eval`/`exec`, `subprocess shell=True`, `pickle.loads`, bare `except`) | M | E1 |
 | E8 ✅ | Go, then Java grammars: complexity and identifiers first, rules on demand | M | E7 |
-| E5′ | Block-level folding (revisit E5): fold state keyed by AST block range inside a hunk; needs a visible-rows indirection for cursor motion. Do it after F1 so folds can persist in the review store | M | E1, F1 |
+| E5′ ✅ | Block-level folding (revisit E5): fold state keyed by AST block range inside a hunk; needs a visible-rows indirection for cursor motion. Do it after F1 so folds can persist in the review store | M | E1, F1 |
 
 ### G — Azure DevOps pull requests (spec: `specs/2026-10-13-azure-devops-design.md`, draft)
 | ID | Item | Effort | Depends on |

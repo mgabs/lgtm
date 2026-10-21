@@ -423,6 +423,37 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
 
                         let mut h_idx = 0;
                         while h_idx < hunk.lines.len() {
+                            if let Some(range) = App::is_line_in_folded_block(hunk, h_idx) {
+                                if App::is_first_line_of_folded_block(hunk, h_idx) == Some(range) {
+                                    let is_cursor = line_counter == app.cursor_line_idx;
+                                    let style = if is_cursor {
+                                        Style::default()
+                                            .bg(Color::Indexed(237))
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::BOLD)
+                                    } else {
+                                        Style::default()
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::BOLD)
+                                    };
+                                    let count = range.end_line.saturating_sub(range.start_line) + 1;
+                                    let snippet = hunk.lines[h_idx].content.trim();
+                                    lines.push(Line::from(vec![Span::styled(
+                                        format!(
+                                            "  ▶ [Folded AST Block (L{}-L{}, {} lines): {} | zo/za to expand]",
+                                            range.start_line, range.end_line, count, snippet
+                                        ),
+                                        style,
+                                    )]));
+                                    if is_cursor && active_cursor_row.is_none() {
+                                        active_cursor_row = Some(lines.len() - 1);
+                                    }
+                                }
+                                line_counter += 1;
+                                h_idx += 1;
+                                continue;
+                            }
+
                             let line = &hunk.lines[h_idx];
                             match line.line_type {
                                 LineType::Context => {
@@ -678,6 +709,36 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                         let pairs = find_intra_line_pairs(&hunk.lines);
 
                         for (h_line_idx, dline) in hunk.lines.iter().enumerate() {
+                            if let Some(range) = App::is_line_in_folded_block(hunk, h_line_idx) {
+                                if App::is_first_line_of_folded_block(hunk, h_line_idx) == Some(range) {
+                                    let is_cursor = line_counter == app.cursor_line_idx;
+                                    let style = if is_cursor {
+                                        Style::default()
+                                            .bg(Color::Indexed(237))
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::BOLD)
+                                    } else {
+                                        Style::default()
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::BOLD)
+                                    };
+                                    let count = range.end_line.saturating_sub(range.start_line) + 1;
+                                    let snippet = dline.content.trim();
+                                    lines.push(Line::from(vec![Span::styled(
+                                        format!(
+                                            "  ▶ [Folded AST Block (L{}-L{}, {} lines): {} | zo/za to expand]",
+                                            range.start_line, range.end_line, count, snippet
+                                        ),
+                                        style,
+                                    )]));
+                                    if is_cursor && active_cursor_row.is_none() {
+                                        active_cursor_row = Some(lines.len() - 1);
+                                    }
+                                }
+                                line_counter += 1;
+                                continue;
+                            }
+
                             let is_cursor = line_counter == app.cursor_line_idx;
                             let in_visual = app.is_in_visual_selection(line_counter);
 
@@ -947,6 +1008,8 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                     Line::from("  • Ctrl-s       Compile & send batch review prompt to agent"),
                     Line::from("  • w / W        Jump to next / previous safety alert"),
                     Line::from("  • Enter        Inject file:line reference into agent pane"),
+                    Line::from("  • za / zc / zo Toggle / close / open AST block or hunk fold"),
+                    Line::from("  • zM / zR      Fold all / unfold all hunks"),
                     Line::from("  • v            Mark file reviewed and fold"),
                     Line::from("  • p            Select target tmux pane"),
                     Line::from("  • q            Quit"),
@@ -1054,6 +1117,7 @@ mod tests {
             new_lines: 50,
             lines,
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let file = FileDiff {
@@ -1130,6 +1194,7 @@ mod tests {
             new_lines: 50,
             lines,
             is_folded: false,
+            folded_blocks: Vec::new(),
         };
 
         let file = FileDiff {
