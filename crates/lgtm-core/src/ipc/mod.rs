@@ -13,6 +13,7 @@ pub enum SinkKind {
     WezTerm,
     Kitty,
     Clipboard,
+    Dummy,
 }
 
 impl std::str::FromStr for SinkKind {
@@ -25,9 +26,10 @@ impl std::str::FromStr for SinkKind {
             "wezterm" => Ok(SinkKind::WezTerm),
             "kitty" => Ok(SinkKind::Kitty),
             "clipboard" | "clip" => Ok(SinkKind::Clipboard),
+            "dummy" | "null" | "/dev/null" | "none" => Ok(SinkKind::Dummy),
             "auto" => Ok(SinkKind::Auto),
             other => bail!(
-                "unknown agent sink `{}` (expected tmux, zellij, wezterm, kitty, or clipboard)",
+                "unknown agent sink `{}` (expected tmux, zellij, wezterm, kitty, clipboard, or dummy)",
                 other
             ),
         }
@@ -43,6 +45,7 @@ impl std::fmt::Display for SinkKind {
             SinkKind::WezTerm => write!(f, "wezterm"),
             SinkKind::Kitty => write!(f, "kitty"),
             SinkKind::Clipboard => write!(f, "clipboard"),
+            SinkKind::Dummy => write!(f, "dummy"),
         }
     }
 }
@@ -142,7 +145,7 @@ impl IpcBridge {
                     Ok(Vec::new())
                 }
             }
-            SinkKind::Clipboard => Ok(Vec::new()),
+            SinkKind::Clipboard | SinkKind::Dummy => Ok(Vec::new()),
         }
     }
 
@@ -414,6 +417,10 @@ mod tests {
             SinkKind::Clipboard
         );
         assert_eq!("clip".parse::<SinkKind>().unwrap(), SinkKind::Clipboard);
+        assert_eq!("dummy".parse::<SinkKind>().unwrap(), SinkKind::Dummy);
+        assert_eq!("/dev/null".parse::<SinkKind>().unwrap(), SinkKind::Dummy);
+        assert_eq!("none".parse::<SinkKind>().unwrap(), SinkKind::Dummy);
+        assert_eq!("null".parse::<SinkKind>().unwrap(), SinkKind::Dummy);
         assert_eq!("auto".parse::<SinkKind>().unwrap(), SinkKind::Auto);
         assert!("unknown".parse::<SinkKind>().is_err());
 
@@ -422,6 +429,7 @@ mod tests {
         assert_eq!(SinkKind::WezTerm.to_string(), "wezterm");
         assert_eq!(SinkKind::Kitty.to_string(), "kitty");
         assert_eq!(SinkKind::Clipboard.to_string(), "clipboard");
+        assert_eq!(SinkKind::Dummy.to_string(), "dummy");
     }
 
     #[test]

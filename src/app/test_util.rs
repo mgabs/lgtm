@@ -16,5 +16,6 @@ pub(crate) fn create_test_app() -> App {
     let _ = std::fs::create_dir_all(&tmp);
     let mut app = App::new(tmp, rx, None, None, None);
     app.comments.clear();
+    app.agent_sink_kind = Some(crate::ipc::SinkKind::Dummy);
     app
 }

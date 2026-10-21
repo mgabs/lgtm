@@ -191,7 +191,7 @@ impl App {
                 } else {
                     let current = self.resolved_sink_kind();
                     self.status_message = Some(format!(
-                        "Current agent sink: {} (configure with :sink <tmux|zellij|wezterm|kitty|clipboard>)",
+                        "Current agent sink: {} (configure with :sink <tmux|zellij|wezterm|kitty|clipboard|dummy>)",
                         current
                     ));
                 }
@@ -567,6 +567,13 @@ mod tests {
 
         app.execute_command(":sink");
         assert!(app.status_message.as_ref().unwrap().contains("zellij"));
+
+        app.execute_command(":sink /dev/null");
+        assert_eq!(app.agent_sink_kind, Some(crate::ipc::SinkKind::Dummy));
+        assert_eq!(
+            app.status_message,
+            Some("Configured agent steering sink: dummy".to_string())
+        );
     }
 
     #[test]

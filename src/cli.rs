@@ -22,7 +22,7 @@ pub struct Cli {
     #[arg(short = 'p', long = "agent-pane")]
     pub agent_pane: Option<String>,
 
-    /// Multiplexer agent steering sink: tmux, zellij, wezterm, kitty, clipboard (default: auto)
+    /// Multiplexer agent steering sink: tmux, zellij, wezterm, kitty, clipboard, dummy (default: auto)
     #[arg(long = "agent-sink")]
     pub agent_sink: Option<String>,
 

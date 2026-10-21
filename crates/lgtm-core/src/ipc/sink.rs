@@ -71,6 +71,17 @@ impl AgentSink for ClipboardSink {
     }
 }
 
+pub struct DummySink;
+
+impl AgentSink for DummySink {
+    fn send(&self, _text: &str) -> Result<()> {
+        Ok(())
+    }
+    fn label(&self) -> String {
+        "dummy (/dev/null)".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,5 +96,6 @@ mod tests {
         assert_eq!(KittySink(Some("3")).label(), "kitty window 3");
         assert_eq!(KittySink(None).label(), "kitty active window");
         assert_eq!(ClipboardSink.label(), "clipboard (OSC 52)");
+        assert_eq!(DummySink.label(), "dummy (/dev/null)");
     }
 }

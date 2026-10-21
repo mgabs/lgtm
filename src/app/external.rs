@@ -234,6 +234,7 @@ impl App {
             crate::ipc::SinkKind::Zellij => Box::new(ZellijSink(self.agent_pane.as_deref())),
             crate::ipc::SinkKind::WezTerm => Box::new(WezTermSink(self.agent_pane.as_deref())),
             crate::ipc::SinkKind::Kitty => Box::new(KittySink(self.agent_pane.as_deref())),
+            crate::ipc::SinkKind::Dummy => Box::new(DummySink),
             crate::ipc::SinkKind::Clipboard | crate::ipc::SinkKind::Auto => Box::new(ClipboardSink),
         }
     }
@@ -428,6 +429,7 @@ mod tests {
         app.selected_file_idx = 0;
         app.cursor_line_idx = 0;
         app.agent_pane = None;
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Clipboard);
         app
     }
 
@@ -566,5 +568,9 @@ mod tests {
         app.agent_sink_kind = Some(crate::ipc::SinkKind::Tmux);
         app.agent_pane = Some("%2".to_string());
         assert_eq!(app.agent_sink().label(), "pane %2");
+
+        // Dummy sink
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Dummy);
+        assert_eq!(app.agent_sink().label(), "dummy (/dev/null)");
     }
 }

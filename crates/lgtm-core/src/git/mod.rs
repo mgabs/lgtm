@@ -14,11 +14,12 @@ impl GitEngine {
     }
 
     pub fn is_git_repo(&self) -> bool {
-        Repository::discover(&self.repo_path).is_ok()
+        Repository::open(&self.repo_path).is_ok() || Repository::discover(&self.repo_path).is_ok()
     }
 
     pub fn open_repo(&self) -> Result<Repository> {
-        Repository::discover(&self.repo_path)
+        Repository::open(&self.repo_path)
+            .or_else(|_| Repository::discover(&self.repo_path))
             .with_context(|| format!("No git repository found at {}", self.repo_path.display()))
     }
 
