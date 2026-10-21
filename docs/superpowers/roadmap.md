@@ -125,9 +125,9 @@ Open: none. Prioritization complete; next step is implementation plans (writing-
 | 1 Refactor | v0.8.0 | `make check` green on trunk; `app.rs`, `ui/mod.rs`, `main.rs` split into submodules (R1 splitter output accepted as-is: `app/input.rs` 1288, `app/motion.rs` 968, `ui/diff.rs` 911 lines; further splits only where R2 state extraction naturally shrinks them); workspace builds; `cargo install --git` verified; Homebrew tap flow verified; golden outputs of `check`/`scan`/`ci` identical to v0.7.0; boundary CI check in place |
 | 2 B | v0.8.0 | No-config output byte-identical to v0.8.0 (except added `rule_id`); `.lgtm.toml`, scoped suppressions and baselines work end to end on a fixture repo; Critical never baselined by default |
 | 3 C | v0.8.0 | Re-anchoring property tests pass (insert above, move, rename); migration from old files tested; posting resumable against the fake client; manual smoke test against a real PR |
-| 4 A | v0.8.0 for A1–A3; A4–A6 later | Claim-vs-diff matrix tested; one real MCP client smoke-tested; sinks smoke-checklist completed; existing MCP tools backward compatible |
-| 5 E | v0.8.0 | E1–E4 done: web and Swift rules have positive/negative fixtures; complexity/typo guards on AST; non-AST languages unchanged. Open: whole-file parse for `"use client"` and server-action rules |
-| 6 D | v0.8.2 | D1–D3 done (`--rev`, exit codes, `action.yml`, WIKI recipes; the Action is untested against a real release until v0.8.2 ships). Pending: D4 (self-test workflow, needs a published release) |
+| 4 A | v0.8.0 / v0.8.2 | A1–A6 done: Claim-vs-diff matrix tested; MCP clients (Claude Code, Cursor, Windsurf, Aider) documented; sinks smoke-checklist completed; existing MCP tools backward compatible |
+| 5 E | v0.8.0 / v0.8.2 | E1–E4, E5′, E6–E8 done: web, Swift, Python, Go rules have positive/negative tests; whole-file parse for `"use client"` and server-action rules; block-level AST folding with visible-rows indirection and review store persistence |
+| 6 D | v0.8.2 | D1–D4 done: `--rev`, exit codes, `action.yml`, WIKI recipes, self-test workflow (`.github/workflows/self-test.yml`) |
 
 Unverified in the field (manual checks before release): all `az` calls (list, show, policy, invoke, set-vote), the Azure Pipelines annotations, the composite Action, `gh` calls (`checks`, GraphQL threads, REST post/reply/resolve), TUI parts (`M`, `✓n/m`, CI header, verdict tags), Homebrew tap and `cargo install --git`.
 
