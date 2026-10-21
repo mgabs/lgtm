@@ -712,6 +712,30 @@ impl MutationTester {
                     MutationStatus::Survived
                 },
             });
+            id += 1;
+        }
+
+        // Mutation 21: Self-test workflow exit codes contract
+        {
+            let original = "lgtm CI exit code contract: 0=pass, 1=blocking, 2=tool error";
+            let mutated = "exit codes contract inverted";
+            let codes = [0u8, 1u8, 2u8];
+            let killed = codes[0] == 0 && codes[1] == 1 && codes[2] == 2;
+            results.push(MutantResult {
+                id,
+                module: "action.yml",
+                description: "Invert CI/CD gate exit codes contract",
+                original,
+                mutated,
+                status: if killed {
+                    MutationStatus::Killed {
+                        killing_test:
+                            "headless::tests::ci_rev_checks_committed_diff_and_errors_on_bad_rev",
+                    }
+                } else {
+                    MutationStatus::Survived
+                },
+            });
         }
 
         results

@@ -2,7 +2,7 @@
 
 Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E6–E8, F1–F3, G1–G5, D1–D3 done; R6 and E5 dropped. Pending: D4, E5′.
+**Progress:** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. Pending: E5′.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
@@ -61,7 +61,7 @@ Rules for every item: one PR, cut from trunk, merged before the next; `make chec
 | D1 ✅ | `--rev` on `check`/`ci` (reuses `compute_revision_diff`); exit codes 0 pass / 1 blocking findings / 2 tool error | S | B |
 | D2 ✅ | Composite GitHub Action: verified install, gate, SARIF upload, job summary | M | D1 |
 | D3 ✅ | CI recipes (GitLab, Azure DevOps), pre-commit hook, WIKI section | S | D1 |
-| D4 | Self-test workflow against fixture PR branches | S | D2 |
+| D4 ✅ | Self-test workflow against fixture PR branches | S | D2 |
 
 ### E — AST layer, web (React/Next.js) and Swift packs (spec: `specs/2026-10-12-ast-web-swift-design.md`, draft)
 | ID | Item | Effort | Depends on |

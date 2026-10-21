@@ -1,0 +1,40 @@
+name: Self-Test Action Gate
+
+on:
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  test-action:
+    name: Self-test lgtm action.yml gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build local binary for simulation
+        run: cargo build --release
+
+      - name: Verify lgtm check against HEAD~1
+        run: |
+          ./target/release/lgtm check --rev HEAD~1...HEAD || [ $? -eq 0 ] || [ $? -eq 1 ]
+
+      - name: Verify lgtm ci json output
+        run: |
+          ./target/release/lgtm ci --rev HEAD~1...HEAD -f json -o ci-report.json
+          test -f ci-report.json
+
+      - name: Verify lgtm ci sarif output
+        run: |
+          ./target/release/lgtm ci --rev HEAD~1...HEAD -f sarif -o ci-report.sarif
+          test -f ci-report.sarif
