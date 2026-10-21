@@ -574,8 +574,8 @@ permissions: { contents: read, security-events: write }
 steps:
   - uses: actions/checkout@v4
     with: { fetch-depth: 0 }
-  - uses: mgabs/lgtm@v0.8.2
-    with: { version: "0.8.2" }
+  - uses: mgabs/lgtm@v1.0.0
+    with: { version: "1.0.0" }
 ```
 
 Inputs: `version` (required), `base`, `strict`, `upload-sarif`. Outputs: `exit-code`, `new-findings`.
