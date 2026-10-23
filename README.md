@@ -53,7 +53,7 @@
 - **PR Review Mode**: Review GitHub PRs (`gh`) or Azure DevOps PRs (`az`: list, diff, policies, threads, post, reply, resolve, vote) with `lgtm pr <num>` or `:pr <num>`, write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review` on GitHub.
 - **CI step**: `lgtm ci --rev origin/main...HEAD` gates a committed range (exit 0 pass, 1 blocking findings, 2 tool error); a composite GitHub Action (`mgabs/lgtm`) adds verified install, SARIF upload and a job summary.
 - **Orphaned comments**: comments re-pin when code moves and are flagged `⚠ Orphaned` when their code is gone, never deleted.
-- **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and instant report export (`w` / `:export`).
+- **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and Markdown report export (`w` / `:export`).
 - **Headless CI & Security Gates**:
   - `lgtm check`: Pre-commit / CI gate that blocks builds on critical security vulnerabilities or complexity spikes.
   - `lgtm hook [install|uninstall|status]`: Automates setup of `.git/hooks/pre-commit` to gate commits locally.
@@ -94,8 +94,10 @@ lgtm scan repo
 # Review a specific GitHub PR
 lgtm pr 42
 
-# List and pick open PRs
+# List open PRs (default), closed PRs, or all states
 lgtm prs
+lgtm prs --state closed
+lgtm prs --state all
 
 # Run CI security & quality gate (exit code 1 on critical security / test neutering)
 lgtm check --strict
@@ -110,6 +112,247 @@ lgtm scan --format sarif --output lgtm-results.sarif
 lgtm log -p
 lgtm commit -m "feat: core diff engine"
 ```
+
+---
+
+## Open and closed PRs
+
+List PRs with `lgtm prs --state open`, `--state closed`, or `--state all`.
+Inside the TUI, use `:prs open`, `:prs closed`, or `:prs all`; the picker also supports
+`1` (open), `2` (closed), and `3` (all). Each entry shows its provider status.
+The state filter applies to the returned listing; provider page limits still apply.
+
+The closed view includes merged and closed GitHub PRs, and completed and abandoned
+Azure PRs. See the provider references for [GitHub listing](https://cli.github.com/manual/gh_pr_list)
+and [Azure statuses](https://learn.microsoft.com/en-us/cli/azure/repos/pr).
+Any PR can also be opened directly with `lgtm pr <number>` or `:pr <number>`.
+
+Azure loading reads fresh PR metadata first through REST, reusing the cached authentication
+token with a CLI fallback. It uses recorded source and target commits before probing Git
+refs, so historical PRs avoid attempts at merge refs or branches that may have been deleted. If those objects
+are already local, no additional fetch is needed. The server must still retain the commits
+for a new fetch to succeed. A closed PR without recorded commits fails clearly rather than
+comparing unrelated current branches. GitHub falls back to the stored PR patch from the API
+or GitHub CLI, which also avoids guessing the current target branch for historical reviews.
+Authentication and network failures still stop without trying additional Git fetches.
+
+---
+
+## Debugging slow PR reviews
+
+Enable timing diagnostics when launching the rebuilt binary:
+
+```bash
+lgtm --debug pr 42
+
+# Choose a different log path
+lgtm --debug --debug-log /tmp/lgtm-review.jsonl pr 42
+```
+
+By default, `--debug` writes `lgtm-debug.jsonl` in the system temporary directory
+(`/tmp` on most systems). Reproduce the slow action, then inspect the JSONL file. Each operation has a `start` and
+`end` record matched by `pid` and `id`. End records include `elapsed_ms` and `outcome`;
+a start without an end points to an operation still waiting. Logging is disabled unless
+`--debug` is supplied; setting `LGTM_DEBUG_LOG` alone has no effect. Use a log outside the repository (as above), or inside `.lgtm/`,
+to avoid treating log writes as workspace edits. The parent directory must exist.
+Arguments, command output, comment text, source code, and credentials are never logged.
+
+UI diagnostics include `ui.draw` (including terminal output), `ui.render`, `ui.input`,
+`ui.background_events`, `ui.callback`, and `ui.callback_wait`. The last operation measures
+the wait between a completed background job and its UI callback; `counts.applied=0` means
+the callback was dropped. `ui.pr_apply`, `review.local_snapshot`, `review.reanchor`,
+`review.outcomes`, `review.pr_directives`, and `review.load_marks` isolate refresh/completion
+work. Local refreshes additionally expose `ui.local_request` (with `counts.coalesced`),
+`ui.local_discard` for superseded completions, and `ui.local_apply` for the final UI update.
+Counts appear on the corresponding end record. Background-event records also report
+`counts.watchers_remaining` and `counts.callbacks_remaining` when work is deferred.
+
+The terminal loop draws at startup and after input, resize/focus changes, applicable
+watcher changes, or background results. It checks for background work at most every
+16 ms while idle, without redrawing. Each iteration processes up to 32 terminal events,
+32 watcher messages, and eight callbacks, with a separate 4 ms budget for each batch.
+A running handler cannot be interrupted; an individual command or completion apply can
+still exceed that budget (tracked separately in the performance TODOs). Input stays on the UI thread
+so terminal editors retain keyboard access. If the file watcher cannot start, external
+status is refreshed once a second; use `:reload` to refresh file changes.
+
+Repository audits (`:audit`, `:scan repo`), changed-file scans (`:scan`, `:issues`), and
+`:risk` run in background jobs. Previous audit results remain available during scanning;
+repository audits show processed-file progress in the header. Repeated requests keep one
+running scan and the latest queued request. Review-target, snapshot, or workspace changes
+discard affected results; request a new audit after a cancellation. A completion keeps
+newer filters and drafts and does not reopen a view you left. Diff scanning still copies
+the current snapshot on the UI thread before starting its worker.
+
+Report export also runs in the background. It exports the currently displayed audit,
+or scans the repository first if no audit result exists. The status bar confirms the
+completed write; normal quit waits for it. A failed export keeps the app open and reports
+the error. Export does not replace the current audit results.
+
+Audit diagnostics include `ui.audit_request` (enqueue/coalescing), `ui.audit_snapshot`
+(the diff snapshot copy), `ui.audit_progress` (numeric completed/total file counts),
+`ui.audit_apply`, and `ui.audit_discard`. Worker spans are `audit.repository`,
+`audit.changes`, and `audit.export`. Source paths and finding text are excluded.
+
+Rendering uses prepared repository availability, turn/gate state, staged counts, prompt
+context, and audit snippets. A silent background worker loads missing data, keeps only the
+latest view demand, and discards results after invalidation. Watcher changes, reloads,
+review/audit updates, focus, and local gate/turn changes refresh the relevant context.
+Opening the prompt dialog refreshes its contents. Opening the commit dialog retains one
+staged-count validation; typing in it uses the cached count, which also follows index changes.
+The inspector caches up to 32 snippets of at most seven lines, including missing-file
+results. It checks file/line/root and invalidation state before displaying a cached snippet.
+Drafts and view selection are preserved when reads complete.
+
+`ui.view_request` reports which prepared data was requested using numeric flags;
+`ui.view_prepare` measures worker reads and `ui.view_apply` reports `counts.applied=0`
+for stale results. `ui.staged_prepare` measures staged-count queries and reports the numeric
+file count. Source and prompt contents are excluded from diagnostics.
+
+Diff rendering also exposes `ui.rows_prepare`, `ui.layout_prepare`,
+`ui.annotations_prepare`, and `ui.words_prepare` for cache preparation, plus
+`ui.diff_viewport` and `ui.drawer_viewport` for visible-row work. Navigation reuses the
+selected file's layout and folded-row mapping; word differences are prepared only for
+visible pairs and retained across navigation, folding, annotations, and resizing.
+Content, fold, annotation, and width changes invalidate their affected caches. The first
+layout preparation still visits the selected file; later draws style and render its
+viewport. Annotation change detection still scans annotation data each frame.
+
+`ui.frame` records cumulative frames/idle frames, input/event batch sizes, and background
+activity. An idle frame has no terminal events or background activity since the previous
+draw; the startup frame is excluded. Use the frame start timestamps to measure redraw
+frequency. `ui.input_to_draw` measures from reading the oldest key in a batch to completing
+the next draw, not from the key's arrival at the operating system. Only records with
+`counts.presented=1` represent completed draws; quitting without another draw leaves zero.
+Render context includes numeric file, changed-line, selected-line, comment, thread, alert,
+and viewport counts. Keys, view contents, and paths are not included. Diagnostics perform
+no timing clock reads or context allocations when disabled.
+
+Compare offline UI workloads with:
+
+```bash
+cargo test --bin lgtm ui_workload_benchmark -- --ignored --nocapture
+
+# Also record the instrumented operations (use a log outside the repository)
+LGTM_UI_PERF_LOG=/private/tmp/lgtm-ui-performance.jsonl \
+cargo test --bin lgtm ui_workload_benchmark -- --ignored --nocapture
+```
+
+The benchmark compares 100 lines, 10,000 lines, 1,000 comments, and a 2,000-file working
+tree at 120x40 using `TestBackend`. It reports initial view-data preparation separately
+(`view_prepare_ms`, including waiting for its callback), then first-draw time, warm draw
+median/p95, input and input-to-draw p95,
+and separate refresh-request and refresh-completion medians. The request metric measures
+enqueueing work; completion includes the background diff/scan and applying its result.
+Each scenario runs 21 no-input draws (including startup), 21
+input/draw batches, and three refreshes; refreshes use real local files separately from
+the synthetic review snapshot. It excludes terminal output and event polling. Use the same
+build profile for comparisons; enabled diagnostics add measurement overhead. The benchmark
+is opt-in and imposes no wall-clock pass/fail threshold.
+
+Run the offline Azure performance regression tests with:
+
+```bash
+cargo test -p lgtm-core forge::azure::performance_tests -- --nocapture
+```
+
+These use real local Git fetches and mocked metadata/authentication. They enforce request
+budgets across separate forge instances, without flaky wall-clock thresholds:
+
+| Historical PR load | Token requests | Fresh metadata requests | Git fetches | Merge-ref probes | CLI metadata calls |
+| --- | --- | --- | --- | --- | --- |
+| First load into an empty checkout | 1 | 1 | 1 | 0 | 0 |
+| Each of 10 reloads | 0 | 1 | 0 | 0 | 0 |
+
+The active-PR fallback test also verifies one missing merge-ref probe across repeated
+loads, followed by a new probe when the five-minute cache expires. Printed offline timings
+measure the local harness; they do not predict live network speed.
+
+To measure a real Azure PR, opt into the ignored benchmark from this source checkout:
+
+```bash
+LGTM_PERF_REPO=/absolute/path/to/azure-checkout \
+LGTM_PERF_PR=19673 LGTM_PERF_RUNS=10 \
+cargo test -p lgtm-core live_azure_pr_load_benchmark -- --ignored --nocapture
+```
+
+It uses your existing login and fetches PR objects into that checkout. It prints elapsed
+milliseconds and request counts for each load, then the reload median and p95. The first
+sample starts with empty process caches but retains existing Git objects; it is not a
+guaranteed cold network fetch. Compare the same PR and checkout conditions when evaluating
+changes. This benchmark does not run during normal tests.
+
+GitHub has equivalent offline request-budget tests:
+
+```bash
+cargo test -p lgtm-core forge::github::performance_tests -- --nocapture
+```
+
+They exercise an actual merge-ref fetch from a local Git remote, stored-patch API and CLI
+fallbacks, and failures that must stop without trying another transport. The current GitHub
+path performs one merge-ref fetch per load, including reloads. A missing merge ref adds one
+stored-patch request per load. Unlike Azure, GitHub does not yet cache missing merge refs.
+These tests make those costs explicit without imposing network timing thresholds.
+
+Run the opt-in live GitHub benchmark with:
+
+```bash
+LGTM_PERF_REPO=/absolute/path/to/github-checkout \
+LGTM_PERF_PR=19 LGTM_PERF_RUNS=10 \
+cargo test -p lgtm-core live_github_pr_load_benchmark -- --ignored --nocapture
+```
+
+It reports per-load merge fetches, other fetches, API/CLI patch requests, elapsed time, and
+reload median/p95. Git fetching uses the checkout's existing credentials. Stored-patch
+loading uses `GITHUB_TOKEN`/`GH_TOKEN` when set, otherwise the existing `gh` login. Existing
+Git objects are retained, so the first sample is not guaranteed to fetch cold objects.
+
+- `pr.diff`, `git.fetch_merge_ref`, `git.fetch_head_ref`, `git.fetch_branches`, `git.fetch_commits`, `pr.fetch_metadata`, `pr.build_diff`: fetching and building a PR diff, including fallback attempts.
+- `review.scan` / `review.reload`: guard scanning and explicit diff reloads.
+- `comments.add_comment` / `comments.save_comments`: local directive creation, replies, and resolution saves.
+- `pr.post_batch`, `pr.head_sha`, `pr.post_inline`, `pr.post_general`, `pr.post_throttle`: remote posting, persistence, and intentional spacing between requests.
+- `pr.threads`, `pr.thread`, `pr.reply`, `pr.resolve` / `pr.unresolve`: reading and updating remote discussions.
+- `command.curl`, `command.gh`, `command.az`: underlying provider commands. `failure` records include a safe `category`, `exit_code`, and `http_status` when available. No raw provider error output is saved.
+
+`c` creates a local directive; `:pr post` previews unposted directives and
+`:pr post --yes` sends them. Local directive replies and resolution are saved locally.
+Use `:threads` to load remote discussions, `:thread reply <n> <text> --yes` to reply,
+and `:thread resolve <n> --yes` to resolve a remote discussion. Thread updates run in
+the background, in order within each discussion. Duplicate pending actions are ignored;
+different discussions can update independently. A successful reply appears immediately,
+then only that discussion is refreshed. A failed reply remains available as a draft when
+you press `r` again. A refresh failure does not resubmit a successful write.
+
+Opening/reloading a PR, posting directive batches, and submitting compiled reviews also
+run in the background. The current diff stays visible until the new PR is ready. An older
+load cannot replace a newer selection; a failed load preserves the current review and
+shows a retry command. If a draft or modal is open when loading finishes, the switch waits
+until that view is closed so comments keep their original review target. Workspace and comment edits do not refetch an open PR; use
+`:reload` to fetch its latest diff.
+
+Local startup, working-tree/revision reloads, and refreshes after staging or committing also
+compute their diff and findings in the background. One local refresh runs at a time; further
+requests replace a single queued request. Already-received workspace edits invalidate an
+older completion before it can be applied, and switching review targets cancels obsolete
+local results. `:reload` uses the current source, including revision mode and PR mode.
+Existing snapshots stay visible until the new result can be applied. Drafts, reply editors,
+modals, and visual selections defer the update until closed. Completion reconciles current
+directives rather than replacing them with a worker's older copy. Errors retain the current
+review. Re-anchoring, outcome checks, and review-mark loading still run during the final UI
+update; their separate timings remain available for the P7 follow-up.
+
+Each successful batch post is saved before the next request, so a retry skips comments
+already sent. New directives and local replies made during posting are preserved. Existing
+comment files receive stable local ids automatically. Normal quit waits for pending PR
+writes and their saves; failures keep the review open so the error can be inspected.
+
+For Azure PRs with incomplete active metadata, a missing merge ref can fall back to branch
+fetching. Missing refs are remembered for five minutes per repository, remote, and PR across
+loads; diagnostics mark skipped probes as `pr.merge_ref_cache_hit`. Authentication, access, network,
+and timeout failures stop immediately instead of repeating fetches through other routes.
+GitHub writes choose a single transport; uncertain failures are reported without an
+automatic duplicate attempt. Curl requests have a 10-second connection timeout and a
+30-second total timeout. Diagnostics remain disabled unless `--debug` is supplied.
 
 ---
 
@@ -193,7 +436,7 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:prompt` / `:context` — Open agent prompt and instruction context modal
 - `:commit [msg]` / `:ci` — Open Commit Forge modal or commit staged changes
 - `:pr <number>` — Load and review a GitHub or Azure DevOps PR diff
-- `:prs` — Open interactive PR picker
+- `:prs [open|closed|all]` — Open the PR picker with a state filter (default: open); use `1`/`2`/`3` in the picker to switch filters
 - `:checks` / `:threads` — PR CI status / list PR threads (gutter `◆`/`◇`, `]t`/`[t`)
 - `:c` / `:directives` — Open review directives drawer (`:directives recheck`, `:directives orphans`)
 - `:clear` — Clear all review directives
@@ -207,7 +450,7 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:risk` — Re-scan current diff for security & test risks
 - `:editor [name]` — View or configure active editor (`nvim`, `vim`, `vi`, `vscode`, `code`, `cursor`, `helix`)
 - `:scan [repo]` — Scan diff for issues (or `:scan repo` for full codebase)
-- `:audit` / `:issues` — Audit whole codebase for security & architectural findings
+- `:audit` — Audit the whole codebase; `:issues` scans current changes
 - `:filter <1|2|3|crit|high|all>` / `:sev` — Filter audit issues by severity
 - `:inject [all]` — Inject violation remediation directive(s) into agent pane
 - `:export [path]` — Export audit scorecard report to Markdown
