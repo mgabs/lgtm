@@ -4,6 +4,43 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Closed includes merged/completed as well as closed/abandoned PRs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PullRequestState {
+    #[default]
+    Open,
+    Closed,
+    All,
+}
+impl PullRequestState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+            Self::All => "all",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "open" => Ok(Self::Open),
+            "closed" => Ok(Self::Closed),
+            "all" => Ok(Self::All),
+            _ => bail!("Expected open, closed, or all"),
+        }
+    }
+    pub fn includes(self, state: &str) -> bool {
+        let open = matches!(state.to_ascii_lowercase().as_str(), "open" | "active");
+        match self {
+            Self::Open => open,
+            Self::Closed => matches!(
+                state.to_ascii_lowercase().as_str(),
+                "closed" | "merged" | "completed" | "abandoned"
+            ),
+            Self::All => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequestSummary {
     pub number: u64,
@@ -29,10 +66,24 @@ impl PrEngine {
     }
 
     pub fn list_pull_requests() -> Result<Vec<PullRequestSummary>> {
-        let output = Command::new("gh")
+        Self::list_pull_requests_in(std::path::Path::new("."), PullRequestState::Open)
+    }
+
+    pub fn list_pull_requests_in(
+        repo: &std::path::Path,
+        state: PullRequestState,
+    ) -> Result<Vec<PullRequestSummary>> {
+        let _timing = crate::debug::Span::new("command.gh.pr.list");
+        let mut command = Command::new("gh");
+        command.current_dir(repo).args(["pr", "list"]);
+        // GitHub search treats closed as both merged and closed without merging.
+        if state == PullRequestState::Closed {
+            command.args(["--state", "all", "--search", "is:closed"]);
+        } else {
+            command.args(["--state", state.as_str()]);
+        }
+        let output = command
             .args([
-                "pr",
-                "list",
                 "--json",
                 "number,title,author,headRefName,additions,deletions,state",
                 "--limit",
@@ -52,7 +103,13 @@ impl PrEngine {
     }
 
     pub fn fetch_pr_diff(pr_number: u64) -> Result<DiffSnapshot> {
+        Self::fetch_pr_diff_in(std::path::Path::new("."), pr_number)
+    }
+
+    pub fn fetch_pr_diff_in(repo: &std::path::Path, pr_number: u64) -> Result<DiffSnapshot> {
+        let _timing = crate::debug::Span::new("command.gh.pr.diff");
         let output = Command::new("gh")
+            .current_dir(repo)
             .args(["pr", "diff", &pr_number.to_string()])
             .output()
             .context(format!("Failed to run `gh pr diff {}`", pr_number))?;
@@ -66,6 +123,7 @@ impl PrEngine {
     }
 
     pub fn post_review(pr_number: u64, event: &str, body: &str) -> Result<()> {
+        let _timing = crate::debug::Span::new("command.gh.pr.review");
         let flag = match event {
             "approve" => "--approve",
             "request-changes" => "--request-changes",

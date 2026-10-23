@@ -54,6 +54,10 @@ pub struct Thread {
 pub trait GithubClient {
     fn checks(&self, pr: u64) -> Result<Vec<Check>>;
     fn threads(&self, pr: u64) -> Result<Vec<Thread>>;
+    /// Reconcile just one changed discussion when the provider supports it.
+    fn thread(&self, pr: u64, id: &str) -> Result<Option<Thread>> {
+        Ok(self.threads(pr)?.into_iter().find(|t| t.id == id))
+    }
     fn head_sha(&self, pr: u64) -> Result<String>;
     /// Inline review comment on the new side of `path:line`; returns the comment id.
     fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64>;
@@ -156,10 +160,36 @@ fn explain(stderr: &str) -> String {
 }
 
 fn gh(args: &[&str]) -> Result<std::process::Output> {
-    Command::new("gh")
+    let mut timing = crate::debug::Span::new("command.gh");
+    let result = Command::new("gh")
         .args(args)
         .output()
-        .context("`gh` is not installed or not on PATH; GitHub features are unavailable")
+        .context("`gh` is not installed or not on PATH; GitHub features are unavailable");
+    timing.result(&result);
+    if let Ok(out) = &result {
+        timing.result(&if out.status.success() {
+            Ok(())
+        } else {
+            Err(())
+        });
+    }
+    result
+}
+
+pub const THREAD_QUERY: &str = "query($id:ID!){node(id:$id){... on PullRequestReviewThread{id isResolved path line comments(first:100){nodes{databaseId author{login} body}}}}}";
+
+pub fn parse_thread(json: &str) -> Result<Option<Thread>> {
+    let v: serde_json::Value =
+        serde_json::from_str(json).context("unexpected GraphQL thread response")?;
+    if v.get("errors").is_some() {
+        bail!("GitHub could not read the updated thread");
+    }
+    let node = v.pointer("/data/node").context("missing thread response")?;
+    if node.is_null() {
+        return Ok(None);
+    }
+    let wrapped = serde_json::json!({"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[node]}}}}});
+    Ok(parse_threads(&wrapped.to_string())?.into_iter().next())
 }
 
 pub const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{databaseId author{login} body}}}}}}}";
@@ -199,6 +229,15 @@ impl GithubClient for GhClient {
         parse_threads(&String::from_utf8_lossy(&out.stdout))
     }
 
+    fn thread(&self, _pr: u64, id: &str) -> Result<Option<Thread>> {
+        let query = format!("query={THREAD_QUERY}");
+        let target = format!("id={id}");
+        let out = gh(&["api", "graphql", "-f", &query, "-f", &target])?;
+        if !out.status.success() {
+            bail!(explain(&String::from_utf8_lossy(&out.stderr)));
+        }
+        parse_thread(&String::from_utf8_lossy(&out.stdout))
+    }
     fn head_sha(&self, pr: u64) -> Result<String> {
         let out = gh(&[
             "pr",
