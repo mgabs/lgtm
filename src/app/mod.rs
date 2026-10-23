@@ -150,6 +150,7 @@ pub struct App {
     jobs_rx: Receiver<Job>,
     local_refresh: refresh::LocalRefresh,
     review_generation: u64,
+    pr_completion_revision: u64,
     pr_loading: Option<(u64, u64)>,
     ready_pr: Option<pr::LoadedPr>,
     pr_load_lock: std::sync::Arc<std::sync::Mutex<()>>,
@@ -277,6 +278,7 @@ impl App {
             jobs_rx,
             local_refresh: Default::default(),
             review_generation: 0,
+            pr_completion_revision: 0,
             pr_loading: None,
             ready_pr: None,
             pr_load_lock: Default::default(),
@@ -303,7 +305,9 @@ impl App {
     pub fn handle_background_events(&mut self) -> bool {
         if self.watcher_rx.is_empty()
             && self.jobs_rx.is_empty()
-            && !(self.ready_pr.is_some() && self.active_view == ActiveView::Diff)
+            && !(self.ready_pr.is_some()
+                && self.active_view == ActiveView::Diff
+                && !self.visual_mode)
             && !self.local_ready_to_apply()
             && !(self.quit_after_jobs && !self.has_pending_writes())
         {
@@ -324,6 +328,15 @@ impl App {
             watchers += 1;
             match msg {
                 WatcherMessage::FilesChanged(paths) => {
+                    if paths.iter().any(|path| {
+                        path.ends_with(".lgtm/state.json")
+                            || path
+                                .strip_prefix(&self.git_engine.repo_path)
+                                .is_ok_and(|relative| relative.starts_with(".lgtm/reviews"))
+                    }) {
+                        self.invalidate_pr_completion();
+                        watcher_changed_view = true;
+                    }
                     if paths.iter().any(|path| {
                         lgtm_core::watcher::affects_diff(&self.git_engine.repo_path, path)
                     }) {
@@ -391,7 +404,9 @@ impl App {
         }
         if reload_needed
             || !self.jobs_rx.is_empty()
-            || (self.ready_pr.is_some() && self.active_view == ActiveView::Diff)
+            || (self.ready_pr.is_some()
+                && self.active_view == ActiveView::Diff
+                && !self.visual_mode)
             || self.local_ready_to_apply()
             || self.quit_after_jobs
         {
@@ -412,7 +427,8 @@ impl App {
             job(self);
         }
 
-        let applying_pr = self.ready_pr.is_some() && self.active_view == ActiveView::Diff;
+        let applying_pr =
+            self.ready_pr.is_some() && self.active_view == ActiveView::Diff && !self.visual_mode;
         self.apply_ready_pr();
         let applying_local = self.apply_ready_local();
         if self.quit_after_jobs && !self.has_pending_writes() {

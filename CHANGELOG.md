@@ -3,6 +3,8 @@
 ## 0.8.2 (unreleased)
 
 ### Added
+- Opt-in `--debug` timing diagnostics with `--debug-log PATH`, plus offline responsiveness benchmarks.
+- Open, closed, and all PR listing filters for GitHub and Azure DevOps.
 - `lgtm check` / `lgtm ci` take `--rev <spec>` (for example `origin/main...HEAD`) to gate a committed range.
 - Composite GitHub Action (`action.yml`): checksum-verified install, `--rev` gate, SARIF upload, job summary, `exit-code` and `new-findings` outputs.
 - CI recipes for GitLab CI, Azure Pipelines and a pre-commit hook (WIKI, section 7).
@@ -15,10 +17,12 @@
 - Orphaned comments: comments are re-pinned after every diff reload and flagged `⚠ Orphaned` when their code is gone (never deleted).
 
 ### Fixed
+- PR loading prepares directive anchors, outcomes, review marks, and folds in the background. Changed inputs reprepare without refetching; drafts, selections, newer edits, and posting receipts are preserved.
+- Background refreshes, audits, and PR writes keep the current review usable; render caches and bounded event processing reduce navigation work.
 - Navigation with folded AST blocks is much faster: fold lookups are computed in one pass per hunk instead of per line, and queued key presses are applied before a redraw so held `j`/`k` doesn't lag.
 - `:<num>` jumps to the nearest diff line when the line isn't in the diff, and says so.
 - Azure DevOps `:prs`, `:checks` and `:threads` are fast: REST calls via `curl` with a per-session `az` token (falls back to `az` commands), results cached for 5 minutes (cleared by writes), and all three run in the background so the UI never freezes.
-- Azure DevOps `:pr <n>` is faster: it fetches `refs/pull/<n>/merge` with one `git fetch` and skips the slow `az` call; it falls back to the branch fetch when that ref is missing. `az` runs with telemetry off.
+- Azure DevOps PR loads read metadata first and prefer recorded commits, avoiding repeated missing merge refs for historical PRs. GitHub can fall back to its stored PR patch. `az` runs with telemetry off.
 - File sidebar follows the active file when navigating with `]]` / `[[` instead of scrolling out of view (diff and audit views).
 - On-prem Azure DevOps Server remotes (`.../_git/...`) are detected as Azure.
 

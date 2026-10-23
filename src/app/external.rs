@@ -107,6 +107,7 @@ impl App {
         ));
 
         let _ = self.turn_manager.advance_turn(None);
+        self.invalidate_pr_completion();
         self.invalidate_view_data();
     }
 

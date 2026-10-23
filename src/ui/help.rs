@@ -122,7 +122,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  PR REVIEW Mode     ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                    Span::raw("Run 'lgtm pr <id>' or ':pr <id>' to stream and review GitHub PR diffs live"),
+                    Span::raw("Review open or closed GitHub/Azure PRs with 'lgtm pr <id>' or ':pr <id>'"),
                 ]),
                 Line::from(vec![
                     Span::styled("  CODEBASE AUDIT Mode", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
@@ -521,12 +521,12 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Commit staged changes with message (or open Commit Forge modal)"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :prs                 ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open interactive GitHub PR picker modal"),
+                    Span::styled("  :prs [open|closed|all]", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open PR picker; 1/2/3 select open/closed/all"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :pr <number>         ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Fetch and switch to GitHub pull request diff directly (e.g. :pr 42)"),
+                    Span::raw("Load PR in background; close drafts and visual selections to switch"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :pane [id]           ", Style::default().fg(Color::Cyan)),

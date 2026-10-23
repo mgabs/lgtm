@@ -26,7 +26,7 @@ pub struct Cli {
     #[arg(long = "agent-sink")]
     pub agent_sink: Option<String>,
 
-    /// Review a specific GitHub pull request by number (e.g. --pr 16)
+    /// Review an open or closed GitHub or Azure DevOps PR by number
     #[arg(long = "pr")]
     pub pr: Option<u64>,
 
@@ -91,7 +91,7 @@ pub enum Commands {
         #[arg(short, long, default_value = ".")]
         repo: Option<PathBuf>,
     },
-    /// Review a specific GitHub Pull Request
+    /// Review an open or closed GitHub or Azure DevOps pull request
     Pr {
         /// Pull Request number
         number: u64,

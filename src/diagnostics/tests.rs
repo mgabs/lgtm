@@ -133,6 +133,13 @@ fn diagnostic_child() {
     app.active_view = ActiveView::Diff;
     app.reload_diff();
     wait_for_local_refresh(&mut app);
+    app.comments = vec![serde_json::from_value(serde_json::json!({
+        "id":"private-fixture", "file_path":"review.txt", "target_line_no":1,
+        "target_code":SECRET, "context_before":[], "context_after":[], "comment_text":SECRET,
+        "created_at_turn":1, "is_resolved":false, "pr_number":42,
+    }))
+    .unwrap()];
+    app.apply_pr_snapshot(42, snapshot(20), Default::default());
     // A key followed by quit/no draw must not look like a presented frame.
     key(&mut app, &mut metrics, KeyCode::Down);
     drop(metrics);
@@ -239,6 +246,13 @@ fn ui_diagnostics_measure_activity_without_recording_content() {
         "ui.view_request",
         "ui.view_prepare",
         "ui.view_apply",
+        "ui.pr_prepare_request",
+        "review.pr_prepare",
+        "review.pr_reanchor",
+        "review.pr_outcomes",
+        "review.pr_mark_matching",
+        "review.persist_pr_directives",
+        "ui.pr_apply",
     ] {
         assert!(!ends(name).is_empty(), "missing {name}");
     }

@@ -496,9 +496,16 @@ Suppressed counts go to stderr; `check`/`ci --show-suppressed` lists them. `ci` 
 
 Baselines: `lgtm baseline update [--prune]` runs a full scan and records `{rule_id, file, fingerprint}` entries, sorted, in `[baseline] file` (default `.lgtm-baseline.json`). `check`, `ci`, `scan`, `risk` and the TUI then treat matching findings as existing: they are counted on stderr and never affect the exit code. `scan` also reports stale entries (no matching finding); `--prune` removes them. Critical findings are never baselined unless `[baseline] allow_critical = true`. Fingerprints ignore line numbers, so moving code keeps its baseline entry; Editing the flagged line makes it new again.
 
-Remote PR calls: `lgtm_core::github::GithubClient` hides `gh` (Azure DevOps uses `az`, see below); `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line and marks their lines in the diff gutter (`◆` open, `◇` resolved). Both run only on demand; a missing or unauthenticated `gh` gives a clear message and local features keep working. lgtm never handles tokens.
+Remote PR calls: `lgtm_core::github::GithubClient` hides `gh` (Azure DevOps uses `az`, see below); `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line and marks their lines in the diff gutter (`◆` open, `◇` resolved). Both run only on demand; missing credentials give a clear message and local features keep working. See the [README diagnostics guide](../README.md#debugging-slow-pr-reviews) for opt-in timing logs.
 
 Posting: `:pr post` previews how many comments would go inline (line is in the diff) or into one combined general comment; `:pr post --yes` sends them, saving each comment's `remote_id` right away so a failed run resumes without duplicates ("N of M posted"). Only unresolved comments made while that PR was open are posted. Not yet: re-anchoring on a changed PR head, orphan skipping, and a `↑ #id` marker in the UI.
+
+PR loading and directive preparation run in the background while the current review stays visible.
+Closing drafts, modals, and visual selections allows the prepared review to appear. If its
+comments, marks, or turn changed during loading, preparation runs again against the fetched
+snapshot without another fetch or scan. The UI merges and saves current directives, preserving
+new edits, replies, and posting receipts. Local refresh reconciliation and this final save
+still run on the UI thread. Use `:reload` to fetch the current PR again.
 
 Threads: after `:threads`, `:thread reply <n> <text>`, `:thread resolve <n>` and `:thread unresolve <n>` (n = 1-based position in the list) preview what they would do; add `--yes` to send. Nothing is replied to or resolved without it, and a 403 or auth failure is shown as is, never retried.
 
@@ -609,12 +616,12 @@ lgtm hook uninstall   # cleanly removes hook
 
 ### Azure DevOps pull requests
 
-lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.com`, `*.visualstudio.com` are Azure DevOps; everything else keeps using `gh`). Azure uses the `az` CLI with the `azure-devops` extension: `az extension add --name azure-devops`, then `az login` (or `az devops login`). lgtm never handles tokens.
+lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.com`, `*.visualstudio.com` are Azure DevOps; everything else keeps using `gh`). Azure uses the `az` CLI with the `azure-devops` extension: `az extension add --name azure-devops`, then `az login` (or `az devops login`). The REST path reuses a short-lived token in memory and passes it to curl through a private temporary file.
 
 | Works | Not yet (planned) |
 |---|---|
-| `:prs`, `lgtm prs`: active PRs | |
-| `:pr <n>`, `lgtm pr <n>`: fetches `refs/pull/<n>/merge` (one `git fetch`, no `az` call) and diffs target against source locally; if that ref is missing it fetches the source and target branches into `refs/lgtm/pr/<n>/head` and `base` (one `az` call) | |
+| `:prs open/closed/all`, `lgtm prs --state open/closed/all`: list PRs by state (default open) | |
+| `:pr <n>`, `lgtm pr <n>`: reads fresh metadata through REST with cached authentication and CLI fallback; uses recorded commits before probing refs, including completed/abandoned PRs | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
 | `:pr post --yes`: inline comments become threads on the new-side line, the rest one general thread; `:thread reply`, `resolve` (status `fixed`), `unresolve` (`active`) | |
@@ -640,8 +647,8 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:q` | `:quit`, `:exit` | Quit `lgtm` (`:q!` force quit without saving) |
 | `:wq` | `:x` | Save directives and quit |
 | `:commit [msg]` | `:ci` | Open Commit Forge modal or commit staged changes with message |
-| `:pr <number>` | — | Fetch and review GitHub pull request diff directly (e.g. `:pr 42`) |
-| `:prs` | — | Open interactive GitHub PR picker modal |
+| `:pr <number>` | — | Review an open or closed GitHub/Azure DevOps PR in the background |
+| `:prs [open\|closed\|all]` | — | Open PR picker; `1`/`2`/`3` select open/closed/all |
 | `:f` | `:files`, `:find` | Open fuzzy file switcher popup |
 | `:pane [id]` | `:panes` | Select or set target agent pane ID (`tmux`, `zellij`, `wezterm`, `kitty`) |
 | `:sink [name]` | — | View or set active agent steering sink (`tmux`, `zellij`, `wezterm`, `kitty`, `clipboard`, `auto`) |
@@ -717,7 +724,7 @@ debounce_ms = 300
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
 | `lgtm init` / `--init` | Create `.lgtm/config.toml` |
 | `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via `gh`, Azure DevOps via `az`) |
-| `lgtm prs` | List and pick open PRs |
+| `lgtm prs --state open/closed/all` | List and pick PRs by state (default open) |
 | `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
 | `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
 | `lgtm ci [--strict] [--rev <spec>] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF. `--rev origin/main...HEAD` checks a committed range. Exit 0 pass, 1 blocking findings, 2 tool error (also on `check`) |

@@ -1,10 +1,15 @@
+#[cfg(test)]
+mod completion_benchmark;
 use super::*;
+mod completion;
 
 pub(crate) struct LoadedPr {
     pub pr: u64,
     pub generation: u64,
     pub snapshot: DiffSnapshot,
     pub findings: lgtm_core::findings::Findings,
+    pub repo: PathBuf,
+    completion: completion::Prepared,
 }
 
 impl App {
@@ -60,17 +65,20 @@ impl App {
         self.ready_pr = None;
         let config = self.config.clone();
         let repo = self.git_engine.repo_path.clone();
+        let completion_input = completion::Input::capture(self, pr);
         let lock = self.pr_load_lock.clone();
         let progress = self.jobs_tx.clone();
         self.spawn_job(
             &format!("Fetching and building PR #{pr} diff"),
             move || {
                 // Git fetches share refs; keep overlapping loads from contending for ref locks.
-                let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-                if latest.load(std::sync::atomic::Ordering::Relaxed) != generation {
-                    anyhow::bail!("superseded PR load");
-                }
-                let snapshot = work()?;
+                let mut snapshot = {
+                    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    if latest.load(std::sync::atomic::Ordering::Relaxed) != generation {
+                        anyhow::bail!("superseded PR load");
+                    }
+                    work()?
+                };
                 if latest.load(std::sync::atomic::Ordering::Relaxed) != generation {
                     anyhow::bail!("superseded PR load");
                 }
@@ -80,20 +88,26 @@ impl App {
                     }
                 }));
                 let findings = scan_findings(&repo, &snapshot.files, &config);
-                Ok::<_, anyhow::Error>((snapshot, findings))
+                let completion =
+                    completion::prepare(&repo, pr, &mut snapshot, completion_input, || {
+                        latest.load(std::sync::atomic::Ordering::Relaxed) == generation
+                    })?;
+                Ok::<_, anyhow::Error>(LoadedPr {
+                    pr,
+                    generation,
+                    snapshot,
+                    findings,
+                    repo,
+                    completion,
+                })
             },
             move |app, result| {
                 if app.pr_loading != Some((pr, generation)) || app.review_generation != generation {
                     return;
                 }
                 match result {
-                    Ok((snapshot, findings)) => {
-                        app.ready_pr = Some(LoadedPr {
-                            pr,
-                            generation,
-                            snapshot,
-                            findings,
-                        });
+                    Ok(ready) => {
+                        app.ready_pr = Some(ready);
                         app.apply_ready_pr();
                     }
                     Err(error) => {
@@ -114,24 +128,39 @@ impl App {
             self.ready_pr = None;
             return;
         }
+        if ready.repo != self.git_engine.repo_path {
+            self.ready_pr = None;
+            self.pr_loading = None;
+            self.status_message = Some("PR repository changed; current review kept".into());
+            return;
+        }
         // Do not change a draft's review target or cursor anchor underneath the editor.
-        if self.active_view != ActiveView::Diff {
-            self.status_message =
-                Some(format!("PR #{} ready; close this view to switch", ready.pr));
+        if self.active_view != ActiveView::Diff || self.visual_mode {
+            self.status_message = Some(format!(
+                "PR #{} ready; close this view or selection to switch",
+                ready.pr
+            ));
             return;
         }
         let ready = self.ready_pr.take().unwrap();
+        if !ready.completion.matches(self, ready.pr) {
+            self.reprepare_pr(ready);
+            return;
+        }
         self.pr_loading = None;
-        self.apply_pr_snapshot(ready.pr, ready.snapshot, ready.findings);
-        self.refresh_github_async(true);
+        if self.apply_prepared_pr(ready) {
+            self.refresh_github_async(true);
+        }
     }
 
-    fn apply_pr_snapshot(
-        &mut self,
-        pr: u64,
-        snapshot: DiffSnapshot,
-        findings: lgtm_core::findings::Findings,
-    ) {
+    fn apply_prepared_pr(&mut self, ready: LoadedPr) -> bool {
+        let LoadedPr {
+            pr,
+            snapshot,
+            findings,
+            completion,
+            ..
+        } = ready;
         let _timing = lgtm_core::debug::Span::new("ui.pr_apply");
         self.pr.current_number = Some(pr);
         self.active_revision = None;
@@ -150,27 +179,54 @@ impl App {
         self.ci = None;
         self.thread_selected_idx = 0;
         self.thread_scroll_offset = 0;
-        let turn = self.turn_manager.load_state().current_turn;
-        let mut changed = false;
-        let reanchor = lgtm_core::debug::Span::new("review.pr_directives");
-        for comment in self.comments.iter_mut().filter(|c| c.pr_number == Some(pr)) {
-            let comments = std::slice::from_mut(comment);
-            changed |= lgtm_core::review::reanchor_anchors(comments, &self.snapshot.files);
-            changed |= lgtm_core::outcome::recheck(comments, &self.snapshot.files, turn);
+        // Only target directives were prepared. All unrelated directives and posting receipts
+        // remain owned by the UI; matching was checked immediately before this merge.
+        for (current, updated) in self
+            .comments
+            .iter_mut()
+            .filter(|c| c.pr_number == Some(pr))
+            .zip(completion.comments)
+        {
+            *current = updated;
         }
-        drop(reanchor);
-        if changed {
+        self.marks = completion.marks;
+        self.invalidate_diff_folds();
+        let mut persisted = true;
+        if completion.changed {
+            // Retain the UI-owned durable write boundary used by remote posting receipts.
+            let _timing = lgtm_core::debug::Span::new("review.persist_pr_directives");
             if let Err(error) = self.comment_store.save_comments(&self.comments) {
+                persisted = false;
                 self.status_message = Some(format!(
                     "PR loaded; directive updates could not be saved: {error}"
                 ));
             }
         }
-        {
-            let _timing = lgtm_core::debug::Span::new("review.load_marks");
-            self.load_marks();
-        }
         self.update_file_picker_filter();
+        persisted
+    }
+
+    #[cfg(test)]
+    pub(crate) fn apply_pr_snapshot(
+        &mut self,
+        pr: u64,
+        mut snapshot: DiffSnapshot,
+        findings: lgtm_core::findings::Findings,
+    ) {
+        let input = completion::Input::capture(self, pr);
+        let completion =
+            completion::prepare(&self.git_engine.repo_path, pr, &mut snapshot, input, || {
+                true
+            })
+            .unwrap();
+        self.apply_prepared_pr(LoadedPr {
+            pr,
+            generation: self.review_generation,
+            repo: self.git_engine.repo_path.clone(),
+            snapshot,
+            findings,
+            completion,
+        });
     }
 
     pub fn open_pr_picker(&mut self) {
@@ -524,7 +580,14 @@ mod tests {
         app.comment_input = "draft for PR seven".into();
         app.review_generation = 1;
         app.pr_loading = Some((42, 1));
+        let mut snapshot = DiffSnapshot::default();
+        let input = completion::Input::capture(&app, 42);
+        let completion =
+            completion::prepare(&app.git_engine.repo_path, 42, &mut snapshot, input, || true)
+                .unwrap();
         app.ready_pr = Some(LoadedPr {
+            repo: app.git_engine.repo_path.clone(),
+            completion,
             pr: 42,
             generation: 1,
             snapshot: DiffSnapshot::default(),

@@ -1,8 +1,8 @@
 # lgtm Roadmap
 
-Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
+Date: 2026-10-12 · Status: planned work complete · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress (updated 2026-10-23):** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E5′, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. Original roadmap items complete. P0 diagnostics, P1 cached viewport rendering, P2 background local refreshes, P3 bounded event processing, P4 background audits, P5 prepared render data, and P6 shared navigation mappings are complete; P7 remains open.
+**Progress (updated 2026-10-23):** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E5′, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. Original roadmap items complete. P0 diagnostics, P1 cached viewport rendering, P2 background local refreshes, P3 bounded event processing, P4 background audits, P5 prepared render data, P6 shared navigation mappings, and P7 background PR completion preparation are complete.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
@@ -29,8 +29,8 @@ smoke test with debug enabled confirmed about 9 idle redraws/second across these
 (roughly 30 idle frames in each three-second sample); selected-line/comment counts were
 checked against the fixtures. Recheck with representative user workloads before treating
 this as a general bottleneck ranking. See README's
-debugging section for reproduction and metric definitions. P7 remains pending; completed
-PR background jobs and provider optimizations are not counted as UI TODOs.
+debugging section for reproduction and metric definitions. P0–P7 are complete; provider
+optimizations are documented separately from these UI TODOs.
 
 After P2, the same unoptimized 2,000-file fixture measured about 0.05 ms to request a
 refresh and 398 ms to complete it: computation still takes time, but runs off the UI thread.
@@ -98,16 +98,42 @@ layout preparation remains about 157 ms. A release terminal fixture with 500 unt
 recorded no additional view/Git-status reads during commit typing, prompt redraws, or inspector
 scrolling (median draws about 1.0/1.0/0.8 ms). An external index change updated the staged
 count from one to two, and two idle seconds produced no redraws. These are local fixture
-observations, not latency guarantees. P7 is the remaining proposed item.
+observations, not latency guarantees.
+
+P7 prepares PR directive anchors, outcomes, reviewed flags, and saved folds in the worker.
+The UI applies only results matching the repository, load generation, target directive
+inputs, and marks/turn revision. Edits, replies, deletions, receipts, and relevant watcher
+changes cause re-preparation of the existing snapshot without refetching or rescanning.
+Unrelated directives are retained; modals and visual selections defer the switch. Worker
+preparation never writes directive files. The UI-owned merged save remains synchronous,
+and the existing posting receipt acknowledgement still precedes the next remote request.
+A failed completion save remains visible. The Git fetch lock is released before scanning
+and preparation, so a superseding load need not wait for obsolete CPU preparation.
+Ten new behavior regressions cover edits/receipts, draft and visual deferral, deletion,
+scoping, mark/fold changes, turn changes, stale targets, cancellation, and persistence failure.
+Privacy tests exercise all new phase spans. All 331 automated tests, repository quality
+gates, and the release build pass. The fixed mutation catalog and passing behavior tests
+do not establish a separate BDD coverage percentage or a mutation score for the new guards.
+
+The unoptimized 1,000-directive/2,000-line fixture previously spent about 4,778 ms in the UI
+completion. It now spends about 4,788 ms preparing in the worker and 16.1 ms completing on
+the UI (including the synchronous save), with 0.44 ms input capture/queue time. The test
+presented 1,913 frames while preparing; input/draw p95 was 1.32 ms. A release terminal test
+using a local Git remote and fixture provider measured about 464 ms per preparation,
+9.6 ms UI apply (mostly saving), and 17 input presentations during the first preparation
+(maximum 0.34 ms input-to-draw). A new external edit, reply, and receipt survived; there was
+one provider diff request across preparation retries. These are local fixture observations,
+not latency guarantees. Initial cold layout preparation, local-refresh reconciliation,
+and UI-owned saves remain measurable costs beyond this completed P0–P7 batch.
 
 - [x] **P0 — Measure UI work behind `--debug`.** Render/draw, input-to-draw, idle frame/event counts, callback execution/queue waits, and refresh/completion phases are instrumented. Offline fixtures compare large diffs, many-comment reviews, and large working trees. Isolated-process tests verify disabled logging, paired records, activity classification, and content exclusion. Entry points: `src/main.rs`, `src/diagnostics.rs`, `src/ui/mod.rs`, `src/app/mod.rs`.
 - [x] **P1 — Render only the viewport and cache diff preparation.** Avoid rebuilding off-screen lines and word differences on every redraw. Cache content/token differences and folded-row mappings; index comments, threads, and alerts by file and line. Keep cursor, selection, and search styling separate so navigation does not invalidate content caches. Entry points: `src/ui/diff.rs`, `src/ui/mod.rs`.
-- [x] **P2 — Coordinate working-tree refreshes in the background.** Local startup, revision selection, and reloads compute snapshots/findings in a worker. Watcher, staging, and explicit requests coalesce; stale completions cannot replace a newer request or review target. The current snapshot, modal drafts, visual selections, newer directive edits, and posted-comment receipts are preserved until a safe update. Entry points: `src/app/refresh.rs`, `src/app/mod.rs`, `src/app/staging.rs`, `src/app/command.rs`. Directive reconciliation and mark loading remain UI work tracked by P7.
-- [x] **P3 — Schedule redraws and bound event processing.** Draw after relevant activity; idle background checks wait up to 16 ms. Process at most 32 terminal events, 32 watcher messages, and eight callbacks per iteration, with separate 4 ms batch budgets. Preserve stale-result guards across watcher backlogs and ignore internal debug-log notifications. Missing-watcher status polling runs once a second. Entry points: `src/event_loop.rs`, `src/main.rs`, `src/app/mod.rs`. Individual slow completion handlers remain subject to P7 follow-up.
+- [x] **P2 — Coordinate working-tree refreshes in the background.** Local startup, revision selection, and reloads compute snapshots/findings in a worker. Watcher, staging, and explicit requests coalesce; stale completions cannot replace a newer request or review target. The current snapshot, modal drafts, visual selections, newer directive edits, and posted-comment receipts are preserved until a safe update. Entry points: `src/app/refresh.rs`, `src/app/mod.rs`, `src/app/staging.rs`, `src/app/command.rs`. Local-refresh directive reconciliation and mark loading remain UI work; P7 covers PR completion.
+- [x] **P3 — Schedule redraws and bound event processing.** Draw after relevant activity; idle background checks wait up to 16 ms. Process at most 32 terminal events, 32 watcher messages, and eight callbacks per iteration, with separate 4 ms batch budgets. Preserve stale-result guards across watcher backlogs and ignore internal debug-log notifications. Missing-watcher status polling runs once a second. Entry points: `src/event_loop.rs`, `src/main.rs`, `src/app/mod.rs`. Individual handlers remain non-preemptible; P7 reduces PR completion preparation.
 - [x] **P4 — Run audit coordination in a background job.** Repository/diff/risk scans run in a serialized worker coordinator with one latest queued request, numeric file progress, cancellation between repository files, and stale-target guards. Previous results and newer filters/drafts survive. Report generation and fallback scanning also run in a worker; normal quit waits for export. Entry points: `src/app/audit/jobs.rs`, `crates/lgtm-core/src/scan.rs`.
 - [x] **P5 — Remove filesystem and Git status work from rendering.** Render prepared repository, turn/gate, staged-count, prompt, and snippet data. Silent worker reads coalesce to current demand; watcher/action/view changes invalidate caches and stale results are rejected. Keep a bounded snippet cache and preserve modal drafts. Opening the commit modal retains one staged-count validation. Entry points: `src/app/view_data.rs`, `src/event_loop.rs`, `src/ui/modals/commit.rs`, `src/ui/audit.rs`, `src/ui/header.rs`, `src/ui/mod.rs`.
 - [x] **P6 — Reuse visible-row mappings for cursor movement.** Stop rebuilding the selected file's visible-line list for every movement. Share the cached mapping with the renderer and invalidate it on snapshot or fold changes. Verify folded navigation, split/unified views, and large-file scrolling retain their behavior. Entry points: `src/app/motion.rs`, `src/app/staging.rs`.
-- [ ] **P7 — Reduce PR completion work on the UI thread.** Measure directive re-anchoring, outcome checks, and review-mark loading after a PR fetch. Prepare expensive results in the background and apply them only if their snapshot and directive versions still match. Preserve durable save acknowledgements before posting continues; never replace newer local edits with an older worker snapshot. Entry points: `src/app/pr.rs`, `src/app/comments.rs`.
+- [x] **P7 — Reduce PR completion work on the UI thread.** Prepare directive re-anchoring/outcomes and review marks/folds in the worker. Guard apply by repository/load generation, exact target directive inputs, and marks/turn revision; retry preparation without refetching when inputs change. Preserve modal/visual state, unrelated edits, receipts, and the existing UI-owned save acknowledgement. Entry points: `src/app/pr.rs`, `src/app/pr/completion.rs`, `src/app/comments.rs`.
 
 ### Refactor (R) — structure
 | ID | Item | Effort | Depends on |

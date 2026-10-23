@@ -330,6 +330,36 @@ shows a retry command. If a draft or modal is open when loading finishes, the sw
 until that view is closed so comments keep their original review target. Workspace and comment edits do not refetch an open PR; use
 `:reload` to fetch its latest diff.
 
+PR workers also prepare directive anchors, advisory outcomes, reviewed-file flags, and saved
+folds. Before switching views, the UI checks the repository/load generation, the exact target
+PR directive inputs (including edits, replies, resolution, and posting receipts), and the
+marks/turn revision. Changed inputs trigger another preparation of the fetched snapshot,
+without fetching or scanning the PR again. Modals and visual selections defer application.
+Unrelated directives remain untouched. Only the UI saves the merged current directives;
+preparation workers do not write directive files. Posting still waits for each successful
+receipt save before its next remote write. A failed completion save remains visible.
+
+The preparation spans are `review.pr_prepare`, `review.pr_turn`, `review.pr_reanchor`,
+`review.pr_outcomes`, `review.load_marks`, and `review.pr_mark_matching`.
+`ui.pr_prepare_request` measures input capture, `ui.pr_reprepare` records a retry, and
+`ui.pr_apply` includes the remaining UI merge and `review.persist_pr_directives` write.
+That write remains synchronous to retain the existing save-acknowledgement boundary.
+
+Measure the offline PR completion fixture (1,000 directives, 2,000 lines) with:
+
+```bash
+cargo test --bin lgtm pr_completion_workload_benchmark -- --ignored --nocapture
+
+# Optional phase diagnostics; no source or directive contents are logged
+LGTM_PR_PERF_LOG=/private/tmp/lgtm-pr-completion.jsonl \
+cargo test --bin lgtm pr_completion_workload_benchmark -- --ignored --nocapture
+```
+
+It reports input capture/queue time, background preparation, UI completion (including its
+save), and TestBackend input-to-draw p95 while the previous review remains visible.
+It uses no network or provider credentials and excludes terminal output and first rendering
+of the new review. Timings are fixture observations, not latency guarantees.
+
 Local startup, working-tree/revision reloads, and refreshes after staging or committing also
 compute their diff and findings in the background. One local refresh runs at a time; further
 requests replace a single queued request. Already-received workspace edits invalidate an
@@ -338,8 +368,8 @@ local results. `:reload` uses the current source, including revision mode and PR
 Existing snapshots stay visible until the new result can be applied. Drafts, reply editors,
 modals, and visual selections defer the update until closed. Completion reconciles current
 directives rather than replacing them with a worker's older copy. Errors retain the current
-review. Re-anchoring, outcome checks, and review-mark loading still run during the final UI
-update; their separate timings remain available for the P7 follow-up.
+review. Local-refresh re-anchoring, outcome checks, and review-mark loading still run during
+the final UI update; PR loads perform those preparation phases in their worker.
 
 Each successful batch post is saved before the next request, so a retry skips comments
 already sent. New directives and local replies made during posting are preserved. Existing

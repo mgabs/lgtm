@@ -855,6 +855,7 @@ impl App {
 
     /// Reload marks for the current target and refresh each file's reviewed flag and folds.
     pub fn load_marks(&mut self) {
+        self.invalidate_pr_completion();
         self.invalidate_diff_folds();
         let state = self
             .marks_store()
@@ -875,6 +876,7 @@ impl App {
     }
 
     pub fn save_marks(&mut self) {
+        self.invalidate_pr_completion();
         self.invalidate_diff_folds();
         let Some(store) = self.marks_store() else {
             return;
