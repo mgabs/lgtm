@@ -25,6 +25,7 @@ fn files() -> Vec<FileDiff> {
 
 fn c(path: &str, line: u32, pr: Option<u64>) -> CommentAnchor {
     CommentAnchor {
+        id: crate::comment::new_id(),
         file_path: path.into(),
         target_line_no: line,
         target_code: String::new(),
@@ -147,4 +148,19 @@ fn head_sha_and_save_errors_are_reported() {
         |_| anyhow::bail!("disk full"),
     );
     assert_eq!((r.posted, r.error.as_deref()), (1, Some("disk full")));
+}
+
+#[test]
+fn general_only_batch_does_not_need_head_sha() {
+    let mut comments = vec![c("outside.rs", 10, Some(7))];
+    let plan = plan(&comments, &files(), 7);
+    // Read operations fail; general posting is still available.
+    let client = FakeClient {
+        error: Some("head lookup must not run".into()),
+        ..Default::default()
+    };
+    let report = post(&client, 7, &mut comments, &plan, Duration::ZERO, |_| Ok(()));
+    assert_eq!(report.posted, 1);
+    assert_eq!(report.error, None);
+    assert!(comments[0].remote_id.is_some());
 }

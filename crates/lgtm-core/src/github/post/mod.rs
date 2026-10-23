@@ -83,14 +83,21 @@ fn run(
     save: &mut dyn FnMut(&[CommentAnchor]) -> Result<()>,
     posted: &mut usize,
 ) -> Result<()> {
-    let sha = client.head_sha(pr)?;
-    for &i in &plan.inline {
+    let sha = if plan.inline.is_empty() {
+        String::new()
+    } else {
+        client.head_sha(pr)?
+    };
+    for (position, &i) in plan.inline.iter().enumerate() {
         let c = &comments[i];
         let id = client.post_inline(pr, &sha, &c.file_path, c.target_line_no, &c.comment_text)?;
         comments[i].remote_id = Some(id);
         *posted += 1;
         save(comments)?;
-        std::thread::sleep(delay);
+        if position + 1 < plan.inline.len() || !plan.general.is_empty() {
+            let _timing = crate::debug::Span::new("pr.post_throttle");
+            std::thread::sleep(delay);
+        }
     }
     if !plan.general.is_empty() {
         let id = client.post_general(pr, &general_body(comments, &plan.general))?;
@@ -113,11 +120,14 @@ pub fn post(
     delay: Duration,
     mut save: impl FnMut(&[CommentAnchor]) -> Result<()>,
 ) -> Report {
+    let mut timing = crate::debug::Span::new("pr.post_batch");
     let mut r = Report {
         total: plan.total(),
         ..Default::default()
     };
-    if let Err(e) = run(client, pr, comments, plan, delay, &mut save, &mut r.posted) {
+    let result = run(client, pr, comments, plan, delay, &mut save, &mut r.posted);
+    timing.result(&result);
+    if let Err(e) = result {
         r.error = Some(e.to_string());
     }
     r

@@ -1,5 +1,12 @@
 use super::*;
 
+pub(crate) struct LoadedPr {
+    pub pr: u64,
+    pub generation: u64,
+    pub snapshot: DiffSnapshot,
+    pub findings: lgtm_core::findings::Findings,
+}
+
 impl App {
     /// Runs slow `work` on a thread and applies its result on the UI thread in a later tick.
     pub(crate) fn spawn_job<T: Send + 'static>(
@@ -9,28 +16,551 @@ impl App {
         done: impl FnOnce(&mut App, T) + Send + 'static,
     ) {
         self.status_message = Some(format!("{label}..."));
+        self.spawn_silent_job(work, done);
+    }
+
+    pub(crate) fn spawn_silent_job<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        done: impl FnOnce(&mut App, T) + Send + 'static,
+    ) {
         let tx = self.jobs_tx.clone();
         std::thread::spawn(move || {
+            let _timing = lgtm_core::debug::Span::new("ui.background_job");
             let out = work();
-            let _ = tx.send(Box::new(move |app: &mut App| done(app, out)));
+            let mut waiting = lgtm_core::debug::Span::new("ui.callback_wait");
+            waiting.count("applied", 0);
+            let _ = tx.send(Box::new(move |app: &mut App| {
+                waiting.count("applied", 1);
+                drop(waiting);
+                done(app, out);
+            }));
         });
     }
 
+    pub fn load_pr_async(&mut self, pr: u64) {
+        let repo = self.git_engine.repo_path.clone();
+        let factory = self.forge_factory;
+        self.load_pr_job(pr, move || factory(&repo).pr_diff(pr));
+    }
+
+    fn load_pr_job(
+        &mut self,
+        pr: u64,
+        work: impl FnOnce() -> anyhow::Result<DiffSnapshot> + Send + 'static,
+    ) {
+        self.invalidate_local_refresh();
+        self.invalidate_audit(false);
+        self.review_generation += 1;
+        let generation = self.review_generation;
+        self.pr_load_latest
+            .store(generation, std::sync::atomic::Ordering::Relaxed);
+        let latest = self.pr_load_latest.clone();
+        self.pr_loading = Some((pr, generation));
+        self.ready_pr = None;
+        let config = self.config.clone();
+        let repo = self.git_engine.repo_path.clone();
+        let lock = self.pr_load_lock.clone();
+        let progress = self.jobs_tx.clone();
+        self.spawn_job(
+            &format!("Fetching and building PR #{pr} diff"),
+            move || {
+                // Git fetches share refs; keep overlapping loads from contending for ref locks.
+                let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+                if latest.load(std::sync::atomic::Ordering::Relaxed) != generation {
+                    anyhow::bail!("superseded PR load");
+                }
+                let snapshot = work()?;
+                if latest.load(std::sync::atomic::Ordering::Relaxed) != generation {
+                    anyhow::bail!("superseded PR load");
+                }
+                let _ = progress.send(Box::new(move |app| {
+                    if app.pr_loading == Some((pr, generation)) {
+                        app.status_message = Some(format!("Scanning PR #{pr}..."));
+                    }
+                }));
+                let findings = scan_findings(&repo, &snapshot.files, &config);
+                Ok::<_, anyhow::Error>((snapshot, findings))
+            },
+            move |app, result| {
+                if app.pr_loading != Some((pr, generation)) || app.review_generation != generation {
+                    return;
+                }
+                match result {
+                    Ok((snapshot, findings)) => {
+                        app.ready_pr = Some(LoadedPr {
+                            pr,
+                            generation,
+                            snapshot,
+                            findings,
+                        });
+                        app.apply_ready_pr();
+                    }
+                    Err(error) => {
+                        app.pr_loading = None;
+                        app.status_message =
+                            Some(format!("PR #{pr} failed: {error:#}; retry with :pr {pr}"))
+                    }
+                }
+            },
+        );
+    }
+
+    pub(crate) fn apply_ready_pr(&mut self) {
+        let Some(ready) = self.ready_pr.as_ref() else {
+            return;
+        };
+        if ready.generation != self.review_generation {
+            self.ready_pr = None;
+            return;
+        }
+        // Do not change a draft's review target or cursor anchor underneath the editor.
+        if self.active_view != ActiveView::Diff {
+            self.status_message =
+                Some(format!("PR #{} ready; close this view to switch", ready.pr));
+            return;
+        }
+        let ready = self.ready_pr.take().unwrap();
+        self.pr_loading = None;
+        self.apply_pr_snapshot(ready.pr, ready.snapshot, ready.findings);
+        self.refresh_github_async(true);
+    }
+
+    fn apply_pr_snapshot(
+        &mut self,
+        pr: u64,
+        snapshot: DiffSnapshot,
+        findings: lgtm_core::findings::Findings,
+    ) {
+        let _timing = lgtm_core::debug::Span::new("ui.pr_apply");
+        self.pr.current_number = Some(pr);
+        self.active_revision = None;
+        self.snapshot = snapshot;
+        self.invalidate_diff_content();
+        self.alerts = findings.active;
+        *self.hidden.borrow_mut() = Hidden {
+            suppressed: findings.suppressed,
+            existing: findings.existing,
+        };
+        self.selected_file_idx = 0;
+        self.cursor_line_idx = 0;
+        self.diff_scroll_offset = 0;
+        self.threads.clear();
+        self.thread_revision += 1;
+        self.ci = None;
+        self.thread_selected_idx = 0;
+        self.thread_scroll_offset = 0;
+        let turn = self.turn_manager.load_state().current_turn;
+        let mut changed = false;
+        let reanchor = lgtm_core::debug::Span::new("review.pr_directives");
+        for comment in self.comments.iter_mut().filter(|c| c.pr_number == Some(pr)) {
+            let comments = std::slice::from_mut(comment);
+            changed |= lgtm_core::review::reanchor_anchors(comments, &self.snapshot.files);
+            changed |= lgtm_core::outcome::recheck(comments, &self.snapshot.files, turn);
+        }
+        drop(reanchor);
+        if changed {
+            if let Err(error) = self.comment_store.save_comments(&self.comments) {
+                self.status_message = Some(format!(
+                    "PR loaded; directive updates could not be saved: {error}"
+                ));
+            }
+        }
+        {
+            let _timing = lgtm_core::debug::Span::new("review.load_marks");
+            self.load_marks();
+        }
+        self.update_file_picker_filter();
+    }
+
     pub fn open_pr_picker(&mut self) {
+        self.open_pr_picker_state(self.pr.filter);
+    }
+
+    pub fn open_pr_picker_state(&mut self, state: crate::pr::PullRequestState) {
+        self.pr.filter = state;
+        self.pr.list_generation += 1;
+        let generation = self.pr.list_generation;
         self.pr.list.clear();
         self.pr.selected_idx = 0;
         self.active_view = ActiveView::PrPicker;
         let repo = self.git_engine.repo_path.clone();
+        let factory = self.forge_factory;
         self.spawn_job(
-            "Loading PRs",
-            move || lgtm_core::forge::open(&repo).list_prs(),
-            |app, res| match res {
-                Ok(prs) => {
-                    app.status_message = Some(format!("{} open PRs", prs.len()));
-                    app.pr.list = prs;
+            &format!("Loading {} PRs", state.as_str()),
+            move || factory(&repo).list_prs_state(state),
+            move |app, res| {
+                if app.pr.list_generation != generation {
+                    return;
                 }
-                Err(e) => app.status_message = Some(format!("PR list failed: {}", e)),
+                match res {
+                    Ok(prs) => {
+                        app.status_message = Some(format!("{} {} PRs", prs.len(), state.as_str()));
+                        app.pr.list = prs;
+                    }
+                    Err(e) => app.status_message = Some(format!("PR list failed: {e}")),
+                }
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_util::create_test_app;
+    use super::*;
+
+    #[test]
+    fn watcher_does_not_reload_remote_pr() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.status_message = Some("unchanged".into());
+        let (tx, rx) = crossbeam_channel::unbounded();
+        app.watcher_rx = rx;
+        tx.send(WatcherMessage::FilesChanged(vec![app
+            .git_engine
+            .repo_path
+            .join("src/lib.rs")]))
+            .unwrap();
+        app.handle_background_events();
+        assert_eq!(app.status_message.as_deref(), Some("unchanged"));
+    }
+
+    #[test]
+    fn comment_write_does_not_reload_local_diff() {
+        let mut app = create_test_app();
+        app.status_message = Some("unchanged".into());
+        let (tx, rx) = crossbeam_channel::unbounded();
+        app.watcher_rx = rx;
+        tx.send(WatcherMessage::FilesChanged(vec![app
+            .git_engine
+            .repo_path
+            .join(".lgtm/comments.jsonl")]))
+            .unwrap();
+        app.handle_background_events();
+        assert_eq!(app.status_message.as_deref(), Some("unchanged"));
+    }
+    fn thread(id: &str) -> lgtm_core::github::Thread {
+        lgtm_core::github::Thread {
+            id: id.into(),
+            path: "a.rs".into(),
+            line: Some(1),
+            resolved: false,
+            comments: vec![],
+        }
+    }
+
+    #[test]
+    fn resolution_runs_in_background_and_applies_by_id() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.threads = vec![thread("first"), thread("second")];
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        app.resolve_thread_job(42, "first".into(), true, move || {
+            rx.recv().unwrap();
+            Ok(())
+        });
+        // The worker cannot finish until this UI-side send. Selection/order may change meanwhile.
+        assert!(!app.threads[0].resolved);
+        app.threads.swap(0, 1);
+        tx.send(()).unwrap();
+        let job = app
+            .jobs_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        job(&mut app);
+        assert!(!app.threads[0].resolved);
+        assert!(app.threads[1].resolved);
+    }
+
+    #[test]
+    fn old_pr_resolution_is_ignored_and_failed_resolution_stays_open() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.threads = vec![thread("first")];
+        app.resolve_thread_job(42, "first".into(), true, || Ok(()));
+        let job = app
+            .jobs_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        app.pr.current_number = Some(43);
+        app.status_message = Some("new PR".into());
+        job(&mut app);
+        assert!(!app.threads[0].resolved);
+        assert_eq!(app.status_message.as_deref(), Some("new PR"));
+        app.resolve_thread_job(43, "first".into(), true, || anyhow::bail!("denied"));
+        let job = app
+            .jobs_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        job(&mut app);
+        assert!(!app.threads[0].resolved);
+        assert!(app.status_message.as_deref().unwrap().contains("denied"));
+    }
+    fn apply_next(app: &mut App) {
+        let job = app
+            .jobs_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .expect("background job did not complete");
+        job(app);
+    }
+
+    fn directive(text: &str, line: u32) -> CommentAnchor {
+        serde_json::from_value(serde_json::json!({"id":lgtm_core::comment::new_id(), "file_path":"a.rs", "target_line_no":line,
+            "target_code":"code", "context_before":[], "context_after":[], "comment_text":text, "created_at_turn":1,
+            "is_resolved":false, "pr_number":42})).unwrap()
+    }
+
+    #[test]
+    fn newest_load_wins_and_failure_preserves_current_review() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(7);
+        app.threads = vec![thread("keep")];
+        app.comments = vec![directive("keep draft", 1)];
+        let (started_tx, started_rx) = crossbeam_channel::bounded(1);
+        let (release_tx, release_rx) = crossbeam_channel::bounded(1);
+        app.load_pr_job(8, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(DiffSnapshot::default())
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        assert_eq!(app.pr.current_number, Some(7));
+        app.load_pr_job(9, || anyhow::bail!("network unavailable"));
+        release_tx.send(()).unwrap();
+        apply_next(&mut app);
+        apply_next(&mut app);
+        assert_eq!(app.pr.current_number, Some(7));
+        assert_eq!(app.threads[0].id, "keep");
+        assert_eq!(app.comments[0].comment_text, "keep draft");
+        assert!(app.pr_loading.is_none());
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .contains("retry with :pr 9"));
+    }
+
+    #[test]
+    fn applying_pr_snapshot_clears_old_navigation_and_threads() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(7);
+        app.active_revision = Some("old-revision".into());
+        app.threads = vec![thread("old")];
+        app.selected_file_idx = 5;
+        app.cursor_line_idx = 20;
+        app.apply_pr_snapshot(42, DiffSnapshot::default(), Default::default());
+        assert_eq!(app.pr.current_number, Some(42));
+        assert!(app.active_revision.is_none());
+        assert!(app.threads.is_empty());
+        assert_eq!(app.selected_file_idx, 0);
+        assert_eq!(app.cursor_line_idx, 0);
+    }
+
+    #[test]
+    fn thread_queue_orders_actions_and_deduplicates_pending_requests() {
+        use super::super::comments::{ThreadAction, ThreadOutcome};
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.threads = vec![thread("first")];
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let action = ThreadAction::Reply {
+            target: 1,
+            text: "reply".into(),
+        };
+        app.enqueue_thread_job(42, "first".into(), action.clone(), move || {
+            rx.recv().unwrap();
+            Ok(ThreadOutcome::Reply(20))
+        });
+        app.enqueue_thread_job(42, "first".into(), action, || {
+            panic!("duplicate reply executed")
+        });
+        app.resolve_thread_job(42, "first".into(), true, || Ok(()));
+        assert_eq!(app.thread_jobs.get(&(42, "first".into())).unwrap().len(), 2);
+        assert!(!app.threads[0].resolved);
+        tx.send(()).unwrap();
+        apply_next(&mut app);
+        assert_eq!(app.threads[0].comments[0].body, "reply");
+        assert_eq!(app.threads[0].comments[0].id, 20);
+        assert!(!app.threads[0].resolved);
+        apply_next(&mut app);
+        assert!(app.threads[0].resolved);
+        assert!(app.thread_jobs.is_empty());
+    }
+
+    #[test]
+    fn failed_remote_reply_retains_its_draft() {
+        use super::super::comments::ThreadAction;
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.threads = vec![thread("first")];
+        app.enqueue_thread_job(
+            42,
+            "first".into(),
+            ThreadAction::Reply {
+                target: 1,
+                text: "keep me".into(),
+            },
+            || anyhow::bail!("denied"),
+        );
+        apply_next(&mut app);
+        assert_eq!(
+            app.reply_drafts.get(&(42, "first".into())).unwrap(),
+            "keep me"
+        );
+        assert!(app.threads[0].comments.is_empty());
+    }
+
+    #[test]
+    fn background_post_preserves_edits_and_success_before_later_failure() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.snapshot = lgtm_core::pr::PrEngine::parse_unified_diff(
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,2 @@\n+first\n+second\n",
+        )
+        .unwrap();
+        app.comments = vec![directive("first", 1), directive("second", 2)];
+        app.post_pr_comments_job(true, || {
+            Box::new(lgtm_core::github::FakeClient {
+                fail_post_after: Some(1),
+                ..Default::default()
+            })
+        });
+        app.post_pr_comments_job(true, || panic!("duplicate batch executed"));
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .contains("already being posted"));
+        app.comments[0].add_reply("edited while posting");
+        app.comments.push(directive("new draft", 3));
+        app.comments.swap(0, 1);
+        apply_next(&mut app); // receipt is merged by identity, not the old list index
+        assert!(app.comments[1].remote_id.is_some());
+        assert_eq!(app.comments[1].replies, ["edited while posting"]);
+        apply_next(&mut app); // later post fails; first receipt is already durable
+        assert!(app.comments[0].remote_id.is_none());
+        assert!(app.comments[2].remote_id.is_none());
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("1 of 2 posted; stopped"));
+        assert!(app.posting_prs.is_empty());
+        assert!(app.posting_comments.is_empty());
+        let stored = app.comment_store.load_comments();
+        assert_eq!(stored, app.comments);
+        let retry = lgtm_core::github::post::plan(&app.comments, &app.snapshot.files, 42);
+        assert_eq!(retry.total(), 2);
+    }
+
+    #[test]
+    fn normal_quit_waits_for_successful_post_receipt_to_be_saved() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.comments = vec![directive("general comment", 1)];
+        app.post_pr_comments_job(true, || Box::new(lgtm_core::github::FakeClient::default()));
+        app.request_quit();
+        assert!(!app.should_quit);
+        apply_next(&mut app);
+        assert!(app.comment_store.load_comments()[0].remote_id.is_some());
+        apply_next(&mut app);
+        app.handle_background_events();
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn local_reply_save_failure_keeps_the_input_open() {
+        let mut app = create_test_app();
+        app.comments = vec![directive("comment", 1)];
+        app.start_reply_to_comment(0);
+        app.comment_reply_input = "draft reply".into();
+        std::fs::create_dir(app.git_engine.repo_path.join(".lgtm/comments.jsonl")).unwrap();
+        app.handle_comment_reply_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::CommentReply);
+        assert_eq!(app.comment_reply_input, "draft reply");
+        assert!(app.comments[0].replies.is_empty());
+    }
+    #[test]
+    fn single_thread_refresh_ignores_outdated_results() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.threads = vec![thread("first")];
+        let mut updated = thread("first");
+        updated.resolved = true;
+        app.refresh_thread_job(42, "first".into(), move || Ok(Some(updated)));
+        app.thread_revision += 1;
+        apply_next(&mut app);
+        assert!(!app.threads[0].resolved);
+        let mut fresh = thread("first");
+        fresh.resolved = true;
+        app.refresh_thread_job(42, "first".into(), move || Ok(Some(fresh)));
+        apply_next(&mut app);
+        assert!(app.threads[0].resolved);
+    }
+
+    #[test]
+    fn pending_pr_load_is_not_restarted_by_local_edits() {
+        let mut app = create_test_app();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        app.watcher_rx = rx;
+        app.pr_loading = Some((42, 1));
+        tx.send(WatcherMessage::FilesChanged(vec![app
+            .git_engine
+            .repo_path
+            .join("a.rs")]))
+            .unwrap();
+        app.handle_background_events();
+        assert_eq!(app.pr_loading, Some((42, 1)));
+        assert_eq!(app.review_generation, 0);
+    }
+    #[test]
+    fn ready_pr_waits_until_the_current_draft_is_closed() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(7);
+        app.active_view = ActiveView::CommentInput;
+        app.comment_input = "draft for PR seven".into();
+        app.review_generation = 1;
+        app.pr_loading = Some((42, 1));
+        app.ready_pr = Some(LoadedPr {
+            pr: 42,
+            generation: 1,
+            snapshot: DiffSnapshot::default(),
+            findings: Default::default(),
+        });
+        app.apply_ready_pr();
+        assert_eq!(app.pr.current_number, Some(7));
+        assert_eq!(app.comment_input, "draft for PR seven");
+        assert!(app.ready_pr.is_some());
+        app.active_view = ActiveView::Diff;
+        app.apply_ready_pr();
+        assert_eq!(app.pr.current_number, Some(42));
+        assert!(app.ready_pr.is_none());
+    }
+    #[test]
+    fn picker_filters_and_selection_use_background_jobs() {
+        let mut app = create_test_app();
+        app.execute_command(":prs closed");
+        assert_eq!(app.pr.filter, crate::pr::PullRequestState::Closed);
+        assert_eq!(app.active_view, ActiveView::PrPicker);
+        app.handle_pr_picker_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+        assert_eq!(app.pr.filter, crate::pr::PullRequestState::All);
+        app.pr.list.push(crate::pr::PullRequestSummary {
+            number: 19673,
+            title: "old PR".into(),
+            author: crate::pr::PrAuthor {
+                login: "test".into(),
+            },
+            head_ref_name: "deleted".into(),
+            additions: 0,
+            deletions: 0,
+            state: "completed".into(),
+        });
+        app.handle_pr_picker_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.pr.current_number, None);
+        assert_eq!(app.pr_loading.map(|(number, _)| number), Some(19673));
     }
 }

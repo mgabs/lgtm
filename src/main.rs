@@ -1,6 +1,6 @@
 mod app;
 use lgtm_core::{
-    comment, coverage, diff_source, git, guard, ipc, model, mutate, pr, scan, turn, verify, watcher,
+    comment, coverage, git, guard, ipc, model, mutate, pr, scan, turn, verify, watcher,
 };
 use lgtm_mcp as mcp;
 mod ui;
@@ -9,7 +9,6 @@ use anyhow::Result;
 use app::App;
 use clap::Parser;
 use crossterm::{
-    event::{self, Event},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -17,10 +16,11 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::stdout;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
 use watcher::RepoWatcher;
 
 mod cli;
+mod diagnostics;
+mod event_loop;
 mod headless;
 
 use cli::{AuditStartMode, Cli, Commands};
@@ -94,6 +94,18 @@ fn main() -> ExitCode {
             e.exit();
         }
     };
+
+    if cli.debug {
+        let path = cli
+            .debug_log
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| std::env::temp_dir().join("lgtm-debug.jsonl"));
+        if let Err(error) = lgtm_core::debug::init(&path) {
+            eprintln!("Could not open debug log {}: {error}", path.display());
+            return ExitCode::from(2);
+        }
+    }
 
     if cli.init {
         let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
@@ -231,17 +243,17 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Some(Commands::Prs) => match lgtm_core::forge::open(
+        Some(Commands::Prs { state }) => match lgtm_core::forge::open(
             &std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo.clone()),
         )
-        .list_prs()
+        .list_prs_state(pr::PullRequestState::parse(&state).expect("validated PR state"))
         {
             Ok(prs) => {
-                println!("📋 Open Pull Requests ({} total):\n", prs.len());
+                println!("📋 {} pull requests ({} total):\n", state, prs.len());
                 for pr in prs {
                     println!(
-                            "  \x1b[1;34m#{}\x1b[0m {} \x1b[33mby @{}\x1b[0m (\x1b[32m+{}\x1b[0m/\x1b[31m-{}\x1b[0m) [\x1b[36m{}\x1b[0m]",
-                            pr.number, pr.title, pr.author.login, pr.additions, pr.deletions, pr.head_ref_name
+                            "  \x1b[1;34m#{}\x1b[0m {} \x1b[33mby @{}\x1b[0m (\x1b[32m+{}\x1b[0m/\x1b[31m-{}\x1b[0m) [\x1b[36m{}\x1b[0m] ({})",
+                            pr.number, pr.title, pr.author.login, pr.additions, pr.deletions, pr.head_ref_name, pr.state
                         );
                 }
                 println!("\nRun `lgtm pr <num>` to review a PR.");
@@ -518,7 +530,7 @@ fn run_tui(
         Ok(w) => Some(w),
         Err(e) => {
             eprintln!(
-                "Warning: Failed to start file watcher: {}. Polling fallback will be used.",
+                "Warning: Failed to start file watcher: {}. Status updates use polling; use :reload for file changes.",
                 e
             );
             None
@@ -545,34 +557,22 @@ fn run_tui(
             app.trigger_repo_scan();
         }
         Some(AuditStartMode::DiffChanges) => {
-            app.trigger_diff_scan();
+            app.open_initial_diff_audit();
         }
         None => {}
     }
 
-    // Main event loop
-    let tick_rate = Duration::from_millis(100);
+    let mut event_loop = event_loop::UiLoop::default();
+    if _watcher.is_none() {
+        event_loop.enable_polling_fallback();
+    }
+    let mut input = event_loop::TerminalInput;
+    let mut diagnostics = lgtm_core::debug::enabled().then(diagnostics::UiLoop::default);
     while !app.should_quit {
-        // Drain any filesystem events
-        app.handle_background_events();
-
-        // Render UI
-        terminal.draw(|f| ui::render(f, &mut app))?;
-
-        // Poll user keyboard events
-        // Apply every queued key before the next redraw so held keys (j/k repeat) don't lag
-        let mut wait = tick_rate;
-        while event::poll(wait)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == crossterm::event::KeyEventKind::Press {
-                    app.handle_key(key);
-                }
-            }
-            wait = Duration::ZERO;
-            if app.should_quit {
-                break;
-            }
-        }
+        event_loop.step(&mut app, &mut input, &mut diagnostics, |app| {
+            lgtm_core::debug::measure("ui.draw", || terminal.draw(|f| ui::render(f, app)))?;
+            Ok(())
+        })?;
     }
 
     // Restore terminal

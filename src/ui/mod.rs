@@ -12,6 +12,7 @@ use similar::{ChangeTag, TextDiff};
 mod audit;
 mod command;
 mod diff;
+pub(crate) use diff::cache::RenderCache;
 mod header;
 mod help;
 mod modals;
@@ -29,6 +30,30 @@ use self::status::{render_search_input, render_status_bar};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let size = frame.area();
+    let mut timing = lgtm_core::debug::Span::new("ui.render");
+    timing.count("files", app.snapshot.files.len() as u64);
+    timing.count("comments", app.comments.len() as u64);
+    timing.count("threads", app.threads.len() as u64);
+    timing.count("alerts", app.alerts.len() as u64);
+    timing.count("width", size.width.into());
+    timing.count("height", size.height.into());
+    timing.count(
+        "changed_lines",
+        (app.snapshot.total_additions + app.snapshot.total_deletions) as u64,
+    );
+    if lgtm_core::debug::enabled() {
+        let selected_lines = app
+            .snapshot
+            .files
+            .get(app.selected_file_idx)
+            .map_or(0, |file| {
+                file.hunks
+                    .iter()
+                    .map(|hunk| hunk.lines.len())
+                    .sum::<usize>()
+            });
+        timing.count("selected_lines", selected_lines as u64);
+    }
 
     // Main layout: Header (1 line), Body (rest), Status bar (1 line)
     let chunks = Layout::default()
@@ -70,7 +95,7 @@ fn render_agent_prompt_modal(frame: &mut Frame, area: Rect, app: &mut App) {
     let modal_area = centered_rect(75, 60, area);
     frame.render_widget(Clear, modal_area);
 
-    let (source, content) = app.load_agent_prompt_context();
+    let (source, content) = app.view_data.prompt_for(&app.git_engine.repo_path);
 
     let block = Block::default()
         .title(format!(

@@ -216,36 +216,8 @@ impl App {
         map
     }
 
-    pub fn visible_line_indices(&self) -> Vec<usize> {
-        let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
-            return Vec::new();
-        };
-        let mut visible = Vec::new();
-        let mut line_offset = 0;
-        for hunk in &file.hunks {
-            if hunk.lines.is_empty() {
-                continue;
-            }
-            if hunk.is_folded {
-                visible.push(line_offset);
-                line_offset += hunk.lines.len();
-                continue;
-            }
-            let mut seen = Vec::new();
-            for (idx, folded) in Self::fold_map(hunk).into_iter().enumerate() {
-                let abs_idx = line_offset + idx;
-                if let Some(range) = folded {
-                    if !seen.contains(&range) {
-                        seen.push(range);
-                        visible.push(abs_idx);
-                    }
-                } else {
-                    visible.push(abs_idx);
-                }
-            }
-            line_offset += hunk.lines.len();
-        }
-        visible
+    pub fn visible_line_indices(&self) -> std::rc::Rc<Vec<usize>> {
+        self.cached_rows().visible.clone()
     }
 
     pub fn cursor_down(&mut self) {

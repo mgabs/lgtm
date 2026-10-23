@@ -29,6 +29,7 @@ fn file(path: &str, adds: &[&str]) -> FileDiff {
 
 fn directive(files: &[FileDiff], turn: u64) -> CommentAnchor {
     CommentAnchor {
+        id: crate::comment::new_id(),
         file_path: "a.rs".into(),
         target_line_no: 1,
         target_code: "x".into(),

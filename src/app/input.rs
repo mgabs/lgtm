@@ -2,6 +2,7 @@ use super::*;
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
+        let _timing = lgtm_core::debug::Span::new("ui.input");
         match self.active_view {
             ActiveView::Diff => self.handle_diff_key(key),
             ActiveView::FilePicker => self.handle_file_picker_key(key),
@@ -228,7 +229,7 @@ impl App {
 
         match (key.modifiers, key.code) {
             (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Char('q')) => {
-                self.should_quit = true;
+                self.request_quit();
             }
             (_, KeyCode::Char('?')) => {
                 self.active_view = ActiveView::Help;
@@ -287,10 +288,7 @@ impl App {
             }
             (_, KeyCode::Char('r')) => {
                 if let Some(t_idx) = self.thread_at_cursor() {
-                    self.thread_selected_idx = t_idx;
-                    self.command.input = format!("thread reply {} ", t_idx + 1);
-                    self.command.history_idx = None;
-                    self.active_view = ActiveView::CommandLine;
+                    self.start_thread_reply(t_idx);
                 } else if let Some(idx) = self.comment_idx_at_cursor() {
                     self.start_reply_to_comment(idx);
                 } else {
@@ -309,7 +307,7 @@ impl App {
                 self.approve_gate();
             }
             (_, KeyCode::Char('P')) => {
-                self.active_view = ActiveView::AgentPrompt;
+                self.open_agent_prompt();
             }
             (_, KeyCode::Char('T')) => {
                 self.run_test_mutation_probe();
@@ -679,30 +677,12 @@ impl App {
                     let thread_id = t.id.clone();
                     let next_resolved = !t.resolved;
                     if let Some(pr) = self.pr.current_number {
-                        let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
-                        match forge.set_resolved(pr, &thread_id, next_resolved) {
-                            Ok(()) => {
-                                if let Some(t_mut) = self.threads.get_mut(self.thread_selected_idx)
-                                {
-                                    t_mut.resolved = next_resolved;
-                                }
-                                self.status_message = Some(if next_resolved {
-                                    "✅ Thread marked resolved".into()
-                                } else {
-                                    "💬 Thread marked active".into()
-                                });
-                            }
-                            Err(e) => {
-                                self.status_message = Some(format!("Failed to update thread: {e}"));
-                            }
-                        }
+                        self.set_thread_resolved_async(pr, thread_id, next_resolved);
                     }
                 }
             }
             (_, KeyCode::Char('r')) if !self.threads.is_empty() => {
-                self.command.input = format!("thread reply {} ", self.thread_selected_idx + 1);
-                self.command.history_idx = None;
-                self.active_view = ActiveView::CommandLine;
+                self.start_thread_reply(self.thread_selected_idx);
             }
             _ => {}
         }
@@ -735,30 +715,14 @@ impl App {
             | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
                 self.pr.selected_idx = self.pr.selected_idx.saturating_sub(5);
             }
+            (_, KeyCode::Char('1')) => self.open_pr_picker_state(crate::pr::PullRequestState::Open),
+            (_, KeyCode::Char('2')) => {
+                self.open_pr_picker_state(crate::pr::PullRequestState::Closed)
+            }
+            (_, KeyCode::Char('3')) => self.open_pr_picker_state(crate::pr::PullRequestState::All),
             (_, KeyCode::Enter) => {
                 if let Some(pr) = self.pr.list.get(self.pr.selected_idx) {
-                    let pr_num = pr.number;
-                    match crate::diff_source::DiffSource::snapshot(
-                        &crate::diff_source::PullRequestSource {
-                            pr: pr_num,
-                            repo: self.git_engine.repo_path.clone(),
-                        },
-                    ) {
-                        Ok(snap) => {
-                            self.pr.current_number = Some(pr_num);
-                            self.alerts = self.scan(&snap.files);
-                            self.snapshot = snap;
-                            self.selected_file_idx = 0;
-                            self.cursor_line_idx = 0;
-                            self.status_message =
-                                Some(format!("Loaded PR #{}: {}", pr_num, pr.title));
-                            self.refresh_github_async(true);
-                        }
-                        Err(e) => {
-                            self.status_message =
-                                Some(format!("Failed to fetch PR #{}: {}", pr_num, e));
-                        }
-                    }
+                    self.load_pr_async(pr.number);
                 }
                 self.active_view = ActiveView::Diff;
             }
@@ -778,7 +742,12 @@ impl App {
                     if let Some(idx) = self.comment_reply_target_idx {
                         if idx < self.comments.len() {
                             self.comments[idx].add_reply(self.comment_reply_input.trim());
-                            let _ = self.comment_store.save_comments(&self.comments);
+                            if let Err(error) = self.comment_store.save_comments(&self.comments) {
+                                self.comments[idx].replies.pop();
+                                self.status_message =
+                                    Some(format!("Reply not saved: {error}; draft retained"));
+                                return;
+                            }
                             self.status_message = Some(format!(
                                 "Reply added to comment on {}:{}",
                                 self.comments[idx].file_path, self.comments[idx].target_line_no
@@ -808,7 +777,9 @@ impl App {
             }
             KeyCode::Enter => {
                 if !self.comment_input.trim().is_empty() {
-                    self.save_current_line_comment();
+                    if !self.save_current_line_comment() {
+                        return;
+                    }
                 } else {
                     self.comment_target_alert = None;
                 }
@@ -998,7 +969,7 @@ impl App {
 
         match (key.modifiers, key.code) {
             (_, KeyCode::Char('q')) => {
-                self.should_quit = true;
+                self.request_quit();
             }
             (_, KeyCode::Esc) => {
                 if self.audit.maximized_inspector {

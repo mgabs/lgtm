@@ -437,6 +437,7 @@ impl McpServer {
 
                 let comment =
                     lgtm_core::comment::CommentAnchor {
+                        id: lgtm_core::comment::new_id(),
                         file_path: file.to_string(),
                         target_line_no: line,
                         target_code: String::new(),

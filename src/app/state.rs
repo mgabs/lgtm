@@ -162,6 +162,8 @@ impl CommandLine {
 
 #[derive(Debug, Clone)]
 pub struct AuditState {
+    pub has_result: bool,
+    pub progress: Option<String>,
     pub alerts: Vec<crate::guard::GuardAlert>,
     pub files: Vec<crate::model::FileDiff>,
     pub selected_idx: usize,
@@ -176,6 +178,8 @@ pub struct AuditState {
 impl AuditState {
     pub fn new(root_dir: std::path::PathBuf) -> Self {
         Self {
+            has_result: false,
+            progress: None,
             alerts: Vec::new(),
             files: Vec::new(),
             selected_idx: 0,
@@ -191,6 +195,8 @@ impl AuditState {
 
 #[derive(Debug, Clone)]
 pub struct PrState {
+    pub filter: crate::pr::PullRequestState,
+    pub list_generation: u64,
     pub current_number: Option<u64>,
     pub list: Vec<crate::pr::PullRequestSummary>,
     pub selected_idx: usize,
@@ -200,6 +206,8 @@ impl PrState {
     pub fn new(current_number: Option<u64>) -> Self {
         Self {
             current_number,
+            filter: Default::default(),
+            list_generation: 0,
             list: Vec::new(),
             selected_idx: 0,
         }

@@ -444,22 +444,7 @@ impl App {
     }
 
     pub fn staged_files_count(&self) -> usize {
-        if let Ok(repo) = self.git_engine.open_repo() {
-            if let Ok(statuses) = repo.statuses(None) {
-                return statuses
-                    .iter()
-                    .filter(|s| {
-                        let st = s.status();
-                        st.is_index_new()
-                            || st.is_index_modified()
-                            || st.is_index_deleted()
-                            || st.is_index_renamed()
-                            || st.is_index_typechange()
-                    })
-                    .count();
-            }
-        }
-        0
+        view_data::read_staged_count(&self.git_engine.repo_path)
     }
 
     pub fn toggle_visual_mode(&mut self) {
@@ -810,7 +795,7 @@ mod tests {
         app.selected_file_idx = 0;
 
         // Initial visible lines: all 9 lines
-        assert_eq!(app.visible_line_indices(), (0..9).collect::<Vec<_>>());
+        assert_eq!(*app.visible_line_indices(), (0..9).collect::<Vec<_>>());
 
         // Position cursor on line 3 ("if b > 10 {") -> toggle_fold_at_cursor
         app.cursor_line_idx = 2;
@@ -824,7 +809,7 @@ mod tests {
 
         // Visible lines should now have 0, 1, 2 (fold marker), 6, 7, 8
         let visible = app.visible_line_indices();
-        assert_eq!(visible, vec![0, 1, 2, 6, 7, 8]);
+        assert_eq!(*visible, vec![0, 1, 2, 6, 7, 8]);
 
         // Motion: moving down from fold marker (idx 2) skips lines 3-5 and lands on 6
         app.cursor_line_idx = 2;
@@ -838,7 +823,7 @@ mod tests {
         // Unfold at cursor: toggling again unfolds the block
         app.toggle_fold_at_cursor();
         assert!(app.snapshot.files[0].hunks[0].folded_blocks.is_empty());
-        assert_eq!(app.visible_line_indices(), (0..9).collect::<Vec<_>>());
+        assert_eq!(*app.visible_line_indices(), (0..9).collect::<Vec<_>>());
 
         // Position cursor on line 0 ("fn compute...") -> toggle_fold_at_cursor folds entire function
         app.cursor_line_idx = 0;
@@ -849,12 +834,12 @@ mod tests {
             1
         );
         assert_eq!(app.snapshot.files[0].hunks[0].folded_blocks[0].end_line, 9);
-        assert_eq!(app.visible_line_indices(), vec![0]);
+        assert_eq!(*app.visible_line_indices(), vec![0]);
 
         // Unfold function
         app.toggle_fold_at_cursor();
         assert!(app.snapshot.files[0].hunks[0].folded_blocks.is_empty());
-        assert_eq!(app.visible_line_indices(), (0..9).collect::<Vec<_>>());
+        assert_eq!(*app.visible_line_indices(), (0..9).collect::<Vec<_>>());
     }
 
     #[test]
@@ -889,6 +874,7 @@ mod tests {
         };
         app.snapshot = DiffSnapshot::new(vec![file.clone()]);
         app.comments.push(CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "src/main.rs".into(),
             target_line_no: 1,
             target_code: "let x = 10;".into(),

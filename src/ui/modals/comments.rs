@@ -150,7 +150,9 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
         .enumerate()
         .map(|(idx, comment)| {
             let is_selected = idx == app.comment_list_selected_idx;
-            let status_badge = if comment.orphaned {
+            let status_badge = if app.posting_comments.contains(&comment.id) {
+                Span::styled("[Posting…] ", Style::default().fg(Color::Yellow))
+            } else if comment.orphaned {
                 Span::styled(
                     "[⚠ Orphaned] ",
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),

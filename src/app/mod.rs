@@ -13,6 +13,8 @@ use std::path::PathBuf;
 pub use state::*;
 
 mod audit;
+#[cfg(test)]
+mod background_tests;
 mod command;
 mod comments;
 mod commit;
@@ -20,10 +22,13 @@ mod external;
 mod input;
 mod motion;
 mod pr;
+mod refresh;
+pub(crate) mod rows;
 mod staging;
 mod state;
 #[cfg(test)]
 pub(crate) mod test_util;
+pub(crate) mod view_data;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
@@ -52,9 +57,14 @@ pub enum AuditPaneFocus {
 
 pub struct App {
     pub git_engine: GitEngine,
+    forge_factory: fn(&std::path::Path) -> Box<dyn lgtm_core::forge::Forge>,
     pub comment_store: CommentStore,
     pub turn_manager: TurnManager,
     pub snapshot: DiffSnapshot,
+    diff_revision: u64,
+    fold_revision: u64,
+    rows_cache: std::cell::RefCell<rows::Cache>,
+    pub(crate) render_cache: std::cell::RefCell<crate::ui::RenderCache>,
     pub alerts: Vec<GuardAlert>,
     pub comments: Vec<CommentAnchor>,
     /// Reviewed hunks for the current review target, keyed by content hash.
@@ -65,6 +75,8 @@ pub struct App {
 
     // Full Repo Audit state
     pub audit: AuditState,
+    pub(crate) view_data: view_data::Prepared,
+    audit_jobs: audit::AuditJobs,
     pub config: lgtm_core::config::LgtmConfig,
     /// Findings hidden from the alert list: inline/config suppressed and baselined.
     pub hidden: std::cell::RefCell<Hidden>,
@@ -79,6 +91,7 @@ pub struct App {
     pub agent_sink_kind: Option<crate::ipc::SinkKind>,
     pub status_message: Option<String>,
     pub should_quit: bool,
+    quit_after_jobs: bool,
 
     // PR Forge state
     pub pr: PrState,
@@ -135,6 +148,20 @@ pub struct App {
     // Results of slow remote calls, applied on the UI thread by `handle_background_events`
     jobs_tx: crossbeam_channel::Sender<Job>,
     jobs_rx: Receiver<Job>,
+    local_refresh: refresh::LocalRefresh,
+    review_generation: u64,
+    pr_loading: Option<(u64, u64)>,
+    ready_pr: Option<pr::LoadedPr>,
+    pr_load_lock: std::sync::Arc<std::sync::Mutex<()>>,
+    pr_load_latest: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    thread_revision: u64,
+    thread_reconcile: std::collections::HashSet<(u64, String)>,
+    thread_jobs:
+        std::collections::HashMap<(u64, String), std::collections::VecDeque<comments::ThreadJob>>,
+    posting_prs: std::collections::HashSet<u64>,
+    pub posting_comments: std::collections::HashSet<String>,
+    review_posting_prs: std::collections::HashSet<u64>,
+    reply_drafts: std::collections::HashMap<(u64, String), String>,
 }
 
 pub type Job = Box<dyn FnOnce(&mut App) + Send>;
@@ -150,22 +177,13 @@ fn scan_findings(
     files: &[crate::model::FileDiff],
     cfg: &lgtm_core::config::LgtmConfig,
 ) -> lgtm_core::findings::Findings {
+    let _timing = lgtm_core::debug::Span::new("review.scan");
     // a broken baseline file must not hide findings
     lgtm_core::findings::run_in(repo, files, cfg)
         .unwrap_or_else(|_| lgtm_core::findings::run(files, cfg))
 }
 
 impl App {
-    /// Guards plus config pipeline; hidden findings are kept in `self.hidden`.
-    pub fn scan(&self, files: &[crate::model::FileDiff]) -> Vec<GuardAlert> {
-        let f = scan_findings(&self.git_engine.repo_path, files, &self.config);
-        *self.hidden.borrow_mut() = Hidden {
-            suppressed: f.suppressed,
-            existing: f.existing,
-        };
-        f.active
-    }
-
     pub fn new(
         repo_path: PathBuf,
         watcher_rx: Receiver<WatcherMessage>,
@@ -179,49 +197,11 @@ impl App {
         let turn_manager = TurnManager::new(&repo_path);
 
         let is_git = git_engine.is_git_repo();
-        let (snapshot, initial_status) = if let Some(pr_num) = explicit_pr {
-            match crate::diff_source::DiffSource::snapshot(&crate::diff_source::PullRequestSource {
-                pr: pr_num,
-                repo: repo_path.clone(),
-            }) {
-                Ok(snap) => {
-                    let msg = format!("Loaded PR #{} ({} files changed)", pr_num, snap.files.len());
-                    (snap, Some(msg))
-                }
-                Err(e) => {
-                    let msg = format!("Failed to fetch PR #{}: {}", pr_num, e);
-                    (DiffSnapshot::default(), Some(msg))
-                }
-            }
-        } else if let Some(ref rev) = explicit_rev {
-            let expanded = git_engine.expand_branch_spec(rev);
-            match git_engine.compute_revision_diff(&expanded) {
-                Ok(snap) => {
-                    let msg = format!(
-                        "Loaded revision diff '{}' ({} files changed)",
-                        expanded,
-                        snap.files.len()
-                    );
-                    (snap, Some(msg))
-                }
-                Err(e) => {
-                    let msg = format!("Failed to load revision '{}': {}", rev, e);
-                    (DiffSnapshot::default(), Some(msg))
-                }
-            }
-        } else if is_git {
-            let snap = git_engine.compute_diff_snapshot().unwrap_or_default();
-            let msg = if snap.files.is_empty() {
-                Some("Working tree clean (monitoring workspace)".to_string())
-            } else {
-                Some(format!("Diff loaded ({} changed files)", snap.files.len()))
-            };
-            (snap, msg)
+        let snapshot = DiffSnapshot::default();
+        let initial_status = if is_git || explicit_pr.is_some() || explicit_rev.is_some() {
+            Some("Loading diff…".into())
         } else {
-            (
-                DiffSnapshot::default(),
-                Some("Not a git repository (run git init)".to_string()),
-            )
+            Some("Not a git repository (run git init)".into())
         };
 
         let config = lgtm_core::config::LgtmConfig::load(
@@ -229,7 +209,7 @@ impl App {
             lgtm_core::config::user_config_path(false).as_deref(),
         )
         .unwrap_or_default();
-        let found = scan_findings(&repo_path, &snapshot.files, &config);
+        let found = lgtm_core::findings::Findings::default();
         let hidden = Hidden {
             suppressed: found.suppressed,
             existing: found.existing,
@@ -239,10 +219,16 @@ impl App {
         let agent_pane = explicit_pane.or_else(IpcBridge::detect_agent_pane);
 
         let mut app = Self {
+            view_data: view_data::Prepared::new(is_git),
             git_engine,
+            forge_factory: lgtm_core::forge::open,
             comment_store,
             turn_manager,
             snapshot,
+            diff_revision: 0,
+            fold_revision: 0,
+            rows_cache: Default::default(),
+            render_cache: Default::default(),
             alerts,
             marks: Vec::new(),
             ci: None,
@@ -251,6 +237,7 @@ impl App {
             hidden: std::cell::RefCell::new(hidden),
             comments,
             audit: AuditState::new(repo_path.clone()),
+            audit_jobs: Default::default(),
             selected_file_idx: 0,
             diff_scroll_offset: 0,
             cursor_line_idx: 0,
@@ -261,7 +248,8 @@ impl App {
             agent_sink_kind: None,
             status_message: initial_status,
             should_quit: false,
-            pr: PrState::new(explicit_pr),
+            quit_after_jobs: false,
+            pr: PrState::new(None),
             active_revision: explicit_rev,
             editor_override: None,
             file_picker: FilePicker::default(),
@@ -287,99 +275,179 @@ impl App {
             watcher_rx,
             jobs_tx,
             jobs_rx,
+            local_refresh: Default::default(),
+            review_generation: 0,
+            pr_loading: None,
+            ready_pr: None,
+            pr_load_lock: Default::default(),
+            pr_load_latest: Default::default(),
+            thread_revision: 0,
+            thread_reconcile: Default::default(),
+            thread_jobs: Default::default(),
+            posting_prs: Default::default(),
+            posting_comments: Default::default(),
+            review_posting_prs: Default::default(),
+            reply_drafts: Default::default(),
         };
 
         app.load_marks();
         app.update_file_picker_filter();
-        if explicit_pr.is_some() {
-            app.refresh_github_async(true);
+        if let Some(pr) = explicit_pr {
+            app.load_pr_async(pr);
+        } else if is_git || app.active_revision.is_some() {
+            app.reload_diff();
         }
         app
     }
 
-    pub fn handle_background_events(&mut self) {
+    pub fn handle_background_events(&mut self) -> bool {
+        if self.watcher_rx.is_empty()
+            && self.jobs_rx.is_empty()
+            && !(self.ready_pr.is_some() && self.active_view == ActiveView::Diff)
+            && !self.local_ready_to_apply()
+            && !(self.quit_after_jobs && !self.has_pending_writes())
+        {
+            return false;
+        }
+        // Start timing only for UI work; otherwise logging an ignored debug-file
+        // notification would itself produce another watcher notification.
+        let mut timing = None;
+        let mut watchers = 0;
+        let mut callbacks = 0;
         let mut reload_needed = false;
-        while let Ok(msg) = self.watcher_rx.try_recv() {
+        let mut watcher_changed_view = false;
+        let mut watcher_budget = crate::event_loop::Budget::new(32);
+        while watcher_budget.take() {
+            let Ok(msg) = self.watcher_rx.try_recv() else {
+                break;
+            };
+            watchers += 1;
             match msg {
-                WatcherMessage::FilesChanged(_) => {
-                    reload_needed = true;
+                WatcherMessage::FilesChanged(paths) => {
+                    if paths.iter().any(|path| {
+                        lgtm_core::watcher::affects_diff(&self.git_engine.repo_path, path)
+                    }) {
+                        self.invalidate_audit(false);
+                    }
+                    watcher_changed_view |= paths.iter().any(|path| {
+                        lgtm_core::watcher::affects_diff(&self.git_engine.repo_path, path)
+                            || [
+                                ".lgtm/comments.jsonl",
+                                ".lgtm/gate.json",
+                                ".lgtm/state.json",
+                                ".lgtm/prompt.txt",
+                                ".lgtm/last-prompt.md",
+                                ".lgtm/prompt.md",
+                            ]
+                            .iter()
+                            .any(|name| path.ends_with(name))
+                    });
+                    if watcher_changed_view {
+                        timing.get_or_insert_with(|| {
+                            lgtm_core::debug::Span::new("ui.background_events")
+                        });
+                    }
+                    // PR snapshots describe remote commits; workspace edits cannot change them.
+                    // Still pick up directives written by MCP/other lgtm processes.
+                    if paths.iter().any(|p| p.ends_with(".lgtm/comments.jsonl")) {
+                        self.comments = self.comment_store.load_comments();
+                    }
+                    reload_needed |= (self.pr.current_number.is_none()
+                        || self.local_refresh_requested())
+                        && self.pr_loading.is_none()
+                        && paths.iter().any(|p| {
+                            lgtm_core::watcher::affects_diff(&self.git_engine.repo_path, p)
+                        });
                 }
                 WatcherMessage::Error(err) => {
+                    watcher_changed_view = true;
+                    timing
+                        .get_or_insert_with(|| lgtm_core::debug::Span::new("ui.background_events"));
                     self.status_message = Some(format!("Watcher error: {}", err));
                 }
             }
         }
 
-        while let Ok(job) = self.jobs_rx.try_recv() {
+        if watcher_changed_view {
+            self.invalidate_view_data();
+        }
+
+        // A bounded batch may leave changes unread. Conservatively supersede the local
+        // snapshot before callbacks so an older worker cannot publish over those changes.
+        reload_needed |= !self.watcher_rx.is_empty()
+            && (self.pr.current_number.is_none() || self.local_refresh_requested())
+            && self.pr_loading.is_none();
+        if !self.watcher_rx.is_empty() {
+            self.invalidate_audit(false);
+        }
+        // An unread notification may announce newer directives. Completion callbacks can
+        // save re-anchored directives, so load durable edits before allowing those writes.
+        if !self.watcher_rx.is_empty()
+            && (!self.jobs_rx.is_empty() || self.ready_pr.is_some() || self.local_ready_to_apply())
+        {
+            timing.get_or_insert_with(|| lgtm_core::debug::Span::new("ui.background_events"));
+            self.comments = self.comment_store.load_comments();
+            watcher_changed_view = true;
+        }
+        if reload_needed
+            || !self.jobs_rx.is_empty()
+            || (self.ready_pr.is_some() && self.active_view == ActiveView::Diff)
+            || self.local_ready_to_apply()
+            || self.quit_after_jobs
+        {
+            timing.get_or_insert_with(|| lgtm_core::debug::Span::new("ui.background_events"));
+        }
+        // Invalidate an older completion before draining callbacks from that worker.
+        if reload_needed {
+            self.invalidate_audit(false);
+            self.reload_diff();
+        }
+        let mut callback_budget = crate::event_loop::Budget::new(8);
+        while callback_budget.take() {
+            let Ok(job) = self.jobs_rx.try_recv() else {
+                break;
+            };
+            callbacks += 1;
+            let _timing = lgtm_core::debug::Span::new("ui.callback");
             job(self);
         }
 
-        if reload_needed {
-            self.reload_diff();
+        let applying_pr = self.ready_pr.is_some() && self.active_view == ActiveView::Diff;
+        self.apply_ready_pr();
+        let applying_local = self.apply_ready_local();
+        if self.quit_after_jobs && !self.has_pending_writes() {
+            self.should_quit = true;
         }
+        if let Some(mut timing) = timing {
+            timing.count("watcher_events", watchers);
+            timing.count("callbacks", callbacks);
+            timing.count("watchers_remaining", self.watcher_rx.len() as u64);
+            timing.count("callbacks_remaining", self.jobs_rx.len() as u64);
+            timing.count("applying_pr", u64::from(applying_pr));
+            timing.count("applying_local", u64::from(applying_local));
+        }
+        watcher_changed_view
+            || reload_needed
+            || callbacks > 0
+            || applying_pr
+            || applying_local
+            || self.should_quit
     }
 
-    pub fn diff_source(&self) -> Box<dyn crate::diff_source::DiffSource + '_> {
-        use crate::diff_source::*;
-        if let Some(n) = self.pr.current_number {
-            Box::new(PullRequestSource {
-                pr: n,
-                repo: self.git_engine.repo_path.clone(),
-            })
-        } else if let Some(rev) = self.active_revision.as_deref() {
-            Box::new(RevisionSource {
-                engine: &self.git_engine,
-                rev,
-            })
+    fn has_pending_writes(&self) -> bool {
+        self.audit_exports_pending()
+            || !self.posting_prs.is_empty()
+            || !self.review_posting_prs.is_empty()
+            || !self.thread_jobs.is_empty()
+    }
+
+    pub(crate) fn request_quit(&mut self) {
+        if self.has_pending_writes() {
+            self.quit_after_jobs = true;
+            self.status_message = Some("Finishing pending updates before closing…".into());
         } else {
-            Box::new(WorkingTreeSource(&self.git_engine))
+            self.should_quit = true;
         }
-    }
-
-    pub fn reload_diff(&mut self) {
-        let source = self.diff_source();
-        let label = source.describe();
-        let Ok(new_snapshot) = source.snapshot() else {
-            return;
-        };
-        drop(source);
-        self.alerts = self.scan(&new_snapshot.files);
-        self.snapshot = new_snapshot;
-        self.comments = self.comment_store.load_comments();
-        let turn = self.turn_manager.load_state().current_turn;
-        let moved = lgtm_core::review::reanchor_anchors(&mut self.comments, &self.snapshot.files);
-        let rechecked = lgtm_core::outcome::recheck(&mut self.comments, &self.snapshot.files, turn);
-        if moved || rechecked {
-            let _ = self.comment_store.save_comments(&self.comments);
-        }
-        self.load_marks();
-        if self.selected_file_idx >= self.snapshot.files.len() && !self.snapshot.files.is_empty() {
-            self.selected_file_idx = self.snapshot.files.len() - 1;
-        }
-        self.update_file_picker_filter();
-        self.status_message = Some(format!("{} updated ({} alerts)", label, self.alerts.len()));
-    }
-
-    pub fn check_gate_status(&self) -> Option<(String, String)> {
-        let gate_file = self.git_engine.repo_path.join(".lgtm/gate.json");
-        if gate_file.exists() {
-            if let Ok(content) = std::fs::read_to_string(&gate_file) {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                    let status = val
-                        .get("status")
-                        .and_then(|s| s.as_str())
-                        .unwrap_or("waiting")
-                        .to_string();
-                    let msg = val
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Agent awaiting approval")
-                        .to_string();
-                    return Some((status, msg));
-                }
-            }
-        }
-        None
     }
 
     pub fn gate_directives_feedback(&self) -> Option<String> {
@@ -416,6 +484,7 @@ impl App {
     }
 
     pub fn approve_gate(&mut self) {
+        self.invalidate_view_data();
         let gate_file = self.git_engine.repo_path.join(".lgtm/gate.json");
         if gate_file.exists() {
             if let Ok(content) = std::fs::read_to_string(&gate_file) {
@@ -438,6 +507,7 @@ impl App {
     }
 
     pub fn reject_gate(&mut self) {
+        self.invalidate_view_data();
         let gate_file = self.git_engine.repo_path.join(".lgtm/gate.json");
         if gate_file.exists() {
             if let Ok(content) = std::fs::read_to_string(&gate_file) {
@@ -468,40 +538,6 @@ impl App {
         }
         self.status_message = Some("No active agent gate waiting.".to_string());
     }
-
-    pub fn load_agent_prompt_context(&self) -> (String, String) {
-        // 1. Check .lgtm/gate.json
-        if let Some((_, msg)) = self.check_gate_status() {
-            if !msg.is_empty() && msg != "Agent awaiting approval" {
-                return ("Gate Context".to_string(), msg);
-            }
-        }
-
-        // 2. Check .lgtm/prompt.txt or .lgtm/last-prompt.md
-        for name in &["prompt.txt", "last-prompt.md", "prompt.md"] {
-            let p = self.git_engine.repo_path.join(".lgtm").join(name);
-            if p.exists() {
-                if let Ok(content) = std::fs::read_to_string(&p) {
-                    let trimmed = content.trim();
-                    if !trimmed.is_empty() {
-                        return (format!(".lgtm/{}", name), trimmed.to_string());
-                    }
-                }
-            }
-        }
-
-        // 3. Check git HEAD commit message
-        if let Some(msg) = self.git_engine.last_commit_message() {
-            if !msg.is_empty() {
-                return ("Git HEAD Commit".to_string(), msg);
-            }
-        }
-
-        (
-            "No Prompt Found".to_string(),
-            "No prompt context found.\n\nTo provide agent prompt context:\n- Pass message with `lgtm gate -m '<prompt>'`\n- Write prompt to `.lgtm/prompt.txt`\n- Or commit with a descriptive message.".to_string(),
-        )
-    }
 }
 
 #[cfg(test)]
@@ -518,6 +554,7 @@ mod tests {
         std::fs::write(&gate_file, r#"{"status": "waiting"}"#).unwrap();
 
         app.comments.push(CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "src/auth.rs".into(),
             target_line_no: 42,
             target_code: "password.verify()".into(),
@@ -551,6 +588,7 @@ mod tests {
         std::fs::write(&gate_file, r#"{"status": "waiting"}"#).unwrap();
 
         app.comments.push(CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "src/auth.rs".into(),
             target_line_no: 10,
             target_code: "foo()".into(),

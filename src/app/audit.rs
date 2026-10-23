@@ -1,4 +1,6 @@
 use super::*;
+mod jobs;
+pub(super) use jobs::AuditJobs;
 
 impl App {
     pub fn filtered_audit_alerts(&self) -> Vec<&GuardAlert> {
@@ -20,36 +22,8 @@ impl App {
             .collect()
     }
 
-    pub fn trigger_repo_scan(&mut self) {
-        self.status_message =
-            Some("Auditing full repository for security & architectural issues...".to_string());
-        match crate::scan::FullRepoScanner::scan_repository(&self.audit.root_dir, &self.config) {
-            Ok((files, alerts)) => {
-                let count = alerts.len();
-                self.audit.files = files;
-                self.audit.alerts = alerts;
-                self.audit.selected_idx = 0;
-                self.audit.filter_severity = None;
-                self.audit.file_filter = None;
-                self.audit.inspector_scroll = 0;
-                self.audit.focus = AuditPaneFocus::Issues;
-                self.sync_audit_selected_file();
-                self.active_view = ActiveView::AuditReport;
-                self.status_message = Some(format!(
-                    "Audit scan complete: {} issues found across repository (press 'w' to export report)",
-                    count
-                ));
-            }
-            Err(e) => {
-                self.status_message = Some(format!("Audit scan failed: {}", e));
-            }
-        }
-    }
-
-    pub fn trigger_diff_scan(&mut self) {
-        self.status_message =
-            Some("Scanning changed files for security & architectural issues...".to_string());
-        self.alerts = self.scan(&self.snapshot.files);
+    pub(super) fn show_diff_audit(&mut self) {
+        self.audit.has_result = true;
         self.audit.files = self.snapshot.files.clone();
         self.audit.alerts = self.alerts.clone();
         self.audit.selected_idx = 0;
@@ -136,32 +110,6 @@ impl App {
                 self.sync_audit_selected_file();
             }
         }
-    }
-
-    pub fn export_audit_report(
-        &mut self,
-        target_path: Option<&std::path::Path>,
-    ) -> Result<PathBuf, anyhow::Error> {
-        let path = target_path
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| self.audit.root_dir.join("lgtm-report.md"));
-
-        if self.audit.alerts.is_empty() && self.audit.files.is_empty() {
-            let (files, alerts) =
-                crate::scan::FullRepoScanner::scan_repository(&self.audit.root_dir, &self.config)?;
-            self.audit.files = files;
-            self.audit.alerts = alerts;
-        }
-
-        let report_content = crate::scan::FullRepoScanner::generate_markdown_report(
-            &self.audit.root_dir,
-            &self.audit.files,
-            &self.audit.alerts,
-        );
-
-        std::fs::write(&path, report_content)?;
-        self.status_message = Some(format!("✨ Audit report exported to: {}", path.display()));
-        Ok(path)
     }
 
     pub fn cycle_audit_focus(&mut self, forward: bool) {

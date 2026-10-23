@@ -37,6 +37,7 @@ fn file(path: &str, hunks: Vec<DiffHunk>) -> FileDiff {
 
 fn anchor(path: &str, ln: u32, code: &str) -> CommentAnchor {
     CommentAnchor {
+        id: crate::comment::new_id(),
         file_path: path.into(),
         target_line_no: ln,
         target_code: code.into(),

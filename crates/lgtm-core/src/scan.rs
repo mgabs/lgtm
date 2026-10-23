@@ -2,6 +2,7 @@ use crate::guard::{GuardAlert, SecurityAndTestGuard, Severity};
 use crate::model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 pub struct FullRepoScanner;
 
@@ -20,7 +21,17 @@ impl FullRepoScanner {
         root_dir: &Path,
         cfg: &crate::config::LgtmConfig,
     ) -> Result<(Vec<FileDiff>, crate::findings::Findings)> {
-        let (files, alerts) = Self::scan_unbaselined(root_dir, cfg)?;
+        Self::scan_with_progress(root_dir, cfg, &|_, _| true)
+    }
+
+    /// Reports processed source files. Returning false cancels remaining work.
+    /// The observer may run on multiple scanner workers and must be thread-safe.
+    pub fn scan_with_progress(
+        root_dir: &Path,
+        cfg: &crate::config::LgtmConfig,
+        progress: &(dyn Fn(usize, usize) -> bool + Sync),
+    ) -> Result<(Vec<FileDiff>, crate::findings::Findings)> {
+        let (files, alerts) = Self::scan_unbaselined_progress(root_dir, cfg, progress)?;
         let found = crate::findings::Findings {
             active: alerts,
             ..Default::default()
@@ -33,10 +44,19 @@ impl FullRepoScanner {
         root_dir: &Path,
         cfg: &crate::config::LgtmConfig,
     ) -> Result<(Vec<FileDiff>, Vec<GuardAlert>)> {
+        Self::scan_unbaselined_progress(root_dir, cfg, &|_, _| true)
+    }
+
+    fn scan_unbaselined_progress(
+        root_dir: &Path,
+        cfg: &crate::config::LgtmConfig,
+        progress: &(dyn Fn(usize, usize) -> bool + Sync),
+    ) -> Result<(Vec<FileDiff>, Vec<GuardAlert>)> {
         let mut source_files = collect_source_files(root_dir);
         source_files.sort();
         source_files.dedup();
 
+        anyhow::ensure!(progress(0, source_files.len()), "audit cancelled");
         if source_files.is_empty() {
             return Ok((Vec::new(), Vec::new()));
         }
@@ -46,6 +66,11 @@ impl FullRepoScanner {
             .unwrap_or(4)
             .min(16);
 
+        let completed = AtomicUsize::new(0);
+        let cancelled = AtomicBool::new(false);
+        let completed = &completed;
+        let cancelled = &cancelled;
+        let total = source_files.len();
         let batch_size = source_files.len().div_ceil(num_threads).max(1);
         let batches = source_files.chunks(batch_size); // lgtm:ignore
         let results: Vec<(Vec<FileDiff>, Vec<GuardAlert>)> = std::thread::scope(|s| {
@@ -55,9 +80,20 @@ impl FullRepoScanner {
                     let mut thread_files = Vec::with_capacity(batch.len());
                     let mut thread_alerts = Vec::new();
                     for path in batch {
+                        if cancelled.load(Ordering::Relaxed)
+                            || !progress(completed.load(Ordering::Relaxed), total)
+                        {
+                            cancelled.store(true, Ordering::Relaxed);
+                            break;
+                        }
                         if let Some((diff, alerts)) = process_single_file(root_dir, path) {
                             thread_alerts.extend(alerts);
                             thread_files.push(diff);
+                        }
+                        let count = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                        if !progress(count, total) {
+                            cancelled.store(true, Ordering::Relaxed);
+                            break;
                         }
                     }
                     (thread_files, thread_alerts)
@@ -66,6 +102,7 @@ impl FullRepoScanner {
             handles.into_iter().map(|h| h.join().unwrap()).collect()
         });
 
+        anyhow::ensure!(!cancelled.load(Ordering::Relaxed), "audit cancelled");
         let mut files = Vec::with_capacity(source_files.len());
         let mut all_alerts = Vec::new();
         for (thread_files, thread_alerts) in results {
@@ -429,6 +466,56 @@ fn is_source_file(name: &str) -> bool {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn progress_scan_preserves_findings_and_reports_completion() {
+        let tmp = tempdir().unwrap();
+        for name in ["one.rs", "two.rs", "three.rs"] {
+            std::fs::write(tmp.path().join(name), "pub fn sample() {}\n").unwrap();
+        }
+        let cfg = crate::config::LgtmConfig::default();
+        let (expected_files, expected_findings) =
+            FullRepoScanner::scan_with_baseline(tmp.path(), &cfg).unwrap();
+        let completed = AtomicUsize::new(0);
+        let (files, findings) =
+            FullRepoScanner::scan_with_progress(tmp.path(), &cfg, &|done, total| {
+                assert_eq!(total, 3);
+                assert!(done <= total);
+                completed.fetch_max(done, Ordering::SeqCst);
+                true
+            })
+            .unwrap();
+        assert_eq!(completed.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            FullRepoScanner::generate_markdown_report(tmp.path(), &files, &findings.active),
+            FullRepoScanner::generate_markdown_report(
+                tmp.path(),
+                &expected_files,
+                &expected_findings.active
+            )
+        );
+    }
+
+    #[test]
+    fn progress_observer_can_cancel_before_any_file_or_between_files() {
+        let tmp = tempdir().unwrap();
+        for index in 0..32 {
+            std::fs::write(
+                tmp.path().join(format!("sample{index}.rs")),
+                "pub fn sample() {}\n",
+            )
+            .unwrap();
+        }
+        let cfg = crate::config::LgtmConfig::default();
+        let completed = AtomicUsize::new(0);
+        assert!(FullRepoScanner::scan_with_progress(tmp.path(), &cfg, &|_, _| false).is_err());
+        let result = FullRepoScanner::scan_with_progress(tmp.path(), &cfg, &|done, _| {
+            completed.fetch_max(done, Ordering::SeqCst);
+            done == 0
+        });
+        assert!(result.is_err());
+        assert!((1..32).contains(&completed.load(Ordering::SeqCst)));
+    }
 
     #[test]
     fn test_is_source_file() {

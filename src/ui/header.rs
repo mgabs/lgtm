@@ -33,7 +33,12 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" | "),
+            Span::raw(
+                app.audit
+                    .progress
+                    .as_ref()
+                    .map_or_else(|| " | ".to_string(), |progress| format!(" | {progress} | ")),
+            ),
             Span::styled(
                 format!("Total: {} issue(s) ", app.audit.alerts.len()),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -66,7 +71,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    if !app.git_engine.is_git_repo() && app.pr.current_number.is_none() {
+    if !app.view_data.is_git && app.pr.current_number.is_none() {
         let header_line = Line::from(vec![
             Span::styled(
                 " lgtm ",
@@ -124,7 +129,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             ));
         }
     } else {
-        let turn = app.turn_manager.load_state().current_turn;
+        let turn = app.view_data.turn;
         header_spans.push(Span::raw(format!(" Turn #{} | ", turn)));
     }
 
@@ -181,7 +186,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         ));
     }
 
-    if let Some((status, _msg)) = app.check_gate_status() {
+    if let Some((status, _msg)) = &app.view_data.gate {
         if status == "waiting" {
             header_spans.push(Span::styled(
                 " 🛑 GATE WAITING (A/:approve) |",

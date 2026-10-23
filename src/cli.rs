@@ -30,6 +30,14 @@ pub struct Cli {
     #[arg(long = "pr")]
     pub pr: Option<u64>,
 
+    /// Enable timing diagnostics in the system temporary directory (lgtm-debug.jsonl)
+    #[arg(long, global = true)]
+    pub debug: bool,
+
+    /// Override the timing log path (requires --debug)
+    #[arg(long, global = true, requires = "debug", value_name = "PATH")]
+    pub debug_log: Option<PathBuf>,
+
     /// Watcher debounce interval in milliseconds
     #[arg(short, long, default_value_t = 300)]
     pub debounce: u64,
@@ -88,8 +96,11 @@ pub enum Commands {
         /// Pull Request number
         number: u64,
     },
-    /// List open Pull Requests
-    Prs,
+    /// List pull requests by state (closed includes merged/completed and abandoned)
+    Prs {
+        #[arg(long, default_value = "open", value_parser = ["open", "closed", "all"])]
+        state: String,
+    },
     /// Run headless CI / pre-commit check (fails on Critical/High risks)
     Check {
         /// Target repository path
@@ -242,4 +253,43 @@ pub enum Commands {
     /// Unrecognized git command passthrough
     #[command(external_subcommand)]
     External(Vec<String>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_is_opt_in_and_global() {
+        let cli = Cli::try_parse_from(["lgtm", "pr", "42"]).unwrap();
+        assert!(!cli.debug);
+        assert!(cli.debug_log.is_none());
+        for args in [
+            vec!["lgtm", "--debug", "pr", "42"],
+            vec!["lgtm", "pr", "42", "--debug"],
+        ] {
+            assert!(Cli::try_parse_from(args).unwrap().debug);
+        }
+        let cli = Cli::try_parse_from([
+            "lgtm",
+            "pr",
+            "42",
+            "--debug",
+            "--debug-log",
+            "/tmp/review.jsonl",
+        ])
+        .unwrap();
+        assert_eq!(cli.debug_log.unwrap(), PathBuf::from("/tmp/review.jsonl"));
+        assert!(Cli::try_parse_from(["lgtm", "--debug-log", "/tmp/review.jsonl"]).is_err());
+    }
+    #[test]
+    fn pr_listing_accepts_open_closed_and_all() {
+        for state in ["open", "closed", "all"] {
+            let cli = Cli::try_parse_from(["lgtm", "prs", "--state", state]).unwrap();
+            assert!(
+                matches!(cli.command, Some(Commands::Prs { state: actual }) if actual == state)
+            );
+        }
+        assert!(Cli::try_parse_from(["lgtm", "prs", "--state", "invalid"]).is_err());
+    }
 }

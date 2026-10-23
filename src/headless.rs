@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Duration;
 
 /// Load `.lgtm.toml` (+ user file unless disabled), echoing warnings to stderr.
 pub(crate) fn load_config(
