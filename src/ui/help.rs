@@ -319,7 +319,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  T                ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Run mutation probe across test files to verify test authenticity"),
+                    Span::raw("Summarize test-risk alerts already present in the current review"),
                 ]),
                 Line::from(vec![
                     Span::styled("  p (or <Space>p)  ", Style::default().fg(Color::Cyan)),

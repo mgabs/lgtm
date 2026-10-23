@@ -933,6 +933,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "similar",
+ "tempfile",
 ]
 
 [[package]]

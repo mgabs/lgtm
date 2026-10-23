@@ -38,7 +38,7 @@ make install-hooks
 
 ## 3. Quality Standards & Gates
 
-All pull requests must pass our strict automated quality gates before merge:
+All pull requests must pass the repository quality gates before merge:
 
 ```bash
 # 1. Check code formatting
@@ -47,18 +47,44 @@ make fmt
 # 2. Run Clippy linter with zero warnings allowed
 make lint
 
-# 3. Run all unit & integration tests (75 tests)
+# 3. Run all unit & integration tests
 make test
 
-# 4. Enforce test coverage (>= 90% required)
+# 4. Run the built-in coverage gate (fixed module metrics; see below)
 make coverage
 
-# 5. Enforce mutation testing (>= 90% score required)
+# 5. Run the fixed mutation catalog (zero survivors required)
 make mutate
 
 # 6. Run full verification suite locally
 make check
 ```
+
+The default coverage gate uses fixed module metrics; it does not measure execution
+of current source. Generate an LCOV trace and use
+`cargo run -- coverage --delta --lcov lcov.info --min 90` for measured changed-line
+coverage. The mutation gate checks a fixed behavior catalog, requires zero
+survivors, and does not generate source mutations. Neither result establishes BDD
+coverage. See [Testing & Quality Gates](README.md#testing--quality-gates).
+
+### Behavior scenarios (BDD)
+
+Keep scenarios that exercise a crate's public API in its top-level `tests/`
+directory. Application scenarios that launch `lgtm` belong in the root `tests/`
+directory and use `CARGO_BIN_EXE_lgtm`. Internal tests that need private UI state
+stay beside their modules under `#[cfg(test)]`.
+
+Write scenarios as ordinary Rust tests with Given/When/Then comments and stable
+scenario IDs. No Gherkin runner is required. Each test owns its temporary files
+and repositories; offline scenarios must not depend on credentials or the network.
+
+The [behavior scenario catalog](docs/bdd-scenarios.md) lists stable IDs, acceptance
+criteria, integration scenarios, related internal tests, and remaining gaps.
+
+Run acceptance scenarios with `cargo test --workspace --test bdd`. They also run
+as part of `cargo test --workspace`. Tests mapped to private modules need the
+workspace suite or their documented test-name filter. Keep offline simulations,
+live-provider verification, and terminal journeys distinct when reporting results.
 
 ---
 
@@ -69,7 +95,7 @@ src/                    # `lgtm` binary: CLI + TUI (app/, ui/, cli.rs, headless.
 crates/
 ├── lgtm-core/src/      # UI-free engine
 │   ├── model.rs        # Diff data models
-│   ├── git/, pr/       # Git diff engine; GitHub PR via `gh`
+│   ├── git/, pr/, forge/ # Git diffs; GitHub and Azure PR providers
 │   ├── scan.rs         # Full repository audit scanner
 │   ├── guard/          # Static analysis guards (security, complexity, symbols, api_drift, dead_code, arch, deps, duplicate)
 │   ├── comment/, turn/ # Directives; reviewed-file tracker
@@ -90,7 +116,7 @@ To add a new security detector or test fraud pattern:
 1. Open [`crates/lgtm-core/src/guard/`](crates/lgtm-core/src/guard/) and select or create the appropriate submodule (`security.rs`, `arch.rs`, `complexity.rs`, etc.).
 2. Add the detector logic to the subsystem scanner and hook it into `SecurityAndTestGuard::scan_file` or `scan_snapshot` in [`crates/lgtm-core/src/guard/mod.rs`](crates/lgtm-core/src/guard/mod.rs).
 3. Add a corresponding test case checking that additions trigger alerts and deletions or valid code do not.
-4. Run `make test && make mutate` to verify coverage.
+4. Run `make test && make mutate`; add regression assertions for the new behavior.
 
 ---
 
@@ -100,3 +126,24 @@ To add a new security detector or test fraud pattern:
 2. **Test Coverage**: Accompany every code change with unit or integration tests.
 3. **Commit Messages**: Use conventional commits (`feat: ...`, `fix: ...`, `docs: ...`, `refactor: ...`, `test: ...`).
 4. **Clean Tree**: Verify `make check` passes cleanly before pushing.
+
+### Verify claims against evidence
+
+When changing tests, gates, diagnostics, or related documentation:
+
+- Trace behavior claims to the implementation: what executes, what is measured,
+  and what can make the command pass or fail. A command's name is not evidence.
+- Check adjacent claims across README, wiki, contributor guide, CLI/TUI help,
+  Make help, badges, scenario catalog, and roadmap. Update affected surfaces or
+  record why they need no change.
+- Distinguish measured execution coverage, fixed behavior checks, offline provider
+  simulations, real-terminal tests, and live-provider verification.
+- Give numerical claims a source, denominator or fixture, and scope. Date recorded
+  benchmark observations; use generated evidence for badges that imply current
+  measurements. Remove unsupported numbers.
+- Report test execution and documentation review separately. Passing tests do not
+  establish that documentation is accurate or acceptance coverage is complete.
+
+Use the [PR template](.github/pull_request_template.md) to record the evidence and
+remaining limits. Link and help-output checks supplement this semantic review;
+they cannot establish that a documented claim matches the implementation.

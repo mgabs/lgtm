@@ -104,7 +104,7 @@ cp target/release/lgtm /usr/local/bin/lgtm
 ### Requirements
 - **OS**: macOS, Linux, Windows (via WSL2 or Windows Terminal)
 - **Git**: Git 2.20+ installed
-- **PR features**: `gh` (GitHub) or `az` with the `azure-devops` extension (Azure DevOps); only needed for `:pr`, `:prs`, checks and posting
+- **PR features**: GitHub uses Git/API/`gh`; public listings and stored patches can fall back to anonymous HTTPS via `curl`. Private reads, discussions, and writes require authentication. Azure uses `az` with the `azure-devops` extension.
 - **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
 
 ---
@@ -219,9 +219,9 @@ Agents often run tools in loops, modify multiple files, and produce diffs withou
   3. Git repository HEAD commit message.
 - Press `Esc`, `q`, or `P` to return to the diff.
 
-#### 6. In-App Test Authenticity & Mutation Check (`T`)
-- Press **`T`** to trigger an automated mutation probe across test files.
-- Identifies tautological assertions (`assert_eq!(x, x)`, `expect(res).toBe(res)`, `assertEquals(val, val)`), constant truth evaluations, and deleted assertions.
+#### 6. In-App Test Risk Summary (`T`)
+- Press **`T`** to summarize `test/` alerts already present in the current review.
+- Test guards identify tautological assertions, constant truth evaluations, and deleted assertions. This key reports those findings; it does not execute tests or mutate source.
 
 ---
 
@@ -500,6 +500,14 @@ Remote PR calls: `lgtm_core::github::GithubClient` hides `gh` (Azure DevOps uses
 
 Posting: `:pr post` previews how many comments would go inline (line is in the diff) or into one combined general comment; `:pr post --yes` sends them, saving each comment's `remote_id` right away so a failed run resumes without duplicates ("N of M posted"). Only unresolved comments made while that PR was open are posted. Not yet: re-anchoring on a changed PR head, orphan skipping, and a `↑ #id` marker in the UI.
 
+Public GitHub listings and stored patches support anonymous HTTPS fallback for a
+recognized `github.com` origin when no API token is set and `gh` is unavailable
+or needs login. Successful CLI reads are reused. Each fallback sends one GET
+without credentials; failures report missing/private resources, access restrictions,
+or public rate limits without retrying. Invalid API tokens, Git-fetch auth errors,
+network failures, enterprise hosts, and SSH aliases do not activate this fallback.
+Discussion threads and writes still require credentials.
+
 PR loading and directive preparation run in the background while the current review stays visible.
 Closing drafts, modals, and visual selections allows the prepared review to appear. If its
 comments, marks, or turn changed during loading, preparation runs again against the fetched
@@ -616,7 +624,7 @@ lgtm hook uninstall   # cleanly removes hook
 
 ### Azure DevOps pull requests
 
-lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.com`, `*.visualstudio.com` are Azure DevOps; everything else keeps using `gh`). Azure uses the `az` CLI with the `azure-devops` extension: `az extension add --name azure-devops`, then `az login` (or `az devops login`). The REST path reuses a short-lived token in memory and passes it to curl through a private temporary file.
+lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.com`, `*.visualstudio.com` are Azure DevOps; other remotes use the GitHub provider). Azure uses the `az` CLI with the `azure-devops` extension: `az extension add --name azure-devops`, then `az login` (or `az devops login`). The REST path reuses a short-lived token in memory and passes it to curl through a private temporary file.
 
 | Works | Not yet (planned) |
 |---|---|
@@ -723,15 +731,15 @@ debounce_ms = 300
 | `lgtm hook [install\|uninstall\|status]` | Install, uninstall, or inspect the LGTM Git pre-commit hook |
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
 | `lgtm init` / `--init` | Create `.lgtm/config.toml` |
-| `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via `gh`, Azure DevOps via `az`) |
+| `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via Git/API/`gh`, Azure DevOps via `az`) |
 | `lgtm prs --state open/closed/all` | List and pick PRs by state (default open) |
 | `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
 | `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
 | `lgtm ci [--strict] [--rev <spec>] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF. `--rev origin/main...HEAD` checks a committed range. Exit 0 pass, 1 blocking findings, 2 tool error (also on `check`) |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
 | `lgtm audit` | Interactive repository audit TUI |
-| `lgtm coverage [--min 90] [--delta] [--lcov file]` | Coverage gate; `--delta` checks only added lines |
-| `lgtm mutate [--min 90]` | Mutation testing gate |
+| `lgtm coverage [--min 90] [--delta] [--lcov file]` | Fixed module-metric gate by default; `--delta --lcov file` checks measured added-line coverage |
+| `lgtm mutate [--min 90]` | Fixed behavior catalog; requires minimum score and zero survivors |
 | `lgtm verify-tests` | Inverted test verification (detect tautological tests) |
 | `lgtm mcp` / `lgtm serve --mcp` | MCP stdio server |
 | `lgtm log\|commit\|add\|...` | Git passthrough |
@@ -759,14 +767,36 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 |---|---|
 | `make build` / `release` | Debug / LTO release binary |
 | `make test` | Unit + integration tests |
-| `make coverage` | `scripts/coverage.sh` — tests + coverage gate (>= 90%) |
-| `make delta-coverage` | Coverage on changed lines only |
-| `make mutate` | `scripts/mutate.sh` — mutation gate (>= 90%) |
+| `make coverage` | Tests + built-in gate using fixed module metrics |
+| `make delta-coverage` | Added-line coverage; provide `lcov.info` for measured execution data |
+| `make mutate` | Tests + fixed 24-entry behavior catalog; zero survivors required |
 | `make verify-tests` | Inverted test verification |
 | `make lint` / `fmt` / `check-fmt` | Clippy (`-D warnings`) / rustfmt |
 | `make check` | fmt check + lint + test + coverage + mutate |
 | `make ci` | `check` + SARIF export |
 | `make tap` | `scripts/update-tap.sh` — update Homebrew formula |
+
+### Behavior scenarios and coverage
+
+Public API acceptance scenarios live in `crates/lgtm-core/tests/bdd.rs`; scenarios
+that launch the application live in `tests/bdd.rs`. Both use ordinary Rust tests
+with Given/When/Then comments. Run them with:
+
+```sh
+cargo test --workspace --test bdd
+```
+
+Private UI and provider behavior tests stay beside their modules and run with
+`cargo test --workspace`. The [scenario catalog](bdd-scenarios.md) maps both types
+and distinguishes offline fixtures from terminal and live-provider verification.
+The [Q0–Q6 roadmap](superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
+tracks the remaining acceptance gaps.
+
+There is no automated BDD coverage report yet. The default coverage command uses
+fixed module metrics; measured changed-line coverage requires an LCOV trace:
+`lgtm coverage --delta --lcov lcov.info --min 90`. The mutation command checks a
+fixed catalog instead of generating source mutations. Passing either gate does
+not establish complete behavior coverage or live-provider compatibility.
 
 ---
 
@@ -775,12 +805,13 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 | Path (under `crates/lgtm-core/src/` unless noted) | Role |
 |---|---|
 | `src/main.rs` | Entry point, TUI launcher |
+| Root `tests/bdd.rs`, `crates/lgtm-core/tests/bdd.rs` | Application-launch and public API acceptance scenarios |
 | `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `coverage`, `init`) |
 | `src/app/` | TUI state machine split by concern: input, motion, command, comments, staging, audit, pr, commit, external; `state` holds CommandLine, pickers, AuditState, PrState |
 | `src/ui/` | Ratatui rendering split by view; `modals/` for dialogs |
 | `model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
 | `scan.rs` | Full repo scanner and report generator |
-| `git/`, `pr/`, `forge/` | Git diff engine; PR providers (`forge`: GitHub via `gh`, Azure DevOps via `az`) |
+| `git/`, `pr/`, `forge/` | Git diff engine; PR providers (`forge`: GitHub via Git/API/`gh`, Azure DevOps via `az`) |
 | `guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
 | `comment/`, `turn/` | Directives; reviewed-file state |
 | `ipc/` | tmux injection, OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |

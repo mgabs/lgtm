@@ -1,8 +1,8 @@
 # lgtm Roadmap
 
-Date: 2026-10-12 · Status: planned work complete · Baseline: `main` @ a90d5b0 (v0.7.0)
+Date: 2026-10-12 · Status: original roadmap and P0–P7 complete; Q0–Q6 open · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress (updated 2026-10-23):** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E5′, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. Original roadmap items complete. P0 diagnostics, P1 cached viewport rendering, P2 background local refreshes, P3 bounded event processing, P4 background audits, P5 prepared render data, P6 shared navigation mappings, and P7 background PR completion preparation are complete.
+**Progress (updated 2026-10-23):** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E5′, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. Original roadmap items complete. P0 diagnostics, P1 cached viewport rendering, P2 background local refreshes, P3 bounded event processing, P4 background audits, P5 prepared render data, P6 shared navigation mappings, and P7 background PR completion preparation are complete. The BDD acceptance catalog is established; Q0–Q6 below remain open.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
@@ -13,7 +13,7 @@ Historical release plan: `rel.0.10`, `rel.0.11` and `rel.0.12` were superseded b
 
 Specs: [refactor](specs/2026-10-12-modular-breakdown-design.md) · [B guards](specs/2026-10-12-guard-config-baselines-design.md) · [C review state + GitHub](specs/2026-10-12-review-state-github-design.md) · [A agent loop + MCP](specs/2026-10-12-agent-loop-mcp-design.md)
 
-Rules for every item: one PR, cut from trunk, merged before the next; `make check` green (fmt, clippy `-D warnings`, tests, coverage >= 90%, mutation >= 90%); docs updated in the same PR. Effort sizes are rough estimates (XS/S/M/L), not commitments.
+Rules for every item: one PR, cut from trunk, merged before the next; `make check` green (fmt, clippy `-D warnings`, tests, built-in coverage gate, fixed mutation catalog with zero survivors); docs updated in the same PR. Effort sizes are rough estimates (XS/S/M/L), not commitments.
 
 ## Work items
 
@@ -135,6 +135,20 @@ and UI-owned saves remain measurable costs beyond this completed P0–P7 batch.
 - [x] **P6 — Reuse visible-row mappings for cursor movement.** Stop rebuilding the selected file's visible-line list for every movement. Share the cached mapping with the renderer and invalidate it on snapshot or fold changes. Verify folded navigation, split/unified views, and large-file scrolling retain their behavior. Entry points: `src/app/motion.rs`, `src/app/staging.rs`.
 - [x] **P7 — Reduce PR completion work on the UI thread.** Prepare directive re-anchoring/outcomes and review marks/folds in the worker. Guard apply by repository/load generation, exact target directive inputs, and marks/turn revision; retry preparation without refetching when inputs change. Preserve modal/visual state, unrelated edits, receipts, and the existing UI-owned save acknowledgement. Entry points: `src/app/pr.rs`, `src/app/pr/completion.rs`, `src/app/comments.rs`.
 
+### Q — BDD acceptance gaps (added 2026-10-23)
+
+The [scenario catalog](../bdd-scenarios.md) maps current integration and internal
+tests. Anonymous GitHub listing/patch fallback now has offline public-API scenarios, including failure boundaries; provider parity and live checks remain incomplete. The following work remains open; start with Q0, Q1, and Q2. Existing tests
+and response-normalization fixtures do not establish live-provider coverage.
+
+- [ ] **Q0 — Verify provider request contracts.** Add offline GitHub and Azure scenarios for open/closed/all listing, replies, resolution, and reopening. Assert request targets, payloads, confirmations, and failure handling; record provider and transport separately.
+- [ ] **Q1 — Recover from ambiguous remote writes.** Simulate a timeout after a provider may have accepted a comment or reply. Verify the outcome is surfaced as uncertain and recovery does not blindly resubmit the write; define and test reconciliation or an explicit reviewer decision.
+- [ ] **Q2 — Add terminal acceptance journeys.** Exercise the compiled application through a real terminal fixture: navigate while loading, switch PRs, retain drafts and visual selections, and reject stale completions. Keep fixtures local and isolate repositories and provider commands.
+- [ ] **Q3 — Recover after a failed receipt save and restart.** Post successfully, fail its local receipt save, restart the application, and verify recovery can identify the remote success without duplicating it. Current tests cover stopping subsequent writes within the session.
+- [ ] **Q4 — Automate BDD catalog reporting.** Map stable criterion IDs to executable tests and current results. Report passing, failed, skipped, and not-automated criteria; distinguish automation coverage, verified coverage, and pass rate. Include mapped module tests without double-counting requirements.
+- [ ] **Q5 — Add opt-in live-provider acceptance checks.** Verify real GitHub and Azure authentication, PR retrieval, replies, and resolve/reopen behavior against designated fixtures. Make writes explicit and isolate fixture cleanup; keep these separate from offline CI and existing latency benchmarks.
+- [ ] **Q6 — Measure terminal responsiveness under load.** Record actual input-to-presentation latency during large reviews and background work. Report fixture/environment and percentile measurements separately from functional BDD results; avoid machine-speed assertions in the acceptance suite.
+
 ### Refactor (R) — structure
 | ID | Item | Effort | Depends on |
 |---|---|---|---|
@@ -219,7 +233,7 @@ Soft dependency: A3's `lgtm_scan_changes` prefers B1 fingerprints but has a fall
 ## Dependency spine
 `R1 -> R2 -> R3 -> R4`. After R2: C1 can start. After R3: B1 and A5 can start. After R4: A3, R6.
 
-## Prioritization (in progress)
+## Historical prioritization (original roadmap)
 
 Decided:
 1. **Refactor fully first (R1–R5), then features** in the order B > C > A.
@@ -234,7 +248,7 @@ Decided:
 | 4 | A1–A6 | Agent loop last |
 | — | R6 (async spike) | Right after R4, time-boxed; go/no-go |
 
-Open: none. Prioritization complete; next step is implementation plans (writing-plans), starting with the refactor.
+The original wave plan is complete. Current open work is Q0–Q6 above, starting with provider request contracts, ambiguous-write recovery, and terminal acceptance journeys.
 
 4. **Each wave is gated by outcome criteria and ends with a tagged release.**
 

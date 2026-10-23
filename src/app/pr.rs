@@ -447,6 +447,104 @@ mod tests {
     }
 
     #[test]
+    fn bdd_ui_006_successful_reply_survives_failed_refresh_without_resubmission() {
+        use super::super::comments::{ThreadAction, ThreadOutcome};
+        // Given an open thread and a reply draft. The test app's provider rejects
+        // reads, so the automatic reconciliation after success will fail.
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.threads = vec![thread("first")];
+        let key = (42, "first".to_string());
+        app.reply_drafts
+            .insert(key.clone(), "accepted reply".into());
+        let writes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let worker_writes = writes.clone();
+
+        // When posting succeeds and the subsequent thread refresh fails.
+        app.enqueue_thread_job(
+            42,
+            "first".into(),
+            ThreadAction::Reply {
+                target: 1,
+                text: "accepted reply".into(),
+            },
+            move || {
+                worker_writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(ThreadOutcome::Reply(20))
+            },
+        );
+        apply_next(&mut app); // acknowledged write
+        apply_next(&mut app); // failed read through Unsupported test provider
+
+        // Then the accepted reply stays visible, with no retry draft or new write.
+        assert_eq!(app.threads[0].comments.len(), 1);
+        assert_eq!(app.threads[0].comments[0].id, 20);
+        assert_eq!(app.threads[0].comments[0].body, "accepted reply");
+        assert!(!app.reply_drafts.contains_key(&key));
+        assert!(app.thread_jobs.is_empty());
+        assert_eq!(app.status_message.as_deref(), Some("Reply posted"));
+        assert_eq!(writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+        app.start_thread_reply(0);
+        assert_eq!(app.command.input, "thread reply 1 ");
+    }
+
+    #[test]
+    fn bdd_ui_007_acknowledged_reply_preserves_a_newer_draft() {
+        use super::super::comments::{ThreadAction, ThreadOutcome};
+        // Given a submitted reply whose completion has not yet been applied.
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.threads = vec![thread("first")];
+        let key = (42, "first".to_string());
+        app.reply_drafts.insert(key.clone(), "submitted".into());
+        app.enqueue_thread_job(
+            42,
+            "first".into(),
+            ThreadAction::Reply {
+                target: 1,
+                text: "submitted".into(),
+            },
+            || Ok(ThreadOutcome::Reply(20)),
+        );
+
+        // When the reviewer writes a newer draft before the acknowledgement arrives.
+        app.reply_drafts
+            .insert(key.clone(), "newer unsent draft".into());
+        apply_next(&mut app);
+        apply_next(&mut app);
+
+        // Then only the submitted text appears remotely; the newer draft stays editable.
+        assert_eq!(app.threads[0].comments[0].body, "submitted");
+        assert_eq!(app.reply_drafts.get(&key).unwrap(), "newer unsent draft");
+        app.start_thread_reply(0);
+        assert_eq!(app.command.input, "thread reply 1 newer unsent draft");
+    }
+
+    #[test]
+    fn bdd_ui_008_failed_resolution_can_be_retried_and_reopened() {
+        // Given an open discussion whose first resolution request is rejected.
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.threads = vec![thread("first")];
+        app.resolve_thread_job(42, "first".into(), true, || anyhow::bail!("denied"));
+        apply_next(&mut app);
+        assert!(!app.threads[0].resolved);
+        assert!(app.thread_jobs.is_empty());
+        assert!(app.status_message.as_deref().unwrap().contains("denied"));
+
+        // When the reviewer retries successfully and later reopens the discussion.
+        app.resolve_thread_job(42, "first".into(), true, || Ok(()));
+        apply_next(&mut app);
+        assert!(app.threads[0].resolved);
+        app.resolve_thread_job(42, "first".into(), false, || Ok(()));
+        apply_next(&mut app);
+
+        // Then the discussion is active again and no pending action remains.
+        assert!(!app.threads[0].resolved);
+        assert!(app.thread_jobs.is_empty());
+    }
+
+    #[test]
     fn failed_remote_reply_retains_its_draft() {
         use super::super::comments::ThreadAction;
         let mut app = create_test_app();

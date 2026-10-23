@@ -22,7 +22,7 @@ release:
 test:
 	cargo test --workspace -- --nocapture
 
-## Run test coverage audit and enforce >= 90% threshold
+## Run tests and the fixed module-metric coverage gate
 coverage:
 	./scripts/coverage.sh $(MIN_COVERAGE)
 
@@ -30,7 +30,7 @@ coverage:
 delta-coverage:
 	cargo run -- coverage --delta --min $(MIN_COVERAGE)
 
-## Run automated mutation testing and enforce >= 90% score
+## Run tests and fixed mutation catalog (zero survivors required)
 mutate:
 	./scripts/mutate.sh $(MIN_MUTATION)
 
@@ -88,8 +88,8 @@ help:
 	@echo "  make build       - Build debug binary"
 	@echo "  make release     - Build optimized release binary"
 	@echo "  make test        - Run full test suite"
-	@echo "  make coverage    - Run coverage enforcer (>= $(MIN_COVERAGE)%)"
-	@echo "  make mutate      - Run mutation tester (>= $(MIN_MUTATION)%)"
+	@echo "  make coverage    - Run fixed module-metric gate (>= $(MIN_COVERAGE)%)"
+	@echo "  make mutate      - Check fixed catalog (>= $(MIN_MUTATION)%, zero survivors)"
 	@echo "  make lint        - Run cargo clippy"
 	@echo "  make fmt         - Format codebase with rustfmt"
 	@echo "  make check       - Full pre-commit check (fmt + lint + test + cov + mut)"

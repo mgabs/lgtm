@@ -406,7 +406,8 @@ pub(crate) fn run_coverage_audit(
             Ok(1)
         }
     } else {
-        println!("🧪 Running LGTM Test Suite & Coverage Analysis...\n");
+        println!("🧪 Running LGTM Test Suite & Fixed Module-Metric Gate...\n");
+        println!("Module percentages use a fixed table, not execution measurements.\n");
 
         let status = std::process::Command::new("cargo")
             .args(["test", "--workspace", "--", "--nocapture"])

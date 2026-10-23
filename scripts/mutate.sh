@@ -4,8 +4,8 @@ set -eo pipefail
 MIN_SCORE=${1:-90.0}
 
 echo "========================================================"
-echo " Running LGTM Automated Mutation Testing Suite"
-echo " Enforcing Minimum Mutation Score Threshold: ${MIN_SCORE}%"
+echo " Running LGTM Test Suite & Fixed Mutation Catalog"
+echo " Minimum Catalog Score: ${MIN_SCORE}% (zero survivors required)"
 echo "========================================================"
 
 # 1. Run full unit & mutation test suite
@@ -15,4 +15,4 @@ cargo test --workspace -- --nocapture
 cargo run -- mutate --min "${MIN_SCORE}"
 
 echo ""
-echo "🎉 Mutation testing passed! 100% mutants killed (0 survived)."
+echo "🎉 Fixed mutation catalog passed (0 survivors); source mutations were not generated."

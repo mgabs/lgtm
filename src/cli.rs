@@ -92,11 +92,17 @@ pub enum Commands {
         repo: Option<PathBuf>,
     },
     /// Review an open or closed GitHub or Azure DevOps pull request
+    ///
+    /// Public GitHub.com patches can fall back to anonymous HTTPS when gh is missing
+    /// or needs login and no API token is set. Private access and writes need authentication.
     Pr {
         /// Pull Request number
         number: u64,
     },
     /// List pull requests by state (closed includes merged/completed and abandoned)
+    ///
+    /// Public GitHub.com listings can fall back to anonymous HTTPS when gh is missing
+    /// or needs login and no API token is set. Anonymous requests have lower rate limits.
     Prs {
         #[arg(long, default_value = "open", value_parser = ["open", "closed", "all"])]
         state: String,
@@ -196,7 +202,7 @@ pub enum Commands {
         #[arg(short, long)]
         repo: Option<PathBuf>,
     },
-    /// Audit test coverage across all modules or strictly on changed lines in diff
+    /// Check fixed module metrics, or measured added-line coverage with --delta --lcov
     Coverage {
         /// Minimum coverage percentage required to pass
         #[arg(short, long, default_value_t = 90.0)]
@@ -204,11 +210,11 @@ pub enum Commands {
         /// Calculate and enforce delta coverage strictly on added lines in diff
         #[arg(long)]
         delta: bool,
-        /// Optional path to LCOV tracefile (e.g. lcov.info)
+        /// LCOV tracefile for --delta (defaults to lcov.info when present)
         #[arg(long)]
         lcov: Option<PathBuf>,
     },
-    /// Run automated mutation testing suite and enforce mutation score threshold (default: 90%)
+    /// Check the fixed mutation catalog (minimum score and zero survivors required)
     Mutate {
         /// Minimum mutation score percentage required to pass
         #[arg(short, long, default_value_t = 90.0)]

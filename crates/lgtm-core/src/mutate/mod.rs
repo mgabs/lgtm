@@ -824,16 +824,7 @@ impl MutationTester {
             let original =
                 "GitEngine install_pre_commit_hook writes hook and pre_commit_hook_status reports true";
             let mutated = "GitEngine hook status always reports false";
-            let tmp = std::env::temp_dir().join(format!("lgtm-mut-hook-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
-            let _ = git2::Repository::init(&tmp); // lgtm:ignore
-            let engine = crate::git::GitEngine::new(&tmp);
-            let _ = engine.install_pre_commit_hook(); // lgtm:ignore
-            let installed_ok = engine.pre_commit_hook_status().unwrap_or(false);
-            let uninstalled_ok = engine.uninstall_pre_commit_hook().unwrap_or(false);
-            let status_after_uninstall = !engine.pre_commit_hook_status().unwrap_or(true);
-            let killed = installed_ok && uninstalled_ok && status_after_uninstall;
-            let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
+            let killed = Self::check_hook_lifecycle().unwrap_or(false);
             results.push(MutantResult {
                 id,
                 module: "crates/lgtm-core/src/git/mod.rs",
@@ -853,8 +844,35 @@ impl MutationTester {
         results
     }
 
+    fn check_hook_lifecycle() -> Result<bool> {
+        // Audits can run concurrently in one process. Each owns its repository
+        // and cleanup, so another audit cannot remove a hook mid-check.
+        let tmp = tempfile::Builder::new()
+            .prefix("lgtm-mut-hook-")
+            .tempdir()?;
+        let _repo = git2::Repository::init(tmp.path())?;
+        let engine = crate::git::GitEngine::new(tmp.path());
+        let initially_absent = !engine.pre_commit_hook_status()?;
+        let path = engine.install_pre_commit_hook()?;
+        let installed = engine.pre_commit_hook_status()?;
+        let content = std::fs::read_to_string(&path)?;
+        let reinstalled = engine.install_pre_commit_hook()?;
+        let idempotent = path == reinstalled && content == std::fs::read_to_string(&path)?;
+        let removed = engine.uninstall_pre_commit_hook()?;
+        let absent = !path.exists() && !engine.pre_commit_hook_status()?;
+        let no_second_removal = !engine.uninstall_pre_commit_hook()?;
+        Ok(initially_absent
+            && installed
+            && content.contains("exec lgtm check --strict")
+            && idempotent
+            && removed
+            && absent
+            && no_second_removal)
+    }
+
     pub fn run_mutation_audit(min_threshold: f64) -> Result<i32> {
-        println!("🧬 Running LGTM Automated Mutation Testing Suite...\n");
+        println!("🧬 Running LGTM Fixed Mutation Catalog...\n");
+        println!("Checks fixed behavior scenarios; source mutations are not generated.\n");
 
         let results = Self::run_all_mutations();
         let total = results.len();
@@ -910,6 +928,23 @@ impl MutationTester {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hook_checks_are_isolated_across_concurrent_audits() {
+        const WORKERS: usize = 8;
+        let barrier = std::sync::Barrier::new(WORKERS);
+        std::thread::scope(|scope| {
+            for _ in 0..WORKERS {
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    for _ in 0..20 {
+                        assert!(MutationTester::check_hook_lifecycle().unwrap());
+                    }
+                });
+            }
+        });
+    }
 
     #[test]
     fn test_mutation_runner_kills_all_mutants() {

@@ -1,4 +1,4 @@
-//! GitHub forge: native git fetch for PR diffs, direct REST/GraphQL API with GITHUB_TOKEN, and gh fallback.
+//! GitHub forge: native Git diffs, authenticated API/CLI access, and anonymous public reads.
 use super::Forge;
 use crate::github::{parse_threads, Bucket, Check, GhClient, GithubClient, Thread, THREADS_QUERY};
 use crate::model::DiffSnapshot;
@@ -110,14 +110,79 @@ impl GitHubForge {
         }
     }
 
+    /// Override the token used by direct API requests. `None` disables environment
+    /// token lookup; authentication managed by `gh` remains independent.
+    pub fn with_api_token(mut self, token: Option<String>) -> Self {
+        self.explicit_token = Some(token.unwrap_or_default());
+        self
+    }
+
     fn token(&self) -> Option<String> {
         if let Some(t) = &self.explicit_token {
-            return Some(t.clone());
+            return (!t.trim().is_empty()).then(|| t.clone());
         }
-        std::env::var("GITHUB_TOKEN")
-            .or_else(|_| std::env::var("GH_TOKEN"))
+        ["GITHUB_TOKEN", "GH_TOKEN"]
+            .into_iter()
+            .filter_map(|name| std::env::var(name).ok())
+            .find(|token| !token.trim().is_empty())
+    }
+
+    fn anonymous_remote(&self) -> bool {
+        let url = git2::Repository::open(&self.repo)
             .ok()
-            .filter(|t| !t.trim().is_empty())
+            .and_then(|repo| repo.find_remote("origin").ok()?.url().map(str::to_string));
+        url.is_some_and(|url| {
+            url.starts_with("https://github.com/")
+                || url.starts_with("http://github.com/")
+                || url.starts_with("git@github.com:")
+                || url.starts_with("ssh://git@github.com/")
+                || url.starts_with("ssh://github.com/")
+        })
+    }
+
+    fn can_read_anonymously(&self, error: &anyhow::Error) -> bool {
+        self.token().is_none()
+            && self.anonymous_remote()
+            && error
+                .downcast_ref::<super::failure::Failure>()
+                .is_some_and(|failure| {
+                    matches!(
+                        failure.kind,
+                        super::failure::Kind::Authentication
+                            | super::failure::Kind::ToolUnavailable
+                    )
+                })
+    }
+
+    fn anonymous_get(&self, url: &str, accept: &str) -> Result<String> {
+        let _timing = crate::debug::Span::new("pr.anonymous_read");
+        let header = format!("Accept: {accept}");
+        // This path only performs GET requests and carries no authorization or body.
+        self.runner
+            .run("curl", &["-sS", "--fail", "-H", "User-Agent: lgtm", "-H", &header, url])
+            .map_err(|error| {
+                let detail = error.downcast_ref::<super::failure::Failure>()
+                    .map(ToString::to_string).unwrap_or_else(|| "provider request failed".into());
+                error.context(format!("Anonymous GitHub read failed: {detail}; private repositories require authentication, and public reads may be rate limited"))
+            })
+    }
+
+    fn cli_list(&self, state: crate::pr::PullRequestState) -> Result<Vec<PullRequestSummary>> {
+        let mut args = vec!["pr", "list", "--state"];
+        if state == crate::pr::PullRequestState::Closed {
+            args.extend(["all", "--search", "is:closed"]);
+        } else {
+            args.push(state.as_str());
+        }
+        args.extend([
+            "--json",
+            "number,title,author,headRefName,additions,deletions,state",
+            "--limit",
+            "30",
+        ]);
+        let _timing = crate::debug::Span::new("command.gh.pr.list");
+        let raw = self.runner.run("gh", &args)?;
+        serde_json::from_str(&raw).context("Failed to parse pull requests JSON from GitHub CLI")
     }
 
     fn curl(&self, url: &str, method: &str, body: Option<&Value>) -> Result<Value> {
@@ -209,38 +274,48 @@ impl Forge for GitHubForge {
         &self,
         state: crate::pr::PullRequestState,
     ) -> Result<Vec<PullRequestSummary>> {
-        if let Some(r) = &self.remote {
-            let url = format!(
-                "https://api.github.com/repos/{}/{}/pulls?state={}&per_page=30",
-                r.owner,
-                r.repo,
-                state.as_str()
-            );
-            if let Ok(v) = self.curl(&url, "GET", None) {
-                if let Some(arr) = v.as_array() {
-                    let prs: Vec<PullRequestSummary> = arr
-                        .iter()
-                        .map(|item| PullRequestSummary {
-                            number: item["number"].as_u64().unwrap_or(0),
-                            title: item["title"].as_str().unwrap_or("").to_string(),
-                            author: PrAuthor {
-                                login: item["user"]["login"].as_str().unwrap_or("").to_string(),
-                            },
-                            head_ref_name: item["head"]["ref"].as_str().unwrap_or("").to_string(),
-                            additions: 0,
-                            deletions: 0,
-                            state: if item["merged_at"].as_str().is_some() {
-                                "merged".into()
-                            } else {
-                                item["state"].as_str().unwrap_or("open").to_string()
-                            },
-                        })
-                        .collect();
-                    return Ok(prs);
+        let Some(r) = &self.remote else {
+            return self.cli_list(state);
+        };
+        let url = format!(
+            "https://api.github.com/repos/{}/{}/pulls?state={}&per_page=30",
+            r.owner,
+            r.repo,
+            state.as_str()
+        );
+        let value = if self.token().is_some() {
+            self.curl(&url, "GET", None)?
+        } else {
+            match self.cli_list(state) {
+                Ok(prs) => return Ok(prs),
+                Err(error) if self.can_read_anonymously(&error) => {
+                    let raw = self.anonymous_get(&url, "application/vnd.github+json")?;
+                    serde_json::from_str(&raw).context("Invalid public GitHub PR listing")?
                 }
+                Err(error) => return Err(error),
             }
-        }
-        PrEngine::list_pull_requests_in(&self.repo, state)
+        };
+        let items = value
+            .as_array()
+            .context("GitHub PR listing was not an array")?;
+        Ok(items
+            .iter()
+            .map(|item| PullRequestSummary {
+                number: item["number"].as_u64().unwrap_or(0),
+                title: item["title"].as_str().unwrap_or("").to_string(),
+                author: PrAuthor {
+                    login: item["user"]["login"].as_str().unwrap_or("").to_string(),
+                },
+                head_ref_name: item["head"]["ref"].as_str().unwrap_or("").to_string(),
+                additions: 0,
+                deletions: 0,
+                state: if item["merged_at"].as_str().is_some() {
+                    "merged".into()
+                } else {
+                    item["state"].as_str().unwrap_or("open").to_string()
+                },
+            })
+            .collect())
     }
 
     /// Fast path: git fetch refs/pull/<n>/merge, then revision diff.
@@ -274,10 +349,21 @@ impl Forge for GitHubForge {
             return PrEngine::parse_unified_diff(&patch);
         }
         let _timing = crate::debug::Span::new("command.gh.pr.diff");
-        let patch = self
-            .runner
-            .run("gh", &["pr", "diff", &pr.to_string()])
-            .context("Loading PR patch through GitHub CLI")?;
+        let patch = match self.runner.run("gh", &["pr", "diff", &pr.to_string()]) {
+            Ok(patch) => patch,
+            Err(error) if self.can_read_anonymously(&error) => {
+                let remote = self
+                    .remote
+                    .as_ref()
+                    .context("GitHub origin is unavailable")?;
+                let url = format!(
+                    "https://api.github.com/repos/{}/{}/pulls/{pr}",
+                    remote.owner, remote.repo
+                );
+                self.anonymous_get(&url, "application/vnd.github.diff")?
+            }
+            Err(error) => return Err(error).context("Loading PR patch through GitHub CLI"),
+        };
         PrEngine::parse_unified_diff(&patch)
     }
 

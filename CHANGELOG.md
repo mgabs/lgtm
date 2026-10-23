@@ -3,6 +3,8 @@
 ## 0.8.2 (unreleased)
 
 ### Added
+- Anonymous HTTPS fallback for public GitHub.com PR listings and stored patches when `gh` is missing or needs login and no API token is set; BDD scenarios verify request budgets and failure boundaries. Private reads and writes still require authentication.
+- Public API and application-launch BDD scenarios, with a catalog mapping internal UI regressions and remaining acceptance work.
 - Opt-in `--debug` timing diagnostics with `--debug-log PATH`, plus offline responsiveness benchmarks.
 - Open, closed, and all PR listing filters for GitHub and Azure DevOps.
 - `lgtm check` / `lgtm ci` take `--rev <spec>` (for example `origin/main...HEAD`) to gate a committed range.
@@ -17,6 +19,7 @@
 - Orphaned comments: comments are re-pinned after every diff reload and flagged `⚠ Orphaned` when their code is gone (never deleted).
 
 ### Fixed
+- Concurrent mutation audits use isolated hook repositories, preventing false survivors caused by shared temporary-file cleanup.
 - PR loading prepares directive anchors, outcomes, review marks, and folds in the background. Changed inputs reprepare without refetching; drafts, selections, newer edits, and posting receipts are preserved.
 - Background refreshes, audits, and PR writes keep the current review usable; render caches and bounded event processing reduce navigation work.
 - Navigation with folded AST blocks is much faster: fold lookups are computed in one pass per hunk instead of per line, and queued key presses are applied before a redraw so held `j`/`k` doesn't lag.

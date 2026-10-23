@@ -1,8 +1,6 @@
 # lgtm (Looks Good To Me)
 
 [![CI](https://github.com/mgabs/lgtm/actions/workflows/ci.yml/badge.svg)](https://github.com/mgabs/lgtm/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-95.6%25-brightgreen)](https://github.com/mgabs/lgtm)
-[![Mutation Score](https://img.shields.io/badge/mutation_score-100%25-brightgreen)](https://github.com/mgabs/lgtm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > **Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner built in Rust.**
@@ -50,7 +48,7 @@
 - **Interactive Commit Forge (`C` / `:commit`)**: Craft conventional commits (`feat:`, `fix:`, `refactor:`, etc.) directly from staged hunks with automated diff-aware commit message synthesis.
 - **Tabbed Interactive Help Modal (`?` / `h`)**: 7 discrete documentation tabs covering Overview & Modes, Motions, Directives, Staging & Forge, Folding, Guardrails, and Ex-Commands & CI.
 - **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:diff <rev>`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:approve`, `:reject`, `:prompt`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
-- **PR Review Mode**: Review GitHub PRs (`gh`) or Azure DevOps PRs (`az`: list, diff, policies, threads, post, reply, resolve, vote) with `lgtm pr <num>` or `:pr <num>`, write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review` on GitHub.
+- **PR Review Mode**: Review GitHub PRs (Git, API, or `gh`) or Azure DevOps PRs (`az`: list, diff, policies, threads, post, reply, resolve, vote) with `lgtm pr <num>` or `:pr <num>`, write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review` on GitHub.
 - **CI step**: `lgtm ci --rev origin/main...HEAD` gates a committed range (exit 0 pass, 1 blocking findings, 2 tool error); a composite GitHub Action (`mgabs/lgtm`) adds verified install, SARIF upload and a job summary.
 - **Orphaned comments**: comments re-pin when code moves and are flagged `⚠ Orphaned` when their code is gone, never deleted.
 - **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and Markdown report export (`w` / `:export`).
@@ -91,7 +89,7 @@ lgtm
 lgtm scan repo
 # or: lgtm scan --tui / lgtm audit
 
-# Review a specific GitHub PR
+# Review an open or closed GitHub or Azure DevOps PR
 lgtm pr 42
 
 # List open PRs (default), closed PRs, or all states
@@ -135,6 +133,17 @@ for a new fetch to succeed. A closed PR without recorded commits fails clearly r
 comparing unrelated current branches. GitHub falls back to the stored PR patch from the API
 or GitHub CLI, which also avoids guessing the current target branch for historical reviews.
 Authentication and network failures still stop without trying additional Git fetches.
+
+For a recognized `github.com` origin, public PR listings and stored patches can
+fall back to anonymous HTTPS when `gh` is missing or asks for login and no
+`GITHUB_TOKEN`/`GH_TOKEN` is available. An authenticated `gh` result is reused;
+the fallback makes one GET request with no authorization header. Private
+repositories, discussion threads, and writes still require authentication.
+Git fetch authentication failures, unrelated CLI failures, rejected API tokens,
+and failed anonymous requests do not trigger further fallback attempts. Anonymous
+reads have lower GitHub rate limits; a denied, missing, or rate-limited resource
+returns an error. Enterprise hosts and SSH aliases do not use this GitHub.com
+fallback.
 
 ---
 
@@ -304,9 +313,10 @@ cargo test -p lgtm-core live_github_pr_load_benchmark -- --ignored --nocapture
 
 It reports per-load merge fetches, other fetches, API/CLI patch requests, elapsed time, and
 reload median/p95. Git fetching uses the checkout's existing credentials. Stored-patch
-loading uses `GITHUB_TOKEN`/`GH_TOKEN` when set, otherwise the existing `gh` login. Existing
+loading uses `GITHUB_TOKEN`/`GH_TOKEN` when set, otherwise `gh`; public GitHub.com patches can use anonymous HTTPS if `gh` is unavailable or needs login. Existing
 Git objects are retained, so the first sample is not guaranteed to fetch cold objects.
 
+- `pr.anonymous_read`: a public GitHub HTTPS fallback attempt; logs timing without repository URLs.
 - `pr.diff`, `git.fetch_merge_ref`, `git.fetch_head_ref`, `git.fetch_branches`, `git.fetch_commits`, `pr.fetch_metadata`, `pr.build_diff`: fetching and building a PR diff, including fallback attempts.
 - `review.scan` / `review.reload`: guard scanning and explicit diff reloads.
 - `comments.add_comment` / `comments.save_comments`: local directive creation, replies, and resolution saves.
@@ -434,7 +444,7 @@ automatic duplicate attempt. Curl requests have a 10-second connection timeout a
 | `X` / `:reject` | Reject & revert hunk under cursor; re-prompt agent with directive/alert context |
 | `A` / `:approve` | Approve waiting agent breakpoint gate (`.lgtm/gate.json`) |
 | `P` / `:prompt` | View agent prompt context modal from gate, `.lgtm/prompt.txt`, or commit history |
-| `T` | Run mutation verification probe across test files |
+| `T` | Summarize test-risk alerts in the current review |
 | `c` | Add inline review directive on current line (or comment on finding in `:audit`) |
 | `r` | Reply to review directive at cursor |
 | `R` / `<Space>r` | Toggle directive resolved state (`✓ RESOLVED` vs `💬 OPEN`) |
@@ -581,21 +591,41 @@ jobs:
 
 ## Testing & Quality Gates
 
-`lgtm` enforces strict test coverage ($\ge 90\%$) and automated mutation testing ($\ge 90\%$ mutation score):
+Run the workspace suite and the acceptance scenarios with:
 
 ```bash
-# Run unit & integration test suite (70+ tests)
+# Unit, integration, and module behavior tests
 make test
 
-# Enforce code coverage (>=90% threshold gate)
-make coverage
+# Public API and application-launch BDD scenarios
+cargo test --workspace --test bdd
 
-# Run automated mutation testing (12 mutant operators, >=90% kill gate)
-make mutate
-
-# Run full CI gate locally (fmt, lint, test, coverage, mutation, risk, sarif)
+# Repository quality gates
 make check
 ```
+
+The [BDD scenario catalog](docs/bdd-scenarios.md) maps acceptance criteria to tests,
+including draft preservation, historical PR retrieval, posting recovery, and
+GitHub/Azure response normalization. See [CONTRIBUTING.md](CONTRIBUTING.md#behavior-scenarios-bdd)
+for test placement and the [Q0–Q6 roadmap](docs/superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
+for remaining provider, terminal, recovery, and reporting work. Offline fixtures
+and internal state tests are distinct from live-provider or real-terminal checks.
+No automated BDD coverage percentage is currently calculated.
+
+`make coverage` runs tests and the built-in coverage gate. Its default module
+percentages come from a fixed table, not measured execution of the current source.
+For measured changed-line coverage, supply an LCOV trace generated from the code
+under test:
+
+```bash
+cargo run -- coverage --delta --lcov lcov.info --min 90
+```
+
+`make mutate` runs tests and the fixed 24-entry behavior catalog. The gate requires
+both the configured minimum score and zero survivors; it does not generate source
+mutations or measure mutation coverage of new code. Each hook check uses an isolated
+temporary repository so concurrent audits cannot delete each other's fixtures.
+The in-app `T` key summarizes current test-risk alerts.
 
 ---
 
@@ -608,6 +638,7 @@ lgtm/
 │   ├── cli.rs, headless.rs   # CLI definitions, headless runners & subcommands
 │   ├── app/                  # State machine, key handlers & Vim motion engine
 │   └── ui/                   # Ratatui rendering, drawer, tabs, commit forge & modals
+├── tests/bdd.rs              # Acceptance scenarios launching the application
 ├── crates/
 │   ├── lgtm-ast/src/         # tree-sitter parsing and queries
 │   ├── lgtm-core/src/        # UI-free engine
@@ -622,8 +653,8 @@ lgtm/
 │   │   └── coverage/, verify/, mutate/  # Quality gates
 │   └── lgtm-mcp/src/lib.rs   # MCP JSON-RPC stdio server
 ├── scripts/
-│   ├── coverage.sh           # Automated coverage enforcer script
-│   └── mutate.sh             # Automated mutation test runner
+│   ├── coverage.sh           # Tests + fixed module-metric gate
+│   └── mutate.sh             # Tests + fixed behavior catalog
 ├── .github/workflows/
 │   └── ci.yml                # Multi-OS CI pipeline with SARIF upload & release matrix
 ├── Makefile                  # All-in-one developer automation

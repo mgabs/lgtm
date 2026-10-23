@@ -94,7 +94,8 @@ pub fn classify(program: &str, code: Option<i32>, stderr: &str) -> Failure {
         || text.contains("unadvertised object")
     {
         Kind::MissingRef
-    } else if http_status == Some(401)
+    } else if (program == "gh" && (code == Some(4) || text.contains("gh auth login")))
+        || http_status == Some(401)
         || [
             "authentication failed",
             "permission denied (publickey",
@@ -172,6 +173,7 @@ pub fn operation(program: &str, args: &[&str]) -> &'static str {
         "git" => "command.git",
         "curl" => "command.curl",
         "az" => "command.az",
+        "gh" => "command.gh",
         _ => "command.other",
     }
 }
