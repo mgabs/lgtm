@@ -51,6 +51,14 @@ impl CommentAnchor {
         self.is_resolved = !self.is_resolved;
         self.is_resolved
     }
+
+    pub fn is_remote_uncertain(&self) -> bool {
+        self.track.remote_uncertain
+    }
+
+    pub fn set_remote_uncertain(&mut self, uncertain: bool) {
+        self.track.remote_uncertain = uncertain;
+    }
 }
 
 pub struct CommentStore {

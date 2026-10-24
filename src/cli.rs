@@ -85,7 +85,7 @@ pub enum Commands {
         #[arg(long)]
         no_user_config: bool,
     },
-    /// Initialize .lgtm/config.toml starter configuration
+    /// Initialize .lgtm.toml starter configuration
     Init {
         /// Target repository path
         #[arg(short, long, default_value = ".")]
@@ -202,26 +202,6 @@ pub enum Commands {
         #[arg(short, long)]
         repo: Option<PathBuf>,
     },
-    /// Check fixed module metrics, or measured added-line coverage with --delta --lcov
-    Coverage {
-        /// Minimum coverage percentage required to pass
-        #[arg(short, long, default_value_t = 90.0)]
-        min: f64,
-        /// Calculate and enforce delta coverage strictly on added lines in diff
-        #[arg(long)]
-        delta: bool,
-        /// LCOV tracefile for --delta (defaults to lcov.info when present)
-        #[arg(long)]
-        lcov: Option<PathBuf>,
-    },
-    /// Check the fixed mutation catalog (minimum score and zero survivors required)
-    Mutate {
-        /// Minimum mutation score percentage required to pass
-        #[arg(short, long, default_value_t = 90.0)]
-        min: f64,
-    },
-    /// Run inverted test verification to detect fraudulent or tautological tests
-    VerifyTests,
     /// Launch interactive diff reviewer TUI (default)
     Diff {
         /// Optional branch or revision to review (e.g. main, feat..HEAD)

@@ -25,18 +25,6 @@ impl Runner for SystemRunner {
     }
 }
 
-pub fn explain(stderr: &str) -> String {
-    let e = stderr.trim();
-    if e.contains("az login") || e.contains("TF400813") || e.contains("401") {
-        "az is not authenticated; run `az login` (or `az devops login`)".to_string()
-    } else if e.contains("not in the 'az' command group") || e.contains("azure-devops") {
-        "the Azure DevOps extension is missing; run `az extension add --name azure-devops`"
-            .to_string()
-    } else {
-        format!("az failed: {e}")
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Remote {
     pub org: String,
@@ -118,8 +106,6 @@ type MissingMergeRefs = Arc<Mutex<HashMap<MergeKey, Instant>>>;
 static MISSING_MERGES: OnceLock<MissingMergeRefs> = OnceLock::new();
 const MISSING_MERGE_TTL: Duration = Duration::from_secs(5 * 60);
 
-static BODY_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
 pub struct AzureForge {
     repo: PathBuf,
     remote: Option<Remote>,
@@ -131,10 +117,23 @@ pub struct AzureForge {
 
 impl AzureForge {
     pub fn new(repo: PathBuf) -> Self {
-        let remote = git2::Repository::open(&repo)
-            .ok()
-            .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
-            .and_then(|u| parse_remote(&u));
+        let url = super::origin_url(&repo);
+        Self::with_origin(repo, url)
+    }
+
+    pub fn with_runner(repo: PathBuf, runner: Box<dyn Runner>) -> Self {
+        let remote = super::origin_url(&repo).as_deref().and_then(parse_remote);
+        Self {
+            repo,
+            remote,
+            runner,
+            shared: false,
+            missing_merges: Default::default(),
+        }
+    }
+
+    pub(crate) fn with_origin(repo: PathBuf, origin_url: Option<String>) -> Self {
+        let remote = origin_url.as_deref().and_then(parse_remote);
         let runner = Box::new(SystemRunner(repo.clone()));
         Self {
             repo,
@@ -209,24 +208,15 @@ impl AzureForge {
             }
         }
         let token = self.token()?;
-        let file = std::env::temp_dir().join(format!(
-            "lgtm-hdr-{}-{}",
-            std::process::id(),
-            BODY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        {
-            use std::io::Write;
-            let mut o = std::fs::OpenOptions::new();
-            o.write(true).create_new(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
-            writeln!(o.open(&file)?, "Authorization: Bearer {token}")?;
-        }
-        let hdr = format!("@{}", file.display());
+        let file = super::PrivateTempFile::write(
+            "lgtm-hdr",
+            format!("Authorization: Bearer {token}\n").as_bytes(),
+        )?;
+        let hdr = format!("@{}", file.path().display());
         let out = self
             .runner
             .run("curl", &["-sS", "--fail", "-H", &hdr, &url]);
-        let _ = std::fs::remove_file(&file);
+        drop(file);
         let v: Value =
             serde_json::from_str(&out?).context("unexpected Azure DevOps REST response")?;
         if self.shared {
@@ -326,15 +316,10 @@ impl AzureForge {
             route.push(format!("threadId={t}"));
         }
         let file = match body {
-            Some(b) => {
-                let p = std::env::temp_dir().join(format!(
-                    "lgtm-az-{}-{}.json",
-                    std::process::id(),
-                    BODY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                ));
-                std::fs::write(&p, b.to_string())?;
-                Some(p)
-            }
+            Some(b) => Some(super::PrivateTempFile::write(
+                "lgtm-az",
+                b.to_string().as_bytes(),
+            )?),
             None => None,
         };
         if method != "get" {
@@ -356,16 +341,16 @@ impl AzureForge {
             "--output",
             "json",
         ];
-        let path = file.as_ref().map(|p| p.to_string_lossy().into_owned());
+        let path = file
+            .as_ref()
+            .map(|p| p.path().to_string_lossy().into_owned());
         if let Some(p) = &path {
             args.extend(["--in-file", p]);
         }
         args.push("--route-parameters");
         args.extend(route.iter().map(String::as_str));
         let out = self.runner.run("az", &args);
-        if let Some(p) = &file {
-            let _ = std::fs::remove_file(p);
-        }
+        drop(file);
         serde_json::from_str(&out?).context("unexpected `az` output")
     }
 
@@ -580,9 +565,9 @@ impl Forge for AzureForge {
     /// `APPROVE` and `REQUEST_CHANGES` set the vote (plus the body as a comment); `COMMENT` only comments.
     fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()> {
         let vote = match event {
-            "APPROVE" => Some("approve"),
-            "REQUEST_CHANGES" => Some("wait-for-author"),
-            "COMMENT" => None,
+            "APPROVE" | "approve" => Some("approve"),
+            "REQUEST_CHANGES" | "request-changes" | "request_changes" => Some("wait-for-author"),
+            "COMMENT" | "comment" => None,
             other => bail!("unknown review event '{other}'"),
         };
         if !body.is_empty() {
@@ -661,6 +646,9 @@ impl GithubClient for AzureForge {
         self.new_thread(pr, body, None)
     }
     fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
+        thread_id
+            .parse::<u64>()
+            .context("invalid Azure thread id")?;
         let c =
             serde_json::json!({"parentCommentId": comment_id, "content": body, "commentType": 1});
         let v = self.call(
@@ -675,9 +663,15 @@ impl GithubClient for AzureForge {
             .context("Azure DevOps returned no comment id")
     }
     fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
+        thread_id
+            .parse::<u64>()
+            .context("invalid Azure thread id")?;
         let status = if resolved { "fixed" } else { "active" };
         let b = serde_json::json!({ "status": status });
-        self.call("patch", "pullRequestThreads", pr, Some(thread_id), Some(&b))?;
+        let v = self.call("patch", "pullRequestThreads", pr, Some(thread_id), Some(&b))?;
+        v["id"]
+            .as_u64()
+            .context("Thread update has no confirmation; refresh before retrying")?;
         Ok(())
     }
 }
@@ -867,13 +861,6 @@ mod tests {
     }
 
     #[test]
-    fn explains_az_errors() {
-        assert!(explain("Please run 'az login' to setup account").contains("az login"));
-        assert!(explain("'repos' is not in the 'az' command group").contains("extension add"));
-        assert!(explain("boom").starts_with("az failed"));
-    }
-
-    #[test]
     fn parses_remote_shapes() {
         let want = |o: &str, p: &str, r: &str| {
             Some(Remote {
@@ -937,7 +924,7 @@ mod tests {
             ".",
             vec![
                 ("--http-method post --output json --in-file", r#"{"id":7}"#),
-                ("--http-method patch", "{}"),
+                ("--http-method patch", r#"{"id":5}"#),
                 ("set-vote", "{}"),
                 ("pr show", r#"{"lastMergeSourceCommit":{"commitId":"abc"}}"#),
             ],

@@ -62,72 +62,17 @@ pub struct PrEngine;
 
 impl PrEngine {
     pub fn is_gh_installed() -> bool {
-        Command::new("gh").arg("--version").output().is_ok()
-    }
-
-    pub fn list_pull_requests() -> Result<Vec<PullRequestSummary>> {
-        Self::list_pull_requests_in(std::path::Path::new("."), PullRequestState::Open)
-    }
-
-    pub fn list_pull_requests_in(
-        repo: &std::path::Path,
-        state: PullRequestState,
-    ) -> Result<Vec<PullRequestSummary>> {
-        let _timing = crate::debug::Span::new("command.gh.pr.list");
-        let mut command = Command::new("gh");
-        command.current_dir(repo).args(["pr", "list"]);
-        // GitHub search treats closed as both merged and closed without merging.
-        if state == PullRequestState::Closed {
-            command.args(["--state", "all", "--search", "is:closed"]);
-        } else {
-            command.args(["--state", state.as_str()]);
-        }
-        let output = command
-            .args([
-                "--json",
-                "number,title,author,headRefName,additions,deletions,state",
-                "--limit",
-                "30",
-            ])
-            .output()
-            .context("Failed to run `gh pr list`")?;
-
-        if !output.status.success() {
-            bail!("`gh pr list` returned an error. Ensure `gh auth login` is configured.");
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let prs: Vec<PullRequestSummary> = serde_json::from_str(&stdout)
-            .context("Failed to parse pull requests JSON from `gh pr list`")?;
-        Ok(prs)
-    }
-
-    pub fn fetch_pr_diff(pr_number: u64) -> Result<DiffSnapshot> {
-        Self::fetch_pr_diff_in(std::path::Path::new("."), pr_number)
-    }
-
-    pub fn fetch_pr_diff_in(repo: &std::path::Path, pr_number: u64) -> Result<DiffSnapshot> {
-        let _timing = crate::debug::Span::new("command.gh.pr.diff");
-        let output = Command::new("gh")
-            .current_dir(repo)
-            .args(["pr", "diff", &pr_number.to_string()])
-            .output()
-            .context(format!("Failed to run `gh pr diff {}`", pr_number))?;
-
-        if !output.status.success() {
-            bail!("`gh pr diff {}` failed", pr_number);
-        }
-
-        let raw_diff = String::from_utf8_lossy(&output.stdout);
-        Self::parse_unified_diff(&raw_diff)
+        static INSTALLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *INSTALLED.get_or_init(|| Command::new("gh").arg("--version").output().is_ok())
     }
 
     pub fn post_review(pr_number: u64, event: &str, body: &str) -> Result<()> {
         let _timing = crate::debug::Span::new("command.gh.pr.review");
         let flag = match event {
-            "approve" => "--approve",
-            "request-changes" => "--request-changes",
-            _ => "--comment",
+            "approve" | "APPROVE" => "--approve",
+            "request-changes" | "request_changes" | "REQUEST_CHANGES" => "--request-changes",
+            "comment" | "COMMENT" => "--comment",
+            other => bail!("unknown review event '{other}'"),
         };
 
         let mut cmd = Command::new("gh");
@@ -136,10 +81,10 @@ impl PrEngine {
             cmd.args(["-b", body]);
         }
 
-        let status = cmd
-            .status()
+        let output = cmd
+            .output()
             .context("Failed to submit PR review via `gh`")?;
-        if !status.success() {
+        if !output.status.success() {
             bail!("`gh pr review` returned non-zero status code");
         }
         Ok(())

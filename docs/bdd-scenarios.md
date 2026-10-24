@@ -10,12 +10,14 @@ explain the acceptance criteria; assertions check the observable outcome.
 
 ## Acceptance scenarios
 
-All scenarios below are offline. The GitHub runner returns fixture responses and
-records requests; posting uses an in-memory client. Persistence checks use real
-files in isolated temporary repositories. None of these tests verifies a live
-provider, terminal rendering, or interactive input latency. Core scenarios that
-"reopen" state create a new store and reload its real files in the same test
-process; they do not simulate an application crash or operating-system restart.
+All scenarios below are offline. The GitHub and Azure runners return fixture
+responses and record requests; posting uses an in-memory client. Persistence
+checks use real files in isolated temporary repositories. `bdd_cli_006` launches
+the compiled binary inside a real Unix pseudo-terminal (PTY) against local fake
+provider commands. None of these tests verifies a live provider or machine-speed
+latency thresholds. Core scenarios that "reopen" state create a new store and
+reload its real files in the same test process; they do not simulate an
+application crash or operating-system restart.
 
 | ID | Given / When | Expected outcome |
 |---|---|---|
@@ -37,11 +39,15 @@ process; they do not simulate an application crash or operating-system restart.
 | `bdd_core_016` | API token is rejected | Reads and writes fail without CLI retry or anonymous downgrade |
 | `bdd_core_017` | CLI already returns the listing | CLI result is used without an extra anonymous request |
 | `bdd_core_018` | Anonymous listing response is malformed or not an array | Error reported without retry or an empty successful listing |
+| `bdd_core_019` | GitHub (API/CLI) and Azure (`az`) list open, closed, and all PRs | Request targets, state flags, and normalized summaries match provider/transport contracts |
+| `bdd_core_020` | GitHub (API/CLI) and Azure (`az`) reply, resolve, and reopen threads | Request endpoints, payloads, numeric ID guards, and confirmation checks reject unconfirmed responses |
+| `bdd_core_021` | Remote directive post times out after provider accepts the comment | Directive is persisted as uncertain, skipped on blind retry, and reconciled against remote threads without duplicate write |
 | `bdd_cli_001` | User installs, inspects, and removes the hook | Successful exit codes, matching status, actual hook created and removed |
 | `bdd_cli_002` | User supplies `--debug-log` without `--debug` | Argument error and no log file |
 | `bdd_cli_003` | `LGTM_DEBUG_LOG` is set; run normally, then with `--debug --debug-log PATH` | Environment alone creates no log; explicit flags create the requested file |
 | `bdd_cli_004` | Install a hook outside a Git repository | Nonzero exit, clear error, no created files |
 | `bdd_cli_005` | Request an unsupported PR listing state | Argument error shows valid choices before the picker is launched |
+| `bdd_cli_006` | Real-terminal (PTY) session navigates while loading, switches PRs, retains visual selection and draft, and rejects stale PR load | Stale PR #10 is discarded, visual selection and comment draft defer PR #20 apply, directive persists on PR #20 without extra fetch |
 
 Run all of these with:
 
@@ -71,6 +77,7 @@ by `--test bdd`.
 | `bdd_ui_006` | Successful reply survives a failed thread refresh without resubmission | `bdd_ui_006_successful_reply_survives_failed_refresh_without_resubmission`, `src/app/pr.rs` |
 | `bdd_ui_007` | Acknowledging an older reply preserves a newer unsent draft | `bdd_ui_007_acknowledged_reply_preserves_a_newer_draft`, `src/app/pr.rs` |
 | `bdd_ui_008` | Failed resolution can be retried, then reopened | `bdd_ui_008_failed_resolution_can_be_retried_and_reopened`, `src/app/pr.rs` |
+| `bdd_ui_009` | Ambiguous remote thread reply timeout blocks blind resubmission until thread refresh reconciles delivery | `bdd_ui_009_ambiguous_reply_timeout_blocks_blind_resubmission_until_reconciled`, `src/app/pr.rs` |
 | `bdd_provider_001` | Azure historical reloads use recorded commits without repeated ref probes | `historical_pr_cold_and_reload_request_budgets`, `crates/lgtm-core/src/forge/azure/performance_tests.rs` |
 | `bdd_provider_002` | GitHub stored-patch retrieval keeps a bounded request count | `historical_api_patch_request_budget` and `historical_cli_patch_request_budget`, `crates/lgtm-core/src/forge/github/performance_tests.rs` |
 

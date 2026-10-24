@@ -82,6 +82,7 @@ fn provider(
     requests: Arc<Mutex<Requests>>,
     transport: Transport,
     api: bool,
+    missing_merges: MissingMergeRefs,
 ) -> GitHubForge {
     GitHubForge {
         repo: repo.clone(),
@@ -90,12 +91,14 @@ fn provider(
             owner: "fixture".into(),
             repo: "repo".into(),
         }),
+        is_github_com: api,
         runner: Box::new(MeteredRunner {
             repo,
             requests,
             transport,
         }),
         explicit_token: Some("fixture-token".into()),
+        missing_merges,
     }
 }
 
@@ -130,6 +133,7 @@ fn merge_ref_cold_and_reload_request_budgets() {
         .remote("origin", upstream.path().to_str().unwrap())
         .unwrap();
     let requests = Arc::new(Mutex::new(Requests::default()));
+    let missing: MissingMergeRefs = Default::default();
     assert!(git2::Repository::open(&client)
         .unwrap()
         .find_commit(head)
@@ -141,6 +145,7 @@ fn merge_ref_cold_and_reload_request_budgets() {
             requests.clone(),
             Transport::LocalMerge,
             true,
+            missing.clone(),
         )
         .pr_diff(42)
         .unwrap();
@@ -166,12 +171,14 @@ fn merge_ref_cold_and_reload_request_budgets() {
 #[test]
 fn historical_api_patch_request_budget() {
     let requests = Arc::new(Mutex::new(Requests::default()));
+    let missing: MissingMergeRefs = Default::default();
     for load in 1..=11 {
         let diff = provider(
             PathBuf::from("."),
             requests.clone(),
             Transport::StoredPatch,
             true,
+            missing.clone(),
         )
         .pr_diff(42)
         .unwrap();
@@ -179,7 +186,7 @@ fn historical_api_patch_request_budget() {
         assert_eq!(
             *requests.lock().unwrap(),
             Requests {
-                merge: load,
+                merge: 1,
                 api_patch: load,
                 ..Requests::default()
             }
@@ -190,12 +197,14 @@ fn historical_api_patch_request_budget() {
 #[test]
 fn historical_cli_patch_request_budget() {
     let requests = Arc::new(Mutex::new(Requests::default()));
+    let missing: MissingMergeRefs = Default::default();
     for load in 1..=4 {
         let diff = provider(
             PathBuf::from("."),
             requests.clone(),
             Transport::StoredPatch,
             false,
+            missing.clone(),
         )
         .pr_diff(42)
         .unwrap();
@@ -203,7 +212,7 @@ fn historical_cli_patch_request_budget() {
         assert_eq!(
             *requests.lock().unwrap(),
             Requests {
-                merge: load,
+                merge: 1,
                 cli_patch: load,
                 ..Requests::default()
             }
@@ -226,6 +235,7 @@ fn fetch_errors_stop_with_one_request() {
             requests.clone(),
             Transport::FailedFetch(kind),
             true,
+            Default::default(),
         )
         .pr_diff(42)
         .unwrap_err();
@@ -254,7 +264,8 @@ fn failed_patch_does_not_try_another_transport() {
             PathBuf::from("."),
             requests.clone(),
             Transport::FailedPatch,
-            api
+            api,
+            Default::default(),
         )
         .pr_diff(42)
         .is_err());

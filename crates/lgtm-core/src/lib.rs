@@ -1,7 +1,6 @@
 pub mod baseline;
 pub mod comment;
 pub mod config;
-pub mod coverage;
 pub mod debug;
 pub mod diff_source;
 pub mod findings;
@@ -11,13 +10,11 @@ pub mod github;
 pub mod guard;
 pub mod ipc;
 pub mod model;
-pub mod mutate;
 pub mod outcome;
 pub mod pr;
 pub mod review;
 pub mod scan;
 pub mod turn;
-pub mod verify;
 pub mod watcher;
 
 pub use git2;

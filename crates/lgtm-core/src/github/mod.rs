@@ -176,6 +176,33 @@ fn gh(args: &[&str]) -> Result<std::process::Output> {
     result
 }
 
+fn gh_input(args: &[&str], input: &serde_json::Value) -> Result<std::process::Output> {
+    use std::io::Write;
+    let mut timing = crate::debug::Span::new("command.gh");
+    let mut child = Command::new("gh")
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("`gh` is not installed or not on PATH; GitHub features are unavailable")?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(&serde_json::to_vec(input)?);
+    }
+    let result = child
+        .wait_with_output()
+        .context("`gh` failed while reading input");
+    timing.result(&result);
+    if let Ok(out) = &result {
+        timing.result(&if out.status.success() {
+            Ok(())
+        } else {
+            Err(())
+        });
+    }
+    result
+}
+
 pub const THREAD_QUERY: &str = "query($id:ID!){node(id:$id){... on PullRequestReviewThread{id isResolved path line comments(first:100){nodes{databaseId author{login} body}}}}}";
 
 pub fn parse_thread(json: &str) -> Result<Option<Thread>> {
@@ -256,36 +283,26 @@ impl GithubClient for GhClient {
 
     fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
         let ep = format!("repos/{{owner}}/{{repo}}/pulls/{pr}/comments");
-        let (b, c, p, l) = (
-            format!("body={body}"),
-            format!("commit_id={sha}"),
-            format!("path={path}"),
-            format!("line={line}"),
-        );
-        post_id(gh(&[
-            "api",
-            &ep,
-            "-f",
-            &b,
-            "-f",
-            &c,
-            "-f",
-            &p,
-            "-F",
-            &l,
-            "-f",
-            "side=RIGHT",
-        ])?)
+        let payload = serde_json::json!({
+            "body": body,
+            "commit_id": sha,
+            "path": path,
+            "line": line,
+            "side": "RIGHT"
+        });
+        post_id(gh_input(&["api", &ep, "--input", "-"], &payload)?)
     }
 
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
         let ep = format!("repos/{{owner}}/{{repo}}/issues/{pr}/comments");
-        post_id(gh(&["api", &ep, "-f", &format!("body={body}")])?)
+        let payload = serde_json::json!({ "body": body });
+        post_id(gh_input(&["api", &ep, "--input", "-"], &payload)?)
     }
 
     fn reply(&self, pr: u64, _thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
         let ep = format!("repos/{{owner}}/{{repo}}/pulls/{pr}/comments/{comment_id}/replies");
-        post_id(gh(&["api", &ep, "-f", &format!("body={body}")])?)
+        let payload = serde_json::json!({ "body": body });
+        post_id(gh_input(&["api", &ep, "--input", "-"], &payload)?)
     }
 
     fn set_resolved(&self, _pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
@@ -322,6 +339,7 @@ pub struct FakeClient {
     pub threads: Vec<Thread>,
     pub error: Option<String>,
     pub fail_post_after: Option<usize>,
+    pub timeout_after_accept: bool,
     pub posted: std::cell::RefCell<Vec<String>>,
 }
 
@@ -332,6 +350,14 @@ impl FakeClient {
             bail!("rate limited");
         }
         p.push(entry);
+        if self.timeout_after_accept {
+            return Err(crate::forge::failure::Failure {
+                kind: crate::forge::failure::Kind::Timeout,
+                exit_code: Some(28),
+                http_status: None,
+            }
+            .into());
+        }
         Ok(100 + p.len() as u64)
     }
 }

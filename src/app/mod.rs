@@ -163,6 +163,7 @@ pub struct App {
     pub posting_comments: std::collections::HashSet<String>,
     review_posting_prs: std::collections::HashSet<u64>,
     reply_drafts: std::collections::HashMap<(u64, String), String>,
+    uncertain_replies: std::collections::HashMap<(u64, String), String>,
 }
 
 pub type Job = Box<dyn FnOnce(&mut App) + Send>;
@@ -290,6 +291,7 @@ impl App {
             posting_comments: Default::default(),
             review_posting_prs: Default::default(),
             reply_drafts: Default::default(),
+            uncertain_replies: Default::default(),
         };
 
         app.load_marks();

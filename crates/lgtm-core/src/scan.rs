@@ -268,12 +268,13 @@ fn process_single_file(root_dir: &Path, path: &Path) -> Option<(FileDiff, Vec<Gu
         })
         .collect();
 
+    let line_count = lines.len();
     let hunk = DiffHunk {
-        header: format!("@@ -0,0 +1,{} @@", lines.len()),
+        header: format!("@@ -0,0 +1,{} @@", line_count),
         old_start: 0,
         old_lines: 0,
         new_start: 1,
-        new_lines: lines.len() as u32,
+        new_lines: line_count as u32,
         lines,
         is_folded: false,
         folded_blocks: Vec::new(),
@@ -283,7 +284,7 @@ fn process_single_file(root_dir: &Path, path: &Path) -> Option<(FileDiff, Vec<Gu
         old_path: None,
         new_path: rel_path,
         change_type: ChangeType::Added,
-        additions: content.lines().count(),
+        additions: line_count,
         deletions: 0,
         hunks: vec![hunk],
         is_folded: false,

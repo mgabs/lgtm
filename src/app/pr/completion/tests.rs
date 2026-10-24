@@ -63,7 +63,7 @@ fn edits_and_post_receipts_during_loading_survive_without_refetch() {
     app.comments[0].comment_text = "newer edit".into();
     app.comments[0].add_reply("newer reply");
     let id = app.comments[0].id.clone();
-    app.save_post_receipts(&[(id, 99)]).unwrap();
+    app.save_post_receipts(&[(id, 99)], &[]).unwrap();
     app.comments[1].comment_text = "unrelated newer edit".into();
     app.comments.push(directive(42));
     app.comments.swap(0, 2);

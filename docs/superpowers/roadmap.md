@@ -1,8 +1,8 @@
 # lgtm Roadmap
 
-Date: 2026-10-12 · Status: original roadmap and P0–P7 complete; Q0–Q6 open · Baseline: `main` @ a90d5b0 (v0.7.0)
+Date: 2026-10-12 · Status: original roadmap, P0–P7, and Q0–Q2 complete; Q3–Q6 open · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress (updated 2026-10-23):** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E5′, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. Original roadmap items complete. P0 diagnostics, P1 cached viewport rendering, P2 background local refreshes, P3 bounded event processing, P4 background audits, P5 prepared render data, P6 shared navigation mappings, and P7 background PR completion preparation are complete. The BDD acceptance catalog is established; Q0–Q6 below remain open.
+**Progress (updated 2026-10-24):** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E5′, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. Original roadmap items complete. P0 diagnostics, P1 cached viewport rendering, P2 background local refreshes, P3 bounded event processing, P4 background audits, P5 prepared render data, P6 shared navigation mappings, and P7 background PR completion preparation are complete. The BDD acceptance catalog is established with Q0 provider request contracts, Q1 ambiguous remote write recovery, and Q2 real-terminal (PTY) acceptance journeys complete; Q3–Q6 below remain open.
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
@@ -141,9 +141,9 @@ The [scenario catalog](../bdd-scenarios.md) maps current integration and interna
 tests. Anonymous GitHub listing/patch fallback now has offline public-API scenarios, including failure boundaries; provider parity and live checks remain incomplete. The following work remains open; start with Q0, Q1, and Q2. Existing tests
 and response-normalization fixtures do not establish live-provider coverage.
 
-- [ ] **Q0 — Verify provider request contracts.** Add offline GitHub and Azure scenarios for open/closed/all listing, replies, resolution, and reopening. Assert request targets, payloads, confirmations, and failure handling; record provider and transport separately.
-- [ ] **Q1 — Recover from ambiguous remote writes.** Simulate a timeout after a provider may have accepted a comment or reply. Verify the outcome is surfaced as uncertain and recovery does not blindly resubmit the write; define and test reconciliation or an explicit reviewer decision.
-- [ ] **Q2 — Add terminal acceptance journeys.** Exercise the compiled application through a real terminal fixture: navigate while loading, switch PRs, retain drafts and visual selections, and reject stale completions. Keep fixtures local and isolate repositories and provider commands.
+- [x] **Q0 — Verify provider request contracts.** Add offline GitHub and Azure scenarios for open/closed/all listing, replies, resolution, and reopening. Assert request targets, payloads, confirmations, and failure handling; record provider and transport separately (`bdd_core_019`, `bdd_core_020`).
+- [x] **Q1 — Recover from ambiguous remote writes.** Simulate a timeout after a provider may have accepted a comment or reply. Verify the outcome is surfaced as uncertain and recovery does not blindly resubmit the write; define and test reconciliation or an explicit reviewer decision (`bdd_core_021`, `bdd_ui_009`).
+- [x] **Q2 — Add terminal acceptance journeys.** Exercise the compiled application through a real terminal fixture: navigate while loading, switch PRs, retain drafts and visual selections, and reject stale completions. Keep fixtures local and isolate repositories and provider commands (`bdd_cli_006`).
 - [ ] **Q3 — Recover after a failed receipt save and restart.** Post successfully, fail its local receipt save, restart the application, and verify recovery can identify the remote success without duplicating it. Current tests cover stopping subsequent writes within the session.
 - [ ] **Q4 — Automate BDD catalog reporting.** Map stable criterion IDs to executable tests and current results. Report passing, failed, skipped, and not-automated criteria; distinguish automation coverage, verified coverage, and pass rate. Include mapped module tests without double-counting requirements.
 - [ ] **Q5 — Add opt-in live-provider acceptance checks.** Verify real GitHub and Azure authentication, PR retrieval, replies, and resolve/reopen behavior against designated fixtures. Make writes explicit and isolate fixture cleanup; keep these separate from offline CI and existing latency benchmarks.

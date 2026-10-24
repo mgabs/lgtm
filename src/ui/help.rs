@@ -509,11 +509,11 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Save active directives to .lgtm/comments.jsonl"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :q, :quit, :exit     ", Style::default().fg(Color::Cyan)),
+                    Span::styled("  :q, :quit            ", Style::default().fg(Color::Cyan)),
                     Span::raw("Quit lgtm (:q! force quit)"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :wq, :x              ", Style::default().fg(Color::Cyan)),
+                    Span::styled("  :wq, :x, :exit       ", Style::default().fg(Color::Cyan)),
                     Span::raw("Save directives to disk and exit"),
                 ]),
                 Line::from(vec![
@@ -587,6 +587,14 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 Line::from(vec![
                     Span::styled("  :prompt / :context   ", Style::default().fg(Color::Cyan)),
                     Span::raw("Open agent prompt / gate context modal"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :editor [name]       ", Style::default().fg(Color::Cyan)),
+                    Span::raw("View or set active editor (nvim, vim, vscode, cursor, helix)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :hook [action]       ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Install, uninstall, or inspect Git pre-commit hook"),
                 ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(

@@ -1,4 +1,5 @@
 use super::*;
+use crate::comment::CommentStore;
 use crate::model::{ChangeType, DiffLine};
 
 fn line(t: LineType, s: &str, n: Option<u32>) -> DiffLine {
@@ -190,26 +191,14 @@ fn store_round_trip_and_newer_version_refused() {
 }
 
 #[test]
-fn migrates_legacy_comments_once() {
+fn open_preserves_comments_jsonl() {
     let d = tempfile::tempdir().unwrap();
-    let legacy = CommentStore::new(d.path());
-    let mut pr = anchor("b.rs", 2, "q");
-    pr.pr_number = Some(7);
-    legacy.add_comment(&anchor("a.rs", 1, "p")).unwrap();
-    legacy.add_comment(&pr).unwrap();
+    let store = CommentStore::new(d.path());
+    store.add_comment(&anchor("a.rs", 1, "p")).unwrap();
     let s = ReviewStore::open(d.path(), "main").unwrap();
-    assert_eq!(s.load().unwrap().comments.len(), 1);
-    assert!(d.path().join(".lgtm/comments.jsonl.bak").is_file());
-    assert!(!d.path().join(".lgtm/comments.jsonl").exists());
-    assert_eq!(
-        ReviewStore::open(d.path(), "pr-7")
-            .unwrap()
-            .load()
-            .unwrap()
-            .comments
-            .len(),
-        1
-    );
+    assert!(s.load().unwrap().comments.is_empty());
+    assert!(d.path().join(".lgtm/comments.jsonl").is_file());
+    assert!(!d.path().join(".lgtm/comments.jsonl.bak").exists());
 }
 
 #[test]

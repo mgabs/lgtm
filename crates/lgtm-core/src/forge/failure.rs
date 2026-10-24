@@ -152,6 +152,22 @@ pub fn missing_ref(error: &anyhow::Error) -> bool {
         .is_some_and(|e| e.kind == Kind::MissingRef)
 }
 
+pub fn is_ambiguous_write(error: &anyhow::Error) -> bool {
+    if error
+        .downcast_ref::<Failure>()
+        .is_some_and(|e| e.kind == Kind::Timeout)
+    {
+        return true;
+    }
+    let text = format!("{error:#}").to_ascii_lowercase();
+    text.contains("timed out")
+        || text.contains("timeout")
+        || text.contains("no receipt")
+        || text.contains("no comment id")
+        || text.contains("no thread id")
+        || text.contains("no confirmation")
+}
+
 pub fn operation(program: &str, args: &[&str]) -> &'static str {
     match program {
         "git" if args.first() == Some(&"fetch") => {

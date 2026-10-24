@@ -50,22 +50,11 @@ make lint
 # 3. Run all unit & integration tests
 make test
 
-# 4. Run the built-in coverage gate (fixed module metrics; see below)
-make coverage
-
-# 5. Run the fixed mutation catalog (zero survivors required)
-make mutate
-
-# 6. Run full verification suite locally
+# 4. Run full verification suite locally (fmt + lint + boundary check + test)
 make check
 ```
 
-The default coverage gate uses fixed module metrics; it does not measure execution
-of current source. Generate an LCOV trace and use
-`cargo run -- coverage --delta --lcov lcov.info --min 90` for measured changed-line
-coverage. The mutation gate checks a fixed behavior catalog, requires zero
-survivors, and does not generate source mutations. Neither result establishes BDD
-coverage. See [Testing & Quality Gates](README.md#testing--quality-gates).
+See [Testing & Quality Gates](README.md#testing--quality-gates).
 
 ### Behavior scenarios (BDD)
 
@@ -91,18 +80,19 @@ live-provider verification, and terminal journeys distinct when reporting result
 ## 4. Codebase Architecture
 
 ```
-src/                    # `lgtm` binary: CLI + TUI (app/, ui/, cli.rs, headless.rs)
+src/                    # `lgtm` binary: CLI + TUI (app/, ui/, event_loop.rs, diagnostics.rs, cli.rs, headless.rs)
 crates/
+├── lgtm-ast/src/       # Tree-sitter AST parsing, queries & block folding
 ├── lgtm-core/src/      # UI-free engine
-│   ├── model.rs        # Diff data models
+│   ├── model.rs, debug.rs # Diff data models; structured JSONL timing recorder
 │   ├── git/, pr/, forge/ # Git diffs; GitHub and Azure PR providers
 │   ├── scan.rs         # Full repository audit scanner
 │   ├── guard/          # Static analysis guards (security, complexity, symbols, api_drift, dead_code, arch, deps, duplicate)
-│   ├── comment/, turn/ # Directives; reviewed-file tracker
-│   ├── ipc/            # Tmux injector, OSC 52 clipboard, AgentSink trait
+│   ├── config/, findings/, baseline/ # Config loader, suppression pipeline & baseline partitioning
+│   ├── comment/, turn/, review/, outcome/ # Directives, reviewed-file tracker, hunk marks & outcomes
+│   ├── ipc/            # Multiplexer sinks, OSC 52 clipboard, AgentSink trait
 │   ├── diff_source.rs  # DiffSource trait
-│   ├── watcher/        # Filesystem watcher & debouncer
-│   └── coverage/, verify/, mutate/  # Quality gates
+│   └── watcher/        # Filesystem watcher & debouncer
 └── lgtm-mcp/src/lib.rs # MCP JSON-RPC stdio server
 ```
 
@@ -116,7 +106,7 @@ To add a new security detector or test fraud pattern:
 1. Open [`crates/lgtm-core/src/guard/`](crates/lgtm-core/src/guard/) and select or create the appropriate submodule (`security.rs`, `arch.rs`, `complexity.rs`, etc.).
 2. Add the detector logic to the subsystem scanner and hook it into `SecurityAndTestGuard::scan_file` or `scan_snapshot` in [`crates/lgtm-core/src/guard/mod.rs`](crates/lgtm-core/src/guard/mod.rs).
 3. Add a corresponding test case checking that additions trigger alerts and deletions or valid code do not.
-4. Run `make test && make mutate`; add regression assertions for the new behavior.
+4. Run `make check`; add regression assertions for the new behavior.
 
 ---
 

@@ -26,7 +26,7 @@
 6. [Model Context Protocol (MCP) Server](#6-model-context-protocol-mcp-server)
 7. [Headless CI & Security Gates](#7-headless-ci--security-gates)
 8. [Ex-Commands Dictionary (`:cmds`)](#8-ex-commands-dictionary-cmds)
-9. [Configuration Reference (`.lgtm/config.toml`)](#9-configuration-reference-lgtmconfigtoml)
+9. [Configuration Reference (`.lgtm.toml`)](#9-configuration-reference-lgtmtoml)
 10. [CLI Command Reference](#10-cli-command-reference)
 11. [Additional Guardrails](#11-additional-guardrails)
 12. [Quality Tooling (`make` targets)](#12-quality-tooling-make-targets)
@@ -647,13 +647,13 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 
 | Command | Aliases | Description |
 |---|---|---|
-| `:audit` | `:issues` | Audit the whole codebase (issues only, no diff) |
-| `:scan [repo]` | — | Scan changed files; `:scan repo` audits the whole codebase |
+| `:audit` | — | Audit the whole codebase (issues only, no diff) |
+| `:scan [repo]` | `:issues` | Scan changed files; `:scan repo` audits the whole codebase |
 | `:export [path]` | — | Export audit scorecard report to Markdown (default: `lgtm-report.md`) |
 | `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/comments.jsonl` |
 | `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load a range, e.g. `:diff main..feat`; a bare branch name means `<branch>...HEAD`, audited on load) |
-| `:q` | `:quit`, `:exit` | Quit `lgtm` (`:q!` force quit without saving) |
-| `:wq` | `:x` | Save directives and quit |
+| `:q` | `:quit` | Quit `lgtm` (`:q!` force quit without saving) |
+| `:wq` | `:x`, `:exit` | Save directives and quit |
 | `:commit [msg]` | `:ci` | Open Commit Forge modal or commit staged changes with message |
 | `:pr <number>` | — | Review an open or closed GitHub/Azure DevOps PR in the background |
 | `:prs [open\|closed\|all]` | — | Open PR picker; `1`/`2`/`3` select open/closed/all |
@@ -675,29 +675,36 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:reload` | `:e`, `:edit` | Reload diff snapshot from working tree or GitHub PR |
 | `:filter <1\|2\|3\|crit\|high\|all>` | `:sev` | Filter audit issues by severity |
 | `:inject [all]` | — | Inject violation remediation directive(s) into agent pane |
-| `:approve` | `:lgtm`, `:accept` | Approve pending agent breakpoint gate (`.lgtm/gate.json`) |
+| `:approve` | `:lgtm` | Approve pending agent breakpoint gate (`.lgtm/gate.json`) |
 | `:reject` | — | Reject & revert hunk under cursor and re-prompt agent with reason |
 | `:reject-all` | `:reject-gate` | Reject waiting agent breakpoint gate |
 | `:prompt` | `:context` | Open agent prompt context modal from gate, prompt log, or commit |
+| `:editor [name]` | — | View or configure active editor (`nvim`, `vim`, `vi`, `vscode`, `code`, `cursor`, `helix`) |
 | `:hook [install\|uninstall\|status]` | — | Manage Git pre-commit hook directly from the TUI |
 | `:y` | `:yank` | Yank current code line to clipboard |
 | `:yr` | `:ref` | Yank `#ref file:line` to clipboard |
-| `:d` | `:del`, `:delete` | Delete directive anchored on current line |
 | `:<number>` | — | Jump directly to line number (e.g. `:42` or `:150`) |
 
 ---
 
-## 9. Configuration Reference (`.lgtm/config.toml`)
+## 9. Configuration Reference (`.lgtm.toml`)
 
-Run `lgtm --init` to create a starter configuration file at `.lgtm/config.toml`:
+Run `lgtm init` (or `lgtm --init`) to create a starter configuration file at `.lgtm.toml`:
 
 ```toml
-# LGTM Configuration File
+# LGTM Configuration File (.lgtm.toml)
 # Documentation: https://github.com/mgabs/lgtm
 
-[review]
-# Ignore patterns (glob expressions)
-ignore = [
+editor = "nvim"
+agent_sink = "tmux"
+
+[thresholds]
+complexity_line_delta = 15
+complexity_nesting_depth = 4
+blast_radius_files = 8
+
+[ignore]
+paths = [
     "package-lock.json",
     "Cargo.lock",
     "yarn.lock",
@@ -706,20 +713,12 @@ ignore = [
     "dist/**"
 ]
 
-[presets]
-# Custom canned directive templates
-why = "Why this specific approach? Explain rationale and architectural invariants."
-perf = "Is this hot path allocating or creating N+1 queries?"
-security = "Please ensure all user inputs are sanitized and parameterized."
-test = "Please add unit tests covering edge cases and error branches."
+[severity]
+# Override rule severity ("critical", "high", "warn", or "off"), e.g.:
+# "arch/blast-radius" = "off"
 
-[ui]
-# File drawer sidebar width in columns
-drawer_width = 35
-# Default view mode: "unified" or "split"
-default_view = "unified"
-# Watcher debounce interval in milliseconds
-debounce_ms = 300
+[baseline]
+path = ".lgtm-baseline.json"
 ```
 
 ## 10. CLI Command Reference
@@ -730,7 +729,7 @@ debounce_ms = 300
 | `lgtm gate [--timeout <s>] [-m <msg>]` | Human-in-the-loop breakpoint gate; halts until approved/rejected in TUI |
 | `lgtm hook [install\|uninstall\|status]` | Install, uninstall, or inspect the LGTM Git pre-commit hook |
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
-| `lgtm init` / `--init` | Create `.lgtm/config.toml` |
+| `lgtm init` / `--init` | Create `.lgtm.toml` |
 | `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via Git/API/`gh`, Azure DevOps via `az`) |
 | `lgtm prs --state open/closed/all` | List and pick PRs by state (default open) |
 | `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
@@ -738,13 +737,10 @@ debounce_ms = 300
 | `lgtm ci [--strict] [--rev <spec>] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF. `--rev origin/main...HEAD` checks a committed range. Exit 0 pass, 1 blocking findings, 2 tool error (also on `check`) |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
 | `lgtm audit` | Interactive repository audit TUI |
-| `lgtm coverage [--min 90] [--delta] [--lcov file]` | Fixed module-metric gate by default; `--delta --lcov file` checks measured added-line coverage |
-| `lgtm mutate [--min 90]` | Fixed behavior catalog; requires minimum score and zero survivors |
-| `lgtm verify-tests` | Inverted test verification (detect tautological tests) |
 | `lgtm mcp` / `lgtm serve --mcp` | MCP stdio server |
 | `lgtm log\|commit\|add\|...` | Git passthrough |
 
-Global options: `-r/--repo <path>`, `-p/--agent-pane <id>`, `-d/--debounce <ms>` (default 300).
+Global options: `-r/--repo <path>`, `-p/--agent-pane <id>`, `--agent-sink <kind>`, `--pr <n>`, `-d/--debounce <ms>` (default 300), `--debug`, `--debug-log <path>`, `--init`.
 
 ---
 
@@ -767,12 +763,8 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 |---|---|
 | `make build` / `release` | Debug / LTO release binary |
 | `make test` | Unit + integration tests |
-| `make coverage` | Tests + built-in gate using fixed module metrics |
-| `make delta-coverage` | Added-line coverage; provide `lcov.info` for measured execution data |
-| `make mutate` | Tests + fixed 24-entry behavior catalog; zero survivors required |
-| `make verify-tests` | Inverted test verification |
 | `make lint` / `fmt` / `check-fmt` | Clippy (`-D warnings`) / rustfmt |
-| `make check` | fmt check + lint + test + coverage + mutate |
+| `make check` | `check-fmt` + `lint` + boundary check + `test` |
 | `make ci` | `check` + SARIF export |
 | `make tap` | `scripts/update-tap.sh` — update Homebrew formula |
 
@@ -792,11 +784,7 @@ and distinguishes offline fixtures from terminal and live-provider verification.
 The [Q0–Q6 roadmap](superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
 tracks the remaining acceptance gaps.
 
-There is no automated BDD coverage report yet. The default coverage command uses
-fixed module metrics; measured changed-line coverage requires an LCOV trace:
-`lgtm coverage --delta --lcov lcov.info --min 90`. The mutation command checks a
-fixed catalog instead of generating source mutations. Passing either gate does
-not establish complete behavior coverage or live-provider compatibility.
+There is no automated BDD coverage report yet.
 
 ---
 
@@ -804,21 +792,22 @@ not establish complete behavior coverage or live-provider compatibility.
 
 | Path (under `crates/lgtm-core/src/` unless noted) | Role |
 |---|---|
-| `src/main.rs` | Entry point, TUI launcher |
+| `src/main.rs`, `src/event_loop.rs`, `src/diagnostics.rs` | Entry point, bounded terminal/watcher/callback event loop, and UI workload diagnostics |
 | Root `tests/bdd.rs`, `crates/lgtm-core/tests/bdd.rs` | Application-launch and public API acceptance scenarios |
-| `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `coverage`, `init`) |
-| `src/app/` | TUI state machine split by concern: input, motion, command, comments, staging, audit, pr, commit, external; `state` holds CommandLine, pickers, AuditState, PrState |
-| `src/ui/` | Ratatui rendering split by view; `modals/` for dialogs |
-| `model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
+| `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `review`, `init`) |
+| `src/app/` | TUI state machine and background coordinators (`refresh`, `view_data`, `rows`, `audit/jobs`, `pr/completion`) |
+| `src/ui/` | Ratatui rendering with viewport/layout caches (`diff/cache.rs`, `diff/viewport.rs`) and `modals/` |
+| `crates/lgtm-ast/src/lib.rs` | Tree-sitter AST parsing, queries, and block folding (TS/JS, Swift, Python, Go, Java) |
+| `model.rs`, `debug.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine`; structured JSONL timing recorder |
 | `scan.rs` | Full repo scanner and report generator |
-| `git/`, `pr/`, `forge/` | Git diff engine; PR providers (`forge`: GitHub via Git/API/`gh`, Azure DevOps via `az`) |
+| `git/`, `pr/`, `forge/` | Git diff engine; PR providers (`forge`: GitHub via Git/API/`gh`, Azure DevOps via `az`, `failure.rs`) |
 | `guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
-| `comment/`, `turn/` | Directives; reviewed-file state |
-| `ipc/` | tmux injection, OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |
+| `config/`, `findings/`, `baseline/` | `.lgtm.toml` loader, suppression/severity pipeline, and baseline partitioning |
+| `comment/`, `turn/`, `review/`, `outcome/` | Directives, reviewed-file state, durable hunk/fold marks, and directive outcome tracking |
+| `ipc/` | Multiplexer sinks (`tmux`, `zellij`, `wezterm`, `kitty`), OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |
 | `diff_source.rs` | `DiffSource` trait: working tree, revision, PR |
 | `watcher/` | Debounced filesystem watcher |
-| `crates/lgtm-mcp/src/lib.rs` (crate root) | MCP server |
-| `coverage/`, `mutate/`, `verify/` | Quality gates |
+| `crates/lgtm-mcp/src/lib.rs` (crate root) | MCP server and live resource watcher notifications |
 
 ---
 

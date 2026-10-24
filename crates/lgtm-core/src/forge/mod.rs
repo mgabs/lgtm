@@ -9,6 +9,7 @@ pub mod azure;
 pub mod failure;
 pub mod github;
 
+pub use azure::AzureForge;
 pub use github::GitHubForge;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,10 +32,42 @@ pub fn detect(url: &str) -> ForgeKind {
 }
 
 pub fn kind_of(repo: &Path) -> ForgeKind {
-    let url = git2::Repository::open(repo)
+    origin_url(repo).map_or(ForgeKind::Unknown, |u| detect(&u))
+}
+
+pub(crate) fn origin_url(repo: &Path) -> Option<String> {
+    git2::Repository::open(repo)
         .ok()
-        .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string));
-    url.map_or(ForgeKind::Unknown, |u| detect(&u))
+        .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
+}
+
+pub(crate) struct PrivateTempFile(std::path::PathBuf);
+
+impl PrivateTempFile {
+    pub fn write(prefix: &str, contents: &[u8]) -> std::io::Result<Self> {
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        use std::io::Write;
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("{prefix}-{}-{seq}", std::process::id()));
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+        let mut file = o.open(&path)?;
+        let guard = Self(path);
+        file.write_all(contents)?;
+        Ok(guard)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for PrivateTempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 pub trait Forge: GithubClient {
@@ -106,9 +139,11 @@ impl Forge for Unsupported {
 
 /// Provider for `repo`'s `origin`. Unknown hosts keep the GitHub (`gh`) behavior.
 pub fn open(repo: &Path) -> Box<dyn Forge> {
-    Box::new(TimedForge(match kind_of(repo) {
-        ForgeKind::Azure => Box::new(azure::AzureForge::new(repo.to_path_buf())),
-        _ => Box::new(GitHubForge::new(repo.to_path_buf())),
+    let url = origin_url(repo);
+    let kind = url.as_deref().map_or(ForgeKind::Unknown, detect);
+    Box::new(TimedForge(match kind {
+        ForgeKind::Azure => Box::new(azure::AzureForge::with_origin(repo.to_path_buf(), url)),
+        _ => Box::new(GitHubForge::with_origin(repo.to_path_buf(), url)),
     }))
 }
 

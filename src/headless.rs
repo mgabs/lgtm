@@ -315,199 +315,35 @@ pub(crate) fn run_risk_audit(repo_path: &Path) -> Result<i32> {
     }
 }
 
-pub(crate) fn run_coverage_audit(
-    min_threshold: f64,
-    delta: bool,
-    lcov_path: Option<PathBuf>,
-) -> Result<i32> {
-    if delta {
-        println!("🎯 Running LGTM Diff-Aware Delta Coverage Gate (Changed Lines Only)...\n");
-        let repo_path = PathBuf::from(".");
-        let git_engine = git::GitEngine::new(repo_path);
-        let diff = git_engine.compute_diff_snapshot()?;
-
-        if diff.files.is_empty() {
-            println!("ℹ️ No modified files in git diff. Delta coverage is 100.0%.");
-            println!(
-                "✅ Delta Coverage Gate: PASSED (100.0% >= {:.1}% required)",
-                min_threshold
-            );
-            return Ok(0);
-        }
-
-        let report = if let Some(path) = lcov_path {
-            let content = std::fs::read_to_string(&path)?;
-            coverage::CoverageReport::parse_lcov(&content)?
-        } else if Path::new("lcov.info").exists() {
-            let content = std::fs::read_to_string("lcov.info")?;
-            coverage::CoverageReport::parse_lcov(&content)?
-        } else {
-            let _ = std::process::Command::new("cargo")
-                .args(["test", "--workspace", "--", "--nocapture"])
-                .status();
-            coverage::CoverageReport::default()
-        };
-
-        let delta_res = coverage::DeltaCoverageEngine::compute(&diff, &report);
-
-        println!("📊 -----------------------------------------------------------");
-        println!("   LGTM Diff-Aware Delta Coverage Report");
-        println!("   -----------------------------------------------------------");
-        println!(
-            "   {:<26} | {:<10} | {:<10}",
-            "Changed File", "Cov/Added", "Coverage"
-        );
-        println!("   ---------------------------+------------+------------");
-
-        for file in &delta_res.file_results {
-            println!(
-                "   {:<26} | {:>4} / {:<4}  | {:>6.1}%",
-                file.file_path.display(),
-                file.covered_added_count,
-                file.added_lines_count,
-                file.coverage_pct()
-            );
-        }
-
-        println!("   -----------------------------------------------------------");
-        println!(
-            "   {:<26} | {:>4} / {:<4}  | \x1b[1;32m{:>6.1}%\x1b[0m",
-            "TOTAL DELTA COVERAGE",
-            delta_res.covered_added_lines,
-            delta_res.total_added_lines,
-            delta_res.overall_coverage_pct
-        );
-        println!("   -----------------------------------------------------------\n");
-
-        if !delta_res.all_uncovered_lines.is_empty() {
-            println!("🚨 Uncovered Diff Lines Detected:");
-            for unc in &delta_res.all_uncovered_lines {
-                println!(
-                    "   \x1b[1;31m[UNCOVERED]\x1b[0m {}:{}: {}",
-                    unc.file_path.display(),
-                    unc.line_number,
-                    unc.content.trim()
-                );
-            }
-            println!();
-        }
-
-        if delta_res.overall_coverage_pct >= min_threshold {
-            println!(
-                "✅ Delta Coverage Gate: PASSED ({:.1}% >= {:.1}% required)",
-                delta_res.overall_coverage_pct, min_threshold
-            );
-            Ok(0)
-        } else {
-            eprintln!(
-                "❌ Delta Coverage Gate: FAILED ({:.1}% < {:.1}% required)",
-                delta_res.overall_coverage_pct, min_threshold
-            );
-            Ok(1)
-        }
-    } else {
-        println!("🧪 Running LGTM Test Suite & Fixed Module-Metric Gate...\n");
-        println!("Module percentages use a fixed table, not execution measurements.\n");
-
-        let status = std::process::Command::new("cargo")
-            .args(["test", "--workspace", "--", "--nocapture"])
-            .status()?;
-
-        if !status.success() {
-            eprintln!("\n❌ Test suite failed. Coverage threshold cannot be validated.");
-            return Ok(1);
-        }
-
-        // Module coverage audit map (lines tested / total executable lines)
-        let module_metrics = [
-            ("src/model.rs", 132, 132, 100.0),
-            ("src/git/mod.rs", 195, 185, 94.8),
-            ("src/pr/mod.rs", 258, 245, 95.0),
-            ("src/guard/mod.rs", 383, 370, 96.6),
-            ("src/coverage/mod.rs", 120, 118, 98.3),
-            ("src/comment/mod.rs", 125, 120, 96.0),
-            ("src/turn/mod.rs", 70, 68, 97.1),
-            ("src/ipc/mod.rs", 110, 102, 92.7),
-            ("src/watcher/mod.rs", 46, 42, 91.3),
-            ("src/app.rs", 2261, 2180, 96.4),
-            ("src/ui/mod.rs", 1066, 1010, 94.7),
-            ("src/main.rs", 650, 610, 93.8),
-        ];
-
-        let total_lines: usize = module_metrics.iter().map(|(_, tot, _, _)| *tot).sum();
-        let covered_lines: usize = module_metrics.iter().map(|(_, _, cov, _)| *cov).sum();
-        let overall_coverage = (covered_lines as f64 / total_lines as f64) * 100.0;
-
-        println!("\n📊 -----------------------------------------------------------");
-        println!("   LGTM Code Coverage Report");
-        println!("   -----------------------------------------------------------");
-        println!(
-            "   {:<22} | {:<12} | {:<10}",
-            "Module", "Covered/Total", "Coverage"
-        );
-        println!("   -----------------------+--------------+------------");
-
-        for (name, tot, cov, pct) in &module_metrics {
-            println!(
-                "   {:<22} | {:>4} / {:<5}   | {:>6.1}%",
-                name, cov, tot, pct
-            );
-        }
-
-        println!("   -----------------------------------------------------------");
-        println!(
-            "   {:<22} | {:>4} / {:<5}   | \x1b[1;32m{:>6.1}%\x1b[0m",
-            "TOTAL COVERAGE", covered_lines, total_lines, overall_coverage
-        );
-        println!("   -----------------------------------------------------------\n");
-
-        if overall_coverage >= min_threshold {
-            println!(
-                "✅ Coverage Gate: PASSED ({:.1}% >= {:.1}% required)",
-                overall_coverage, min_threshold
-            );
-            Ok(0)
-        } else {
-            eprintln!(
-                "❌ Coverage Gate: FAILED ({:.1}% < {:.1}% required)",
-                overall_coverage, min_threshold
-            );
-            Ok(1)
-        }
-    }
-}
-
 pub(crate) fn run_init_config(repo_path: &Path) -> Result<()> {
-    let lgtm_dir = repo_path.join(".lgtm");
-    std::fs::create_dir_all(&lgtm_dir)?;
-    let config_file = lgtm_dir.join("config.toml");
+    let config_file = repo_path.join(lgtm_core::config::REPO_FILE);
     if config_file.exists() {
         println!("Config already exists at {}", config_file.display());
         return Ok(());
     }
 
-    let template = r#"# LGTM Configuration File
+    let template = r#"# LGTM Configuration File (.lgtm.toml)
 # Documentation: https://github.com/mgabs/lgtm
 
-[review]
-# Files to ignore from review
-ignore = ["package-lock.json", "Cargo.lock", "yarn.lock", "**/*.min.js"]
+# editor = "nvim"
+# agent_sink = "tmux"
 
-[presets]
-why = "Why this specific approach?"
-perf = "Is this hot path allocating or creating N+1 queries?"
-security = "Please ensure all user inputs are sanitized and parameterized."
+[thresholds]
+complexity_increase = 5
 
-[ui]
-# drawer width in columns
-drawer_width = 35
-# default view: "unified" or "split"
-default_view = "unified"
+[ignore]
+paths = ["package-lock.json", "Cargo.lock", "yarn.lock", "**/*.min.js"]
 
-[keys]
-# Keybinding overrides
-# next_file = ["]f", "]"]
-# prev_file = ["[f", "["]
+[ignore.rules]
+# "sec/hardcoded-secret" = ["tests/fixtures/**"]
+
+[severity]
+# "code/complexity-increase" = "warning"
+# "test/assertion-removed" = "high"
+
+[baseline]
+file = ".lgtm-baseline.json"
+allow_critical = false
 "#;
 
     std::fs::write(&config_file, template)?;
@@ -525,9 +361,29 @@ pub(crate) fn run_git_passthrough(args: &[String]) -> Result<i32> {
 
 /// `review export [target]` prints the state JSON; `review import <file>` merges it into its target.
 pub(crate) fn run_review(repo_path: &Path, action: &str, arg: Option<&str>) -> Result<i32> {
-    use lgtm_core::review::{merge, ReviewState, ReviewStore};
+    use lgtm_core::comment::CommentStore;
+    use lgtm_core::review::{merge, target_pr, ReviewComment, ReviewState, ReviewStore, Status};
+
+    let comment_store = CommentStore::new(repo_path);
     if action == "export" {
-        let st = ReviewStore::open(repo_path, arg.unwrap_or("working"))?.load()?;
+        let target = arg.unwrap_or("working");
+        let pr = target_pr(target);
+        let mut st = ReviewStore::open(repo_path, target)?.load()?;
+        let live_comments: Vec<ReviewComment> = comment_store
+            .load_comments()
+            .into_iter()
+            .filter(|c| c.pr_number == pr)
+            .map(|a| ReviewComment::new(a, &[]))
+            .collect();
+        let _ = merge(
+            &mut st,
+            ReviewState {
+                version: lgtm_core::review::VERSION,
+                target: target.to_string(),
+                comments: live_comments,
+                ..Default::default()
+            },
+        );
         println!("{}", serde_json::to_string_pretty(&st)?);
         return Ok(0);
     }
@@ -540,11 +396,44 @@ pub(crate) fn run_review(repo_path: &Path, action: &str, arg: Option<&str>) -> R
             other.version
         );
     }
-    let store = ReviewStore::open(repo_path, &other.target)?;
-    let mut base = store.load()?;
     let target = other.target.clone();
+    let pr = target_pr(&target);
+    let store = ReviewStore::open(repo_path, &target)?;
+    let mut base = store.load()?;
+    let all_comments = comment_store.load_comments();
+    let mut unrelated_comments = Vec::new();
+    let mut target_comments = Vec::new();
+    for c in all_comments {
+        if c.pr_number == pr {
+            target_comments.push(ReviewComment::new(c, &[]));
+        } else {
+            unrelated_comments.push(c);
+        }
+    }
+    let _ = merge(
+        &mut base,
+        ReviewState {
+            version: lgtm_core::review::VERSION,
+            target: target.clone(),
+            comments: target_comments,
+            ..Default::default()
+        },
+    );
     let conflicts = merge(&mut base, other);
     store.save(&base)?;
+
+    for rc in &base.comments {
+        let mut anchor = rc.anchor.clone();
+        anchor.is_resolved = rc.status == Status::Resolved;
+        anchor.orphaned = rc.status == Status::Orphaned;
+        if anchor.id.is_empty() {
+            anchor.id = lgtm_core::comment::new_id();
+        }
+        anchor.pr_number = pr;
+        unrelated_comments.push(anchor);
+    }
+    comment_store.save_comments(&unrelated_comments)?;
+
     for c in &conflicts {
         eprintln!("conflict: {}", c);
     }
@@ -838,11 +727,12 @@ mod tests {
     fn test_run_init_config() {
         let tmp = test_dir("init");
         run_init_config(&tmp).unwrap();
-        let config_file = tmp.join(".lgtm").join("config.toml");
+        let config_file = tmp.join(lgtm_core::config::REPO_FILE);
         assert!(config_file.exists());
-        let content = std::fs::read_to_string(&config_file).unwrap();
-        assert!(content.contains("[review]"));
-        assert!(content.contains("[presets]"));
+        let cfg = lgtm_core::config::LgtmConfig::load(&tmp, None).unwrap();
+        assert!(cfg.warnings.is_empty(), "warnings: {:?}", cfg.warnings);
+        assert_eq!(cfg.thresholds.complexity_increase, 5);
+        assert!(cfg.ignore.paths.contains(&"Cargo.lock".to_string()));
     }
 
     #[test]
@@ -868,7 +758,7 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("lgtm-rev-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
-        let st = r#"{"version":1,"target":"feat","hunks":[{"file":"a","content_hash":"h","last_line":1,"reviewed_at":"t"}]}"#;
+        let st = r#"{"version":1,"target":"feat","hunks":[{"file":"a","content_hash":"h","last_line":1,"reviewed_at":"t"}],"comments":[{"file_path":"a","target_line_no":1,"target_code":"let x = 1;","context_before":[],"context_after":[],"comment_text":"fix x","created_at_turn":1,"is_resolved":false}]}"#;
         let f = tmp.join("in.json");
         std::fs::write(&f, st).unwrap();
         assert_eq!(run_review(&tmp, "import", f.to_str()).unwrap(), 0);
@@ -878,6 +768,10 @@ mod tests {
             .load()
             .unwrap();
         assert_eq!(back.hunks.len(), 1);
+        assert_eq!(back.comments.len(), 1);
+        let synced = lgtm_core::comment::CommentStore::new(&tmp).load_comments();
+        assert_eq!(synced.len(), 1);
+        assert_eq!(synced[0].comment_text, "fix x");
         assert!(run_review(&tmp, "import", None).is_err());
         std::fs::write(&f, r#"{"version":9,"target":"feat"}"#).unwrap();
         assert!(run_review(&tmp, "import", f.to_str()).is_err());

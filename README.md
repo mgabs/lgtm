@@ -298,9 +298,10 @@ cargo test -p lgtm-core forge::github::performance_tests -- --nocapture
 ```
 
 They exercise an actual merge-ref fetch from a local Git remote, stored-patch API and CLI
-fallbacks, and failures that must stop without trying another transport. The current GitHub
-path performs one merge-ref fetch per load, including reloads. A missing merge ref adds one
-stored-patch request per load. Unlike Azure, GitHub does not yet cache missing merge refs.
+fallbacks, and failures that must stop without trying another transport. When the merge ref
+exists, each load fetches it once. When the merge ref is missing, it is cached for five
+minutes per repository, remote, and PR (matching Azure), so reloads skip repeated failing
+merge-ref fetches and issue only one stored-patch request per load.
 These tests make those costs explicit without imposing network timing thresholds.
 
 Run the opt-in live GitHub benchmark with:
@@ -469,8 +470,8 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 
 - `:w` — Save comments / directives to `.lgtm/comments.jsonl` (or export report in Audit mode)
 - `:q` / `:q!` — Quit
-- `:wq` / `:x` — Save directives and quit
-- `:approve` / `:lgtm` / `:accept` — Approve pending agent breakpoint gate
+- `:wq` / `:x` / `:exit` — Save directives and quit
+- `:approve` / `:lgtm` — Approve pending agent breakpoint gate
 - `:reject` — Reject current hunk and dispatch prompt to agent
 - `:reject-all` — Reject waiting agent breakpoint gate
 - `:prompt` / `:context` — Open agent prompt and instruction context modal
@@ -494,9 +495,9 @@ Press `:` in diff view to enter command mode with `Tab` / `Shift-Tab` wildmenu c
 - `:filter <1|2|3|crit|high|all>` / `:sev` — Filter audit issues by severity
 - `:inject [all]` — Inject violation remediation directive(s) into agent pane
 - `:export [path]` — Export audit scorecard report to Markdown
-- `:r` / `:review` / `:send` — Compile directives into batch review file and blast to agent
-- `:e` / `:reload` — Reload diff from disk
-- `:d` / `:del` — Delete directive on current line
+- `:r` / `:review` / `:send` / `:push` — Compile directives into batch review file and blast to agent
+- `:e` / `:edit` / `:reload` — Reload diff from disk
+- `:hook [install|uninstall|status]` — Manage Git pre-commit hook directly from the TUI
 - `:y` / `:yank` — Yank current code line
 - `:yr` / `:ref` — Yank `#ref file:line` to clipboard
 - `:<line_number>` — Jump directly to line number (e.g. `:42`)
@@ -605,26 +606,14 @@ make check
 ```
 
 The [BDD scenario catalog](docs/bdd-scenarios.md) maps acceptance criteria to tests,
-including draft preservation, historical PR retrieval, posting recovery, and
-GitHub/Azure response normalization. See [CONTRIBUTING.md](CONTRIBUTING.md#behavior-scenarios-bdd)
+including draft preservation, historical PR retrieval, posting recovery,
+ambiguous remote write reconciliation, real-terminal journeys, and
+GitHub/Azure request/response contracts. See [CONTRIBUTING.md](CONTRIBUTING.md#behavior-scenarios-bdd)
 for test placement and the [Q0–Q6 roadmap](docs/superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
-for remaining provider, terminal, recovery, and reporting work. Offline fixtures
-and internal state tests are distinct from live-provider or real-terminal checks.
+for remaining recovery, live-provider, and reporting work. Offline fixtures
+and internal state tests are distinct from live-provider checks.
 No automated BDD coverage percentage is currently calculated.
 
-`make coverage` runs tests and the built-in coverage gate. Its default module
-percentages come from a fixed table, not measured execution of the current source.
-For measured changed-line coverage, supply an LCOV trace generated from the code
-under test:
-
-```bash
-cargo run -- coverage --delta --lcov lcov.info --min 90
-```
-
-`make mutate` runs tests and the fixed 24-entry behavior catalog. The gate requires
-both the configured minimum score and zero survivors; it does not generate source
-mutations or measure mutation coverage of new code. Each hook check uses an isolated
-temporary repository so concurrent audits cannot delete each other's fixtures.
 The in-app `T` key summarizes current test-risk alerts.
 
 ---
@@ -636,25 +625,26 @@ lgtm/
 ├── src/                      # `lgtm` binary: TUI + CLI
 │   ├── main.rs               # CLI dispatcher
 │   ├── cli.rs, headless.rs   # CLI definitions, headless runners & subcommands
-│   ├── app/                  # State machine, key handlers & Vim motion engine
-│   └── ui/                   # Ratatui rendering, drawer, tabs, commit forge & modals
+│   ├── diagnostics.rs        # Opt-in JSONL timing & UI workload diagnostics
+│   ├── event_loop.rs         # Bounded terminal/watcher/callback event loop
+│   ├── app/                  # State machine, background coordinators & Vim motion engine
+│   └── ui/                   # Ratatui rendering, viewport caches, commit forge & modals
 ├── tests/bdd.rs              # Acceptance scenarios launching the application
 ├── crates/
-│   ├── lgtm-ast/src/         # tree-sitter parsing and queries
+│   ├── lgtm-ast/src/         # tree-sitter parsing and queries (TS/JS, Swift, Python, Go, Java)
 │   ├── lgtm-core/src/        # UI-free engine
 │   │   ├── model.rs          # Diff data models
-│   │   ├── git/, pr/         # Git diff engine; PR providers (`forge/`: gh, az)
+│   │   ├── debug.rs          # Structured JSONL timing recorder
+│   │   ├── git/, pr/, forge/ # Git diff engine; PR providers (`forge/`: GitHub, Azure)
 │   │   ├── scan.rs           # Full repository audit scanner
 │   │   ├── guard/            # Security, complexity, symbols, API drift, dead code, arch, deps, duplicate
+│   │   ├── findings/, baseline/ # Suppression/severity pipeline & baseline partitioning
+│   │   ├── review/, outcome/ # Durable hunk/fold marks & directive outcome tracking
 │   │   ├── comment/, turn/   # Directives; reviewed-file tracker (.lgtm/state.json)
-│   │   ├── ipc/              # Tmux injector, OSC 52 clipboard, AgentSink trait
+│   │   ├── ipc/              # Multiplexer sinks (tmux, zellij, wezterm, kitty), OSC 52 clipboard
 │   │   ├── diff_source.rs    # DiffSource trait
-│   │   ├── watcher/          # Filesystem watcher & debouncer
-│   │   └── coverage/, verify/, mutate/  # Quality gates
+│   │   └── watcher/          # Filesystem watcher & debouncer
 │   └── lgtm-mcp/src/lib.rs   # MCP JSON-RPC stdio server
-├── scripts/
-│   ├── coverage.sh           # Tests + fixed module-metric gate
-│   └── mutate.sh             # Tests + fixed behavior catalog
 ├── .github/workflows/
 │   └── ci.yml                # Multi-OS CI pipeline with SARIF upload & release matrix
 ├── Makefile                  # All-in-one developer automation

@@ -21,7 +21,7 @@ impl Runner for SystemRunner {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Remote {
     pub owner: String,
     pub repo: String,
@@ -73,40 +73,60 @@ pub fn parse_check_runs(v: &Value) -> Vec<Check> {
         .collect()
 }
 
-static BODY_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+type MergeKey = (PathBuf, Option<Remote>, u64);
+type MissingMergeRefs =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<MergeKey, std::time::Instant>>>;
+static MISSING_MERGES: std::sync::OnceLock<MissingMergeRefs> = std::sync::OnceLock::new();
+const MISSING_MERGE_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+fn is_github_com_url(url: &str) -> bool {
+    url.starts_with("https://github.com/")
+        || url.starts_with("http://github.com/")
+        || url.starts_with("git@github.com:")
+        || url.starts_with("ssh://git@github.com/")
+        || url.starts_with("ssh://github.com/")
+}
 
 pub struct GitHubForge {
     repo: PathBuf,
     remote: Option<Remote>,
+    is_github_com: bool,
     runner: Box<dyn Runner>,
     explicit_token: Option<String>,
+    missing_merges: MissingMergeRefs,
 }
 
 impl GitHubForge {
     pub fn new(repo: PathBuf) -> Self {
-        let remote = git2::Repository::open(&repo)
-            .ok()
-            .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
-            .and_then(|u| parse_remote(&u));
+        let url = super::origin_url(&repo);
+        Self::with_origin(repo, url)
+    }
+
+    pub(crate) fn with_origin(repo: PathBuf, origin_url: Option<String>) -> Self {
+        let remote = origin_url.as_deref().and_then(parse_remote);
+        let is_github_com = origin_url.as_deref().is_some_and(is_github_com_url);
         let runner = Box::new(SystemRunner(repo.clone()));
         Self {
             repo,
             remote,
+            is_github_com,
             runner,
             explicit_token: None,
+            missing_merges: MISSING_MERGES.get_or_init(Default::default).clone(),
         }
     }
 
     pub fn with_runner(repo: PathBuf, runner: Box<dyn Runner>) -> Self {
-        let remote = git2::Repository::open(&repo)
-            .ok()
-            .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
-            .and_then(|u| parse_remote(&u));
+        let origin_url = super::origin_url(&repo);
+        let remote = origin_url.as_deref().and_then(parse_remote);
+        let is_github_com = origin_url.as_deref().is_some_and(is_github_com_url);
         Self {
             repo,
             remote,
+            is_github_com,
             runner,
             explicit_token: None,
+            missing_merges: MISSING_MERGES.get_or_init(Default::default).clone(),
         }
     }
 
@@ -115,6 +135,22 @@ impl GitHubForge {
     pub fn with_api_token(mut self, token: Option<String>) -> Self {
         self.explicit_token = Some(token.unwrap_or_default());
         self
+    }
+
+    fn merge_key(&self, pr: u64) -> MergeKey {
+        (self.repo.clone(), self.remote.clone(), pr)
+    }
+    fn merge_ref_missing(&self, pr: u64) -> bool {
+        self.missing_merges
+            .lock()
+            .unwrap()
+            .get(&self.merge_key(pr))
+            .is_some_and(|at| at.elapsed() < MISSING_MERGE_TTL)
+    }
+    fn remember_missing_merge(&self, pr: u64) {
+        let mut cache = self.missing_merges.lock().unwrap();
+        cache.retain(|_, at| at.elapsed() < MISSING_MERGE_TTL);
+        cache.insert(self.merge_key(pr), std::time::Instant::now());
     }
 
     fn token(&self) -> Option<String> {
@@ -128,16 +164,7 @@ impl GitHubForge {
     }
 
     fn anonymous_remote(&self) -> bool {
-        let url = git2::Repository::open(&self.repo)
-            .ok()
-            .and_then(|repo| repo.find_remote("origin").ok()?.url().map(str::to_string));
-        url.is_some_and(|url| {
-            url.starts_with("https://github.com/")
-                || url.starts_with("http://github.com/")
-                || url.starts_with("git@github.com:")
-                || url.starts_with("ssh://git@github.com/")
-                || url.starts_with("ssh://github.com/")
-        })
+        self.is_github_com
     }
 
     fn can_read_anonymously(&self, error: &anyhow::Error) -> bool {
@@ -203,19 +230,10 @@ impl GitHubForge {
         let Some(tok) = self.token() else {
             bail!("GITHUB_TOKEN is not set");
         };
-        let seq = BODY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let pid = std::process::id();
-        let hdr_file = std::env::temp_dir().join(format!("lgtm-gh-hdr-{pid}-{seq}"));
-        let body_file = std::env::temp_dir().join(format!("lgtm-gh-body-{pid}-{seq}"));
-
-        {
-            use std::io::Write;
-            let mut o = std::fs::OpenOptions::new();
-            o.write(true).create_new(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
-            writeln!(o.open(&hdr_file)?, "Authorization: Bearer {tok}")?;
-        }
+        let hdr_file = super::PrivateTempFile::write(
+            "lgtm-gh-hdr",
+            format!("Authorization: Bearer {tok}\n").as_bytes(),
+        )?;
 
         let accept_header = format!("Accept: {accept}");
         let mut args = vec![
@@ -226,38 +244,33 @@ impl GitHubForge {
             "-H",
             &accept_header,
         ];
-        let hdr_arg = format!("@{}", hdr_file.display());
+        let hdr_arg = format!("@{}", hdr_file.path().display());
         args.extend(["-H", &hdr_arg]);
 
-        let body_arg;
-        if let Some(b) = body {
-            {
-                let mut o = std::fs::OpenOptions::new();
-                o.write(true).create_new(true);
-                #[cfg(unix)]
-                std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
-                serde_json::to_writer(o.open(&body_file)?, b)?;
-            }
-            body_arg = format!("@{}", body_file.display());
+        let body_file = match body {
+            Some(b) => Some(super::PrivateTempFile::write(
+                "lgtm-gh-body",
+                &serde_json::to_vec(b)?,
+            )?),
+            None => None,
+        };
+        let body_arg = body_file
+            .as_ref()
+            .map(|f| format!("@{}", f.path().display()));
+        if let Some(body_arg) = &body_arg {
             args.extend([
                 "-H",
                 "Content-Type: application/json",
                 "-X",
                 method,
                 "-d",
-                &body_arg,
+                body_arg,
             ]);
         }
 
         args.push(url);
 
-        let out = self.runner.run("curl", &args);
-        let _ = std::fs::remove_file(&hdr_file);
-        if body.is_some() {
-            let _ = std::fs::remove_file(&body_file);
-        }
-
-        out
+        self.runner.run("curl", &args)
     }
 }
 
@@ -321,20 +334,32 @@ impl Forge for GitHubForge {
     /// Fast path: git fetch refs/pull/<n>/merge, then revision diff.
     /// Missing merge ref: retrieve the stored PR patch through the API or gh, including closed PRs.
     fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
-        let merge = format!("refs/lgtm/pr/{pr}/merge");
-        let fetched_merge = self.runner.run(
-            "git",
-            &[
-                "fetch",
-                "--quiet",
-                "origin",
-                &format!("+refs/pull/{pr}/merge:{merge}"),
-            ],
-        );
-        match fetched_merge {
-            Ok(_) => return super::build_pr_diff(&self.repo, &format!("{merge}^1...{merge}^2")),
-            Err(error) if super::failure::missing_ref(&error) => {}
-            Err(error) => return Err(error).context("Fetching PR merge ref"),
+        if !self.merge_ref_missing(pr) {
+            let merge = format!("refs/lgtm/pr/{pr}/merge");
+            let fetched_merge = self.runner.run(
+                "git",
+                &[
+                    "fetch",
+                    "--quiet",
+                    "origin",
+                    &format!("+refs/pull/{pr}/merge:{merge}"),
+                ],
+            );
+            match fetched_merge {
+                Ok(_) => {
+                    self.missing_merges
+                        .lock()
+                        .unwrap()
+                        .remove(&self.merge_key(pr));
+                    return super::build_pr_diff(&self.repo, &format!("{merge}^1...{merge}^2"));
+                }
+                Err(error) if super::failure::missing_ref(&error) => {
+                    self.remember_missing_merge(pr);
+                }
+                Err(error) => return Err(error).context("Fetching PR merge ref"),
+            }
+        } else {
+            let _cached = crate::debug::Span::new("pr.merge_ref_cache_hit");
         }
         // The stored PR patch remains meaningful for merged/closed PRs. Guessing a
         // current base branch can produce an empty or unrelated historical diff.
@@ -370,9 +395,10 @@ impl Forge for GitHubForge {
     fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()> {
         if let Some(r) = self.remote.as_ref().filter(|_| self.token().is_some()) {
             let ev = match event {
-                "approve" => "APPROVE",
-                "request-changes" => "REQUEST_CHANGES",
-                _ => "COMMENT",
+                "approve" | "APPROVE" => "APPROVE",
+                "request-changes" | "request_changes" | "REQUEST_CHANGES" => "REQUEST_CHANGES",
+                "comment" | "COMMENT" => "COMMENT",
+                other => bail!("unknown review event '{other}'"),
             };
             let body_val = serde_json::json!({
                 "event": ev,
@@ -622,8 +648,10 @@ mod tests {
                 owner: "mgabs".into(),
                 repo: "lgtm".into(),
             }),
+            is_github_com: true,
             runner: Box::new(Fake(RefCell::new(vec![]), fakes)),
             explicit_token: Some("mock-token-for-test".into()),
+            missing_merges: Default::default(),
         }
     }
 

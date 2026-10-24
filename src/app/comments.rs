@@ -107,6 +107,15 @@ impl App {
         action: ThreadAction,
         work: impl FnOnce() -> anyhow::Result<ThreadOutcome> + Send + 'static,
     ) {
+        if let ThreadAction::Reply { text, .. } = &action {
+            if self.uncertain_replies.get(&(pr, id.clone())) == Some(text) {
+                self.status_message = Some(
+                    "Reply outcome is uncertain; refresh with :threads to reconcile before retrying"
+                        .into(),
+                );
+                return;
+            }
+        }
         let queue = self.thread_jobs.entry((pr, id.clone())).or_default();
         if queue.iter().any(|job| job.action == action) {
             self.status_message = Some("This thread action is already pending".into());
@@ -149,6 +158,7 @@ impl App {
             app.thread_revision += 1;
             let message = match result {
                 Ok(outcome) => {
+                    app.uncertain_replies.remove(&key);
                     if let ThreadAction::Reply { text, .. } = &action {
                         if app.reply_drafts.get(&key) == Some(text) {
                             app.reply_drafts.remove(&key);
@@ -181,11 +191,25 @@ impl App {
                 }
                 Err(error) => {
                     app.quit_after_jobs = false;
-                    app.thread_reconcile.remove(&key);
+                    let ambiguous = lgtm_core::forge::failure::is_ambiguous_write(&error);
                     if let ThreadAction::Reply { text, .. } = action {
+                        if ambiguous {
+                            app.uncertain_replies.insert(key.clone(), text.clone());
+                            app.thread_reconcile.insert(key.clone());
+                        } else {
+                            app.thread_reconcile.remove(&key);
+                        }
                         app.reply_drafts.insert(key.clone(), text);
+                    } else {
+                        app.thread_reconcile.remove(&key);
                     }
-                    format!("Thread update failed: {error}; reply drafts are retained")
+                    if ambiguous {
+                        format!(
+                            "Reply outcome is uncertain ({error}); reconciling thread before retry"
+                        )
+                    } else {
+                        format!("Thread update failed: {error}; reply drafts are retained")
+                    }
                 }
             };
             if app.pr.current_number == Some(pr) {
@@ -229,6 +253,7 @@ impl App {
                 }
                 if let Ok(Some(updated)) = result {
                     if updated.id == id {
+                        app.reconcile_uncertain_reply(pr, &updated);
                         if let Some(thread) = app.threads.iter_mut().find(|t| t.id == id) {
                             *thread = updated;
                         }
@@ -237,6 +262,27 @@ impl App {
                 // A read failure never turns an acknowledged write into a failed submission.
             }));
         });
+    }
+
+    fn reconcile_uncertain_reply(&mut self, pr: u64, updated: &lgtm_core::github::Thread) {
+        let key = (pr, updated.id.clone());
+        let Some(uncertain_text) = self.uncertain_replies.remove(&key) else {
+            return;
+        };
+        let delivered = updated
+            .comments
+            .iter()
+            .any(|c| c.body.trim() == uncertain_text.trim());
+        if delivered {
+            if self.reply_drafts.get(&key) == Some(&uncertain_text) {
+                self.reply_drafts.remove(&key);
+            }
+            self.status_message = Some("Reply confirmed on remote thread".into());
+        } else {
+            self.status_message = Some(
+                "Remote thread checked: reply was not delivered; draft retained for retry".into(),
+            );
+        }
     }
 
     pub(crate) fn start_thread_reply(&mut self, index: usize) {
@@ -270,11 +316,13 @@ impl App {
         self.comments = self.comment_store.load_comments();
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path_str = file.display_name();
+            let clean_path = std::path::Path::new(path_str.trim_start_matches("./"));
             if let Some(lno) = self.current_line_number() {
                 if let Some(pos) = self.comments.iter().position(|c| {
-                    (c.file_path == path_str
-                        || c.file_path.ends_with(&path_str)
-                        || path_str.ends_with(&c.file_path))
+                    let c_path = std::path::Path::new(c.file_path.trim_start_matches("./"));
+                    (c_path == clean_path
+                        || c_path.ends_with(clean_path)
+                        || clean_path.ends_with(c_path))
                         && c.target_line_no == lno
                 }) {
                     self.comment_list_selected_idx = pos;
@@ -466,6 +514,14 @@ impl App {
     fn apply_threads(&mut self, res: anyhow::Result<Vec<lgtm_core::github::Thread>>) {
         self.status_message = Some(match res {
             Ok(t) => {
+                if let Some(pr) = self.pr.current_number {
+                    for thread in &t {
+                        self.reconcile_uncertain_reply(pr, thread);
+                    }
+                    if lgtm_core::github::post::reconcile(&mut self.comments, &t, pr) > 0 {
+                        let _ = self.comment_store.save_comments(&self.comments);
+                    }
+                }
                 let open: Vec<String> = t
                     .iter()
                     .filter(|t| !t.resolved)
@@ -607,10 +663,15 @@ impl App {
                             .filter(|c| planned_ids.contains(&c.id))
                             .filter_map(|c| c.remote_id.map(|id| (c.id.clone(), id)))
                             .collect();
+                        let uncertain: Vec<String> = posted
+                            .iter()
+                            .filter(|c| planned_ids.contains(&c.id) && c.is_remote_uncertain())
+                            .map(|c| c.id.clone())
+                            .collect();
                         let (tx, rx) = crossbeam_channel::bounded(1);
                         progress
                             .send(Box::new(move |app| {
-                                let result = app.save_post_receipts(&receipts);
+                                let result = app.save_post_receipts(&receipts, &uncertain);
                                 if app.pr.current_number == Some(pr) {
                                     app.status_message = Some(format!(
                                         "Posting PR #{pr} comments… ({} saved)",
@@ -643,10 +704,23 @@ impl App {
         );
     }
 
-    pub(crate) fn save_post_receipts(&mut self, receipts: &[(String, u64)]) -> anyhow::Result<()> {
+    pub(crate) fn save_post_receipts(
+        &mut self,
+        receipts: &[(String, u64)],
+        uncertain: &[String],
+    ) -> anyhow::Result<()> {
         for (local_id, remote_id) in receipts {
             if let Some(comment) = self.comments.iter_mut().find(|c| &c.id == local_id) {
                 comment.remote_id = Some(*remote_id);
+                comment.set_remote_uncertain(false);
+            }
+            self.posting_comments.remove(local_id);
+        }
+        for local_id in uncertain {
+            if let Some(comment) = self.comments.iter_mut().find(|c| &c.id == local_id) {
+                if comment.remote_id.is_none() {
+                    comment.set_remote_uncertain(true);
+                }
             }
             self.posting_comments.remove(local_id);
         }
@@ -867,10 +941,7 @@ impl App {
             let name = f.display_name();
             for hunk in f.hunks.iter_mut() {
                 let hash = lgtm_core::review::hunk_hash(hunk);
-                let saved_folds = lgtm_core::review::load_hunk_folds(&state.folds, &name, &hash);
-                if !saved_folds.is_empty() {
-                    hunk.folded_blocks = saved_folds;
-                }
+                hunk.folded_blocks = lgtm_core::review::load_hunk_folds(&state.folds, &name, &hash);
             }
         }
     }

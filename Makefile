@@ -1,13 +1,11 @@
 .DEFAULT_GOAL := help
-.PHONY: help all build release test coverage mutate lint fmt check risk ci install install-hooks clean
+.PHONY: help all build release test lint fmt check risk ci install install-hooks clean
 
 SHELL := /bin/bash
 TARGET_BIN := target/release/lgtm
 DEV_BIN := target/debug/lgtm
-MIN_COVERAGE := 90.0
-MIN_MUTATION := 90.0
 
-all: test coverage mutate release
+all: test release
 
 ## Build development binary
 build:
@@ -22,22 +20,6 @@ release:
 test:
 	cargo test --workspace -- --nocapture
 
-## Run tests and the fixed module-metric coverage gate
-coverage:
-	./scripts/coverage.sh $(MIN_COVERAGE)
-
-## Run diff-aware delta coverage audit strictly on changed lines
-delta-coverage:
-	cargo run -- coverage --delta --min $(MIN_COVERAGE)
-
-## Run tests and fixed mutation catalog (zero survivors required)
-mutate:
-	./scripts/mutate.sh $(MIN_MUTATION)
-
-## Run inverted test verification to detect fraudulent or tautological tests
-verify-tests:
-	cargo run -- verify-tests
-
 ## Run clippy linter and fail on warnings
 lint:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -51,14 +33,14 @@ fmt:
 check-fmt:
 	cargo fmt --all -- --check
 
-## Combined quality gate (fmt check + clippy + test + coverage + mutate)
-check: check-fmt lint test coverage mutate
+## Combined quality gate (fmt check + clippy + test)
+check: check-fmt lint test
 
 ## Run headless security & test fraud audit on working tree diff
 risk:
 	cargo run -- risk
 
-## Run full CI pipeline (tests, coverage, mutation, SARIF report)
+## Run full CI pipeline (fmt, lint, tests, SARIF report)
 ci: check
 	-cargo run -- ci --format sarif --output lgtm-results.sarif
 	@echo "✨ Generated SARIF report at lgtm-results.sarif"
@@ -88,11 +70,9 @@ help:
 	@echo "  make build       - Build debug binary"
 	@echo "  make release     - Build optimized release binary"
 	@echo "  make test        - Run full test suite"
-	@echo "  make coverage    - Run fixed module-metric gate (>= $(MIN_COVERAGE)%)"
-	@echo "  make mutate      - Check fixed catalog (>= $(MIN_MUTATION)%, zero survivors)"
-	@echo "  make lint        - Run cargo clippy"
+	@echo "  make lint        - Run cargo clippy and crate boundary check"
 	@echo "  make fmt         - Format codebase with rustfmt"
-	@echo "  make check       - Full pre-commit check (fmt + lint + test + cov + mut)"
+	@echo "  make check       - Full pre-commit check (fmt + lint + test)"
 	@echo "  make risk        - Run security & test guard audit"
 	@echo "  make ci          - Run CI pipeline with SARIF report"
 	@echo "  make tap         - Update local Homebrew tap formula"

@@ -1,7 +1,5 @@
 mod app;
-use lgtm_core::{
-    comment, coverage, git, guard, ipc, model, mutate, pr, scan, turn, verify, watcher,
-};
+use lgtm_core::{comment, git, guard, ipc, model, pr, scan, turn, watcher};
 use lgtm_mcp as mcp;
 mod ui;
 
@@ -24,9 +22,7 @@ mod event_loop;
 mod headless;
 
 use cli::{AuditStartMode, Cli, Commands};
-use headless::{
-    run_ci_audit, run_coverage_audit, run_git_passthrough, run_init_config, run_risk_audit,
-};
+use headless::{run_ci_audit, run_git_passthrough, run_init_config, run_risk_audit};
 
 fn run_check(
     target: PathBuf,
@@ -425,46 +421,6 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("Error running repository scan: {}", e);
-                    ExitCode::from(1)
-                }
-            }
-        }
-        Some(Commands::Coverage { min, delta, lcov }) => match run_coverage_audit(min, delta, lcov)
-        {
-            Ok(code) => ExitCode::from(code as u8),
-            Err(e) => {
-                eprintln!("Error auditing test coverage: {}", e);
-                ExitCode::from(1)
-            }
-        },
-        Some(Commands::Mutate { min }) => match mutate::MutationTester::run_mutation_audit(min) {
-            Ok(code) => ExitCode::from(code as u8),
-            Err(e) => {
-                eprintln!("Error running mutation audit: {}", e);
-                ExitCode::from(1)
-            }
-        },
-        Some(Commands::VerifyTests) => {
-            println!("🔍 Running LGTM Inverted Test Verification Engine...\n");
-            let repo_path = std::path::PathBuf::from(".");
-            let git_engine = git::GitEngine::new(repo_path);
-            match git_engine.compute_diff_snapshot() {
-                Ok(diff) => match verify::InvertedTestVerifier::verify(&diff) {
-                    Ok(res) => {
-                        println!("{}", res.details);
-                        if res.is_fraudulent {
-                            ExitCode::from(1)
-                        } else {
-                            ExitCode::SUCCESS
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Error running inverted test verification: {}", e);
-                        ExitCode::from(1)
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Error computing diff snapshot: {}", e);
                     ExitCode::from(1)
                 }
             }

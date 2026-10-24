@@ -31,8 +31,9 @@ impl App {
     ) {
         let tx = self.jobs_tx.clone();
         std::thread::spawn(move || {
-            let _timing = lgtm_core::debug::Span::new("ui.background_job");
+            let timing = lgtm_core::debug::Span::new("ui.background_job");
             let out = work();
+            drop(timing);
             let mut waiting = lgtm_core::debug::Span::new("ui.callback_wait");
             waiting.count("applied", 0);
             let _ = tx.send(Box::new(move |app: &mut App| {
@@ -723,5 +724,67 @@ mod tests {
         assert_eq!(app.active_view, ActiveView::Diff);
         assert_eq!(app.pr.current_number, None);
         assert_eq!(app.pr_loading.map(|(number, _)| number), Some(19673));
+    }
+
+    #[test]
+    fn bdd_ui_009_ambiguous_reply_timeout_blocks_blind_resubmission_until_reconciled() {
+        use super::super::comments::ThreadAction;
+        // Given an open PR thread and a reply that times out after the provider may have accepted it.
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        app.threads = vec![thread("first")];
+        let action = ThreadAction::Reply {
+            target: 1,
+            text: "maybe accepted".into(),
+        };
+        app.enqueue_thread_job(42, "first".into(), action.clone(), || {
+            Err(lgtm_core::forge::failure::Failure {
+                kind: lgtm_core::forge::failure::Kind::Timeout,
+                exit_code: Some(28),
+                http_status: None,
+            }
+            .into())
+        });
+        apply_next(&mut app); // timeout completion
+        apply_next(&mut app); // automatic refresh_one_thread fails on test provider
+
+        // Then the outcome is surfaced as uncertain and immediate retry is blocked from blind resubmission.
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .contains("Reply outcome is uncertain"));
+        assert_eq!(
+            app.reply_drafts
+                .get(&(42, "first".into()))
+                .map(String::as_str),
+            Some("maybe accepted")
+        );
+        app.enqueue_thread_job(42, "first".into(), action, || {
+            panic!("uncertain reply must not be blindly resubmitted")
+        });
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .contains("reconcile before retrying"));
+
+        // When thread reconciliation observes the reply on the remote thread, the draft is cleared
+        // and the comment is shown without a second write.
+        let mut reconciled = thread("first");
+        reconciled.comments.push(lgtm_core::github::ThreadComment {
+            id: 77,
+            author: "reviewer".into(),
+            body: "maybe accepted".into(),
+        });
+        app.refresh_thread_job(42, "first".into(), move || Ok(Some(reconciled)));
+        apply_next(&mut app);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Reply confirmed on remote thread")
+        );
+        assert!(!app.reply_drafts.contains_key(&(42, "first".into())));
+        assert_eq!(app.threads[0].comments.len(), 1);
+        assert_eq!(app.threads[0].comments[0].body, "maybe accepted");
     }
 }

@@ -204,6 +204,14 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
                     Style::default().fg(Color::LightCyan),
                 ));
             }
+            if comment.remote_id.is_some() {
+                spans.push(Span::styled(
+                    " [↑]",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
 
             let verdict = lgtm_core::outcome::verdict(comment);
             if !comment.is_resolved && verdict != "sent" {

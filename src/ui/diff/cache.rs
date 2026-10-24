@@ -114,9 +114,9 @@ impl Index {
                 }
             }
         }
-        let clean = name.trim_start_matches("./");
+        let clean = std::path::Path::new(name.trim_start_matches("./"));
         for (i, comment) in app.comments.iter().enumerate() {
-            let path = comment.file_path.trim_start_matches("./");
+            let path = std::path::Path::new(comment.file_path.trim_start_matches("./"));
             if !comment.orphaned
                 && (clean == path || clean.ends_with(path) || path.ends_with(clean))
             {
@@ -182,6 +182,7 @@ pub(super) fn annotation_signature(app: &App) -> u64 {
             c.target_line_no,
             c.orphaned,
             c.is_resolved,
+            c.remote_id,
             &c.comment_text,
             &c.replies,
         )

@@ -3,12 +3,13 @@ use super::*;
 impl App {
     pub fn jump_to_file_and_line(&mut self, file_path: &str, target_line: u32) {
         let clean_path = file_path.trim_start_matches("./");
+        let clean_path_ref = std::path::Path::new(clean_path);
         if let Some(idx) = self.snapshot.files.iter().position(|f| {
             let dname = f.display_name();
-            let clean_dname = dname.trim_start_matches("./");
-            clean_dname == clean_path
-                || clean_dname.ends_with(clean_path)
-                || clean_path.ends_with(clean_dname)
+            let clean_dname = std::path::Path::new(dname.trim_start_matches("./"));
+            clean_dname == clean_path_ref
+                || clean_dname.ends_with(clean_path_ref)
+                || clean_path_ref.ends_with(clean_dname)
         }) {
             self.selected_file_idx = idx;
             if let Some(f) = self.snapshot.files.get_mut(idx) {

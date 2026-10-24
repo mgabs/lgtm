@@ -1,9 +1,21 @@
 use super::*;
 
 impl App {
-    pub fn toggle_stage_current_file(&mut self) {
+    fn ensure_working_tree_modifiable(&mut self) -> bool {
+        if self.pr.current_number.is_some() || self.active_revision.is_some() {
+            self.status_message =
+                Some("Staging and discarding are only available on working tree diffs".to_string());
+            return false;
+        }
         if !self.git_engine.is_git_repo() {
             self.status_message = Some("Not a git repository".to_string());
+            return false;
+        }
+        true
+    }
+
+    pub fn toggle_stage_current_file(&mut self) {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
@@ -21,18 +33,18 @@ impl App {
     }
 
     pub fn discard_current_file_changes(&mut self) {
-        if !self.git_engine.is_git_repo() {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path = file.display_name();
             let res = std::process::Command::new("git")
                 .current_dir(&self.git_engine.repo_path)
-                .args(["restore", &path])
-                .status();
+                .args(["restore", "--", &path])
+                .output();
 
             match res {
-                Ok(s) if s.success() => {
+                Ok(out) if out.status.success() => {
                     self.status_message = Some(format!("Discarded changes in {}", path));
                     self.reload_diff();
                 }
@@ -63,8 +75,7 @@ impl App {
     }
 
     pub fn stage_current_hunk(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, h_idx)) = self.current_hunk_info() {
@@ -85,8 +96,7 @@ impl App {
     }
 
     pub fn unstage_current_hunk(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, h_idx)) = self.current_hunk_info() {
@@ -107,8 +117,7 @@ impl App {
     }
 
     pub fn discard_current_hunk(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, h_idx)) = self.current_hunk_info() {
@@ -173,8 +182,7 @@ impl App {
     }
 
     pub fn reject_hunk_and_reprompt(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, _h_idx)) = self.current_hunk_info() {
@@ -202,8 +210,7 @@ impl App {
     }
 
     pub fn unstage_current_file(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
@@ -507,7 +514,7 @@ impl App {
     }
 
     pub fn stage_selected_lines(&mut self) {
-        if !self.git_engine.is_git_repo() {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, indices)) = self.selected_line_indices_in_current_hunk() {
@@ -532,7 +539,7 @@ impl App {
     }
 
     pub fn unstage_selected_lines(&mut self) {
-        if !self.git_engine.is_git_repo() {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, indices)) = self.selected_line_indices_in_current_hunk() {
@@ -557,7 +564,7 @@ impl App {
     }
 
     pub fn discard_selected_lines(&mut self) {
-        if !self.git_engine.is_git_repo() {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, indices)) = self.selected_line_indices_in_current_hunk() {

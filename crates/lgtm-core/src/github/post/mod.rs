@@ -49,7 +49,11 @@ fn in_diff(files: &[FileDiff], c: &CommentAnchor) -> bool {
 pub fn plan(comments: &[CommentAnchor], files: &[FileDiff], pr: u64) -> Plan {
     let mut p = Plan::default();
     for (i, c) in comments.iter().enumerate() {
-        if c.pr_number != Some(pr) || c.remote_id.is_some() || c.is_resolved {
+        if c.pr_number != Some(pr)
+            || c.remote_id.is_some()
+            || c.is_remote_uncertain()
+            || c.is_resolved
+        {
             continue;
         }
         if in_diff(files, c) {
@@ -90,7 +94,21 @@ fn run(
     };
     for (position, &i) in plan.inline.iter().enumerate() {
         let c = &comments[i];
-        let id = client.post_inline(pr, &sha, &c.file_path, c.target_line_no, &c.comment_text)?;
+        let id = match client.post_inline(pr, &sha, &c.file_path, c.target_line_no, &c.comment_text)
+        {
+            Ok(id) => id,
+            Err(err) => {
+                if crate::forge::failure::is_ambiguous_write(&err) {
+                    comments[i].set_remote_uncertain(true);
+                    let _ = save(comments);
+                    return Err(err.context(
+                        "remote write outcome is uncertain; reconcile threads before retrying",
+                    ));
+                }
+                return Err(err);
+            }
+        };
+        comments[i].set_remote_uncertain(false);
         comments[i].remote_id = Some(id);
         *posted += 1;
         save(comments)?;
@@ -100,14 +118,71 @@ fn run(
         }
     }
     if !plan.general.is_empty() {
-        let id = client.post_general(pr, &general_body(comments, &plan.general))?;
+        let id = match client.post_general(pr, &general_body(comments, &plan.general)) {
+            Ok(id) => id,
+            Err(err) => {
+                if crate::forge::failure::is_ambiguous_write(&err) {
+                    for &i in &plan.general {
+                        comments[i].set_remote_uncertain(true);
+                    }
+                    let _ = save(comments);
+                    return Err(err.context(
+                        "remote write outcome is uncertain; reconcile threads before retrying",
+                    ));
+                }
+                return Err(err);
+            }
+        };
         for &i in &plan.general {
+            comments[i].set_remote_uncertain(false);
             comments[i].remote_id = Some(id);
         }
         *posted += plan.general.len();
         save(comments)?;
     }
     Ok(())
+}
+
+/// Reconcile uncertain directives for `pr` against remote `threads`.
+/// Attaches `remote_id` when the directive text is present on the remote line;
+/// returns the number of directives confirmed as delivered.
+pub fn reconcile(comments: &mut [CommentAnchor], threads: &[super::Thread], pr: u64) -> usize {
+    let mut used: std::collections::HashSet<u64> =
+        comments.iter().filter_map(|c| c.remote_id).collect();
+    let mut confirmed = 0;
+    for c in comments.iter_mut() {
+        if c.pr_number != Some(pr) || !c.is_remote_uncertain() || c.remote_id.is_some() {
+            continue;
+        }
+        let matched = threads
+            .iter()
+            .filter(|t| t.path == c.file_path && t.line == Some(c.target_line_no))
+            .flat_map(|t| &t.comments)
+            .find(|tc| {
+                tc.id != 0 && !used.contains(&tc.id) && tc.body.trim() == c.comment_text.trim()
+            })
+            .map(|tc| tc.id);
+        if let Some(id) = matched {
+            c.remote_id = Some(id);
+            c.set_remote_uncertain(false);
+            used.insert(id);
+            confirmed += 1;
+        }
+    }
+    confirmed
+}
+
+/// Clear remaining `remote_uncertain` flags for `pr` after an explicit reviewer decision
+/// (or after verifying the comment is absent remotely) so unconfirmed directives can be retried.
+pub fn clear_uncertain(comments: &mut [CommentAnchor], pr: u64) -> usize {
+    let mut cleared = 0;
+    for c in comments.iter_mut() {
+        if c.pr_number == Some(pr) && c.remote_id.is_none() && c.is_remote_uncertain() {
+            c.set_remote_uncertain(false);
+            cleared += 1;
+        }
+    }
+    cleared
 }
 
 /// Post `plan`, calling `save` after every success so a failed run resumes where it stopped.

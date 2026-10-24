@@ -656,3 +656,358 @@ fn bdd_core_018_invalid_anonymous_listing_is_reported_without_retry() {
         assert_eq!(calls.borrow().len(), 2);
     }
 }
+
+type ContractCall = (String, String, Option<serde_json::Value>);
+
+#[derive(Clone, Default)]
+struct ContractRunner {
+    records: std::rc::Rc<std::cell::RefCell<Vec<ContractCall>>>,
+    responses: std::rc::Rc<std::cell::RefCell<std::collections::VecDeque<anyhow::Result<String>>>>,
+}
+
+impl ContractRunner {
+    fn push_ok(&self, body: impl Into<String>) {
+        self.responses.borrow_mut().push_back(Ok(body.into()));
+    }
+    fn push_err(&self, err: anyhow::Error) {
+        self.responses.borrow_mut().push_back(Err(err));
+    }
+    fn record_call(&self, transport: &str, args: &[&str]) -> anyhow::Result<String> {
+        let mut payload = None;
+        for pair in args.windows(2) {
+            if pair[0] == "-d" && pair[1].starts_with('@') {
+                let raw = std::fs::read_to_string(&pair[1][1..]).unwrap();
+                payload = Some(serde_json::from_str(&raw).unwrap());
+            } else if pair[0] == "--in-file" {
+                let raw = std::fs::read_to_string(pair[1]).unwrap();
+                payload = Some(serde_json::from_str(&raw).unwrap());
+            }
+        }
+        let target = args.join(" ");
+        self.records
+            .borrow_mut()
+            .push((transport.to_string(), target, payload));
+        self.responses
+            .borrow_mut()
+            .pop_front()
+            .expect("missing fixture response")
+    }
+}
+
+impl lgtm_core::forge::github::Runner for ContractRunner {
+    fn run(&self, program: &str, args: &[&str]) -> anyhow::Result<String> {
+        self.record_call(&format!("github:{program}"), args)
+    }
+}
+
+impl lgtm_core::forge::azure::Runner for ContractRunner {
+    fn run(&self, program: &str, args: &[&str]) -> anyhow::Result<String> {
+        self.record_call(&format!("azure:{program}"), args)
+    }
+}
+
+#[test]
+fn bdd_core_019_github_and_azure_listing_contracts_across_transports() {
+    use lgtm_core::{forge::Forge, pr::PullRequestState};
+    // Given isolated GitHub and Azure repositories tested across REST (curl) and CLI (gh/az) transports.
+    let gh_repo = tempfile::tempdir().unwrap();
+    lgtm_core::git2::Repository::init(gh_repo.path())
+        .unwrap()
+        .remote("origin", "https://github.com/fixture/repo.git")
+        .unwrap();
+    let az_repo = tempfile::tempdir().unwrap();
+    lgtm_core::git2::Repository::init(az_repo.path())
+        .unwrap()
+        .remote("origin", "https://dev.azure.com/org/proj/_git/repo")
+        .unwrap();
+
+    // 1. GitHub REST (curl) open/closed/all listing contracts
+    for (state, expected_query) in [
+        (PullRequestState::Open, "state=open&per_page=30"),
+        (PullRequestState::Closed, "state=closed&per_page=30"),
+        (PullRequestState::All, "state=all&per_page=30"),
+    ] {
+        let runner = ContractRunner::default();
+        runner.push_ok(r#"[{"number":7,"title":"gh-rest","state":"open","merged_at":null,"head":{"ref":"feat"},"user":{"login":"alice"}}]"#);
+        let provider = lgtm_core::forge::GitHubForge::with_runner(
+            gh_repo.path().into(),
+            Box::new(runner.clone()),
+        )
+        .with_api_token(Some("tok".into()));
+        let prs = provider.list_prs_state(state).unwrap();
+        assert_eq!(prs.len(), 1);
+        let records = runner.records.borrow();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].0, "github:curl");
+        assert!(records[0].1.ends_with(&format!(
+            "https://api.github.com/repos/fixture/repo/pulls?{expected_query}"
+        )));
+    }
+
+    // 2. GitHub CLI (gh) open/closed/all listing contracts
+    for (state, expected_flags) in [
+        (PullRequestState::Open, "pr list --state open --json"),
+        (
+            PullRequestState::Closed,
+            "pr list --state all --search is:closed --json",
+        ),
+        (PullRequestState::All, "pr list --state all --json"),
+    ] {
+        let runner = ContractRunner::default();
+        runner.push_ok(r#"[{"number":8,"title":"gh-cli","author":{"login":"bob"},"headRefName":"feat","additions":1,"deletions":0,"state":"OPEN"}]"#);
+        let provider = lgtm_core::forge::GitHubForge::with_runner(
+            gh_repo.path().into(),
+            Box::new(runner.clone()),
+        )
+        .with_api_token(None);
+        let prs = provider.list_prs_state(state).unwrap();
+        assert_eq!(prs[0].number, 8);
+        let records = runner.records.borrow();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].0, "github:gh");
+        assert!(records[0].1.starts_with(expected_flags));
+    }
+
+    // 3. Azure REST (curl) and CLI (az) open/closed/all listing contracts
+    {
+        let runner = ContractRunner::default();
+        // Open via REST (token + curl)
+        runner.push_ok("az-token");
+        runner.push_ok(r#"{"value":[{"pullRequestId":10,"title":"az-open","status":"active","sourceRefName":"refs/heads/main","createdBy":{"displayName":"ann"}}]}"#);
+        // Closed via CLI fallback (token fails -> az repos pr list --status completed & abandoned)
+        runner.push_err(anyhow::anyhow!("no rest token"));
+        runner.push_ok(r#"[{"pullRequestId":11,"title":"az-merged","status":"completed","sourceRefName":"refs/heads/a","createdBy":{"displayName":"ann"}}]"#);
+        runner.push_err(anyhow::anyhow!("no rest token"));
+        runner.push_ok(r#"[{"pullRequestId":12,"title":"az-abandoned","status":"abandoned","sourceRefName":"refs/heads/b","createdBy":{"displayName":"ann"}}]"#);
+        // All via REST
+        runner.push_ok("az-token");
+        runner.push_ok(r#"{"value":[{"pullRequestId":12,"title":"az-abandoned","status":"abandoned","sourceRefName":"refs/heads/b","createdBy":{"displayName":"ann"}},{"pullRequestId":10,"title":"az-open","status":"active","sourceRefName":"refs/heads/main","createdBy":{"displayName":"ann"}}]}"#);
+
+        let provider = lgtm_core::forge::AzureForge::with_runner(
+            az_repo.path().into(),
+            Box::new(runner.clone()),
+        );
+        let open = provider.list_prs_state(PullRequestState::Open).unwrap();
+        assert_eq!(open.len(), 1);
+        let closed = provider.list_prs_state(PullRequestState::Closed).unwrap();
+        assert_eq!(
+            closed.iter().map(|p| p.number).collect::<Vec<_>>(),
+            vec![12, 11]
+        );
+        let all = provider.list_prs_state(PullRequestState::All).unwrap();
+        assert_eq!(all.len(), 2);
+
+        let records = runner.records.borrow();
+        assert!(records.iter().any(|(t, cmd, _)| t == "azure:curl"
+            && cmd.contains("pullrequests?searchCriteria.status=active&api-version=7.1")));
+        assert!(
+            records
+                .iter()
+                .any(|(t, cmd, _)| t == "azure:az"
+                    && cmd.contains("repos pr list --status completed"))
+        );
+        assert!(
+            records
+                .iter()
+                .any(|(t, cmd, _)| t == "azure:az"
+                    && cmd.contains("repos pr list --status abandoned"))
+        );
+        assert!(records.iter().any(|(t, cmd, _)| t == "azure:curl"
+            && cmd.contains("pullrequests?searchCriteria.status=all&api-version=7.1")));
+    }
+}
+
+#[test]
+fn bdd_core_020_github_and_azure_reply_resolve_and_reopen_contracts() {
+    use lgtm_core::github::GithubClient;
+    let gh_repo = tempfile::tempdir().unwrap();
+    lgtm_core::git2::Repository::init(gh_repo.path())
+        .unwrap()
+        .remote("origin", "https://github.com/fixture/repo.git")
+        .unwrap();
+    let az_repo = tempfile::tempdir().unwrap();
+    lgtm_core::git2::Repository::init(az_repo.path())
+        .unwrap()
+        .remote("origin", "https://dev.azure.com/org/proj/_git/repo")
+        .unwrap();
+
+    // GitHub reply, resolve, reopen + unconfirmed failure handling
+    let gh_runner = ContractRunner::default();
+    gh_runner.push_ok(r#"{"id":901}"#);
+    gh_runner.push_ok(r#"{"data":{"resolveReviewThread":{"thread":{"id":"PRRT_1"}}}}"#);
+    gh_runner.push_ok(r#"{"data":{"unresolveReviewThread":{"thread":{"id":"PRRT_1"}}}}"#);
+    gh_runner.push_ok(r#"{}"#); // missing reply receipt id
+    gh_runner.push_ok(r#"{"data":{"resolveReviewThread":{"thread":null}}}"#); // missing resolve confirmation
+
+    let gh = lgtm_core::forge::GitHubForge::with_runner(
+        gh_repo.path().into(),
+        Box::new(gh_runner.clone()),
+    )
+    .with_api_token(Some("tok".into()));
+
+    assert_eq!(gh.reply(42, "PRRT_1", 77, "addressed").unwrap(), 901);
+    gh.set_resolved(42, "PRRT_1", true).unwrap();
+    gh.set_resolved(42, "PRRT_1", false).unwrap();
+    assert!(gh
+        .reply(42, "PRRT_1", 77, "unconfirmed")
+        .unwrap_err()
+        .to_string()
+        .contains("no receipt"));
+    assert!(gh
+        .set_resolved(42, "PRRT_1", true)
+        .unwrap_err()
+        .to_string()
+        .contains("no confirmation"));
+
+    let gh_records = gh_runner.records.borrow();
+    assert!(gh_records[0]
+        .1
+        .ends_with("https://api.github.com/repos/fixture/repo/pulls/42/comments/77/replies"));
+    assert_eq!(
+        gh_records[0].2,
+        Some(serde_json::json!({"body": "addressed"}))
+    );
+    assert!(gh_records[1].1.ends_with("https://api.github.com/graphql"));
+    assert_eq!(
+        gh_records[1].2.as_ref().unwrap()["variables"]["id"],
+        "PRRT_1"
+    );
+    assert!(gh_records[1].2.as_ref().unwrap()["query"]
+        .as_str()
+        .unwrap()
+        .contains("resolveReviewThread"));
+    assert!(gh_records[2].2.as_ref().unwrap()["query"]
+        .as_str()
+        .unwrap()
+        .contains("unresolveReviewThread"));
+
+    // Azure reply, resolve, reopen + unconfirmed / invalid thread ID failure handling
+    let az_runner = ContractRunner::default();
+    az_runner.push_ok(r#"{"id":301}"#);
+    az_runner.push_ok(r#"{"id":15,"status":"fixed"}"#);
+    az_runner.push_ok(r#"{"id":15,"status":"active"}"#);
+    az_runner.push_ok(r#"{}"#); // missing reply comment id
+    az_runner.push_ok(r#"{}"#); // missing resolve confirmation id
+
+    let az = lgtm_core::forge::AzureForge::with_runner(
+        az_repo.path().into(),
+        Box::new(az_runner.clone()),
+    );
+
+    assert_eq!(az.reply(42, "15", 8, "addressed").unwrap(), 301);
+    az.set_resolved(42, "15", true).unwrap();
+    az.set_resolved(42, "15", false).unwrap();
+    assert!(az
+        .reply(42, "15", 8, "unconfirmed")
+        .unwrap_err()
+        .to_string()
+        .contains("no comment id"));
+    assert!(az
+        .set_resolved(42, "15", true)
+        .unwrap_err()
+        .to_string()
+        .contains("no confirmation"));
+    assert!(az.reply(42, "non-numeric", 8, "x").is_err());
+    assert!(az.set_resolved(42, "non-numeric", true).is_err());
+
+    let az_records = az_runner.records.borrow();
+    assert!(az_records[0]
+        .1
+        .contains("--resource pullRequestThreadComments"));
+    assert!(az_records[0].1.contains("pullRequestId=42 threadId=15"));
+    assert_eq!(
+        az_records[0].2,
+        Some(serde_json::json!({"parentCommentId": 8, "content": "addressed", "commentType": 1}))
+    );
+    assert!(az_records[1].1.contains("--resource pullRequestThreads"));
+    assert!(az_records[1].1.contains("--http-method patch"));
+    assert_eq!(
+        az_records[1].2,
+        Some(serde_json::json!({"status": "fixed"}))
+    );
+    assert_eq!(
+        az_records[2].2,
+        Some(serde_json::json!({"status": "active"}))
+    );
+}
+
+#[test]
+fn bdd_core_021_ambiguous_remote_write_is_marked_uncertain_and_reconciled_without_duplicate_post() {
+    use lgtm_core::{
+        comment::CommentStore,
+        github::{post, FakeClient, Thread, ThreadComment},
+    };
+    // Given two directives and a provider that times out after accepting the first comment.
+    let repo = tempfile::tempdir().unwrap();
+    let store = CommentStore::new(repo.path());
+    let mut comments = vec![directive("first"), directive("second")];
+    store.save_comments(&comments).unwrap();
+    let files = patch(1, "code").files;
+    let ambiguous_client = FakeClient {
+        timeout_after_accept: true,
+        ..Default::default()
+    };
+    let initial_plan = post::plan(&comments, &files, 42);
+
+    // When the first post times out after remote acceptance.
+    let report = post::post(
+        &ambiguous_client,
+        42,
+        &mut comments,
+        &initial_plan,
+        std::time::Duration::ZERO,
+        |current| store.save_comments(current),
+    );
+
+    // Then the outcome is surfaced as uncertain, the second directive is not sent,
+    // and planning a retry does not blindly resubmit the uncertain first directive.
+    assert_eq!(report.posted, 0);
+    assert!(report.error.as_deref().unwrap().contains("uncertain"));
+    assert_eq!(
+        ambiguous_client.posted.borrow().as_slice(),
+        ["a.rs:1:first"]
+    );
+    let mut reopened = CommentStore::new(repo.path()).load_comments();
+    assert!(reopened[0].is_remote_uncertain());
+    assert!(reopened[0].remote_id.is_none());
+    assert!(!reopened[1].is_remote_uncertain());
+    let unblind_plan = post::plan(&reopened, &files, 42);
+    assert_eq!(
+        unblind_plan.inline,
+        vec![1],
+        "uncertain directive must not be blindly resubmitted"
+    );
+
+    // When remote threads are fetched and reconciled, the accepted directive gets its receipt
+    // without being resent, and retrying sends only the remaining second directive.
+    let remote_threads = vec![Thread {
+        id: "t-1".into(),
+        path: "a.rs".into(),
+        line: Some(1),
+        resolved: false,
+        comments: vec![ThreadComment {
+            id: 555,
+            author: "reviewer".into(),
+            body: "first".into(),
+        }],
+    }];
+    assert_eq!(post::reconcile(&mut reopened, &remote_threads, 42), 1);
+    assert_eq!(reopened[0].remote_id, Some(555));
+    assert!(!reopened[0].is_remote_uncertain());
+    store.save_comments(&reopened).unwrap();
+
+    let retry_plan = post::plan(&reopened, &files, 42);
+    assert_eq!(retry_plan.inline, vec![1]);
+    let healthy_client = FakeClient::default();
+    let retry_report = post::post(
+        &healthy_client,
+        42,
+        &mut reopened,
+        &retry_plan,
+        std::time::Duration::ZERO,
+        |current| store.save_comments(current),
+    );
+    assert!(retry_report.error.is_none());
+    assert_eq!(retry_report.posted, 1);
+    assert_eq!(healthy_client.posted.borrow().as_slice(), ["a.rs:1:second"]);
+}
