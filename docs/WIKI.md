@@ -26,7 +26,7 @@
 6. [Model Context Protocol (MCP) Server](#6-model-context-protocol-mcp-server)
 7. [Headless CI & Security Gates](#7-headless-ci--security-gates)
 8. [Ex-Commands Dictionary (`:cmds`)](#8-ex-commands-dictionary-cmds)
-9. [Configuration Reference (`.lgtm/config.toml`)](#9-configuration-reference-lgtmconfigtoml)
+9. [Configuration Reference (`.lgtm.toml`)](#9-configuration-reference-lgtmtoml)
 10. [CLI Command Reference](#10-cli-command-reference)
 11. [Additional Guardrails](#11-additional-guardrails)
 12. [Quality Tooling (`make` targets)](#12-quality-tooling-make-targets)
@@ -104,7 +104,7 @@ cp target/release/lgtm /usr/local/bin/lgtm
 ### Requirements
 - **OS**: macOS, Linux, Windows (via WSL2 or Windows Terminal)
 - **Git**: Git 2.20+ installed
-- **PR features**: `gh` (GitHub) or `az` with the `azure-devops` extension (Azure DevOps); only needed for `:pr`, `:prs`, checks and posting
+- **PR features**: GitHub uses Git/API/`gh`; public listings and stored patches can fall back to anonymous HTTPS via `curl`. Private reads, discussions, and writes require authentication. Azure uses `az` with the `azure-devops` extension.
 - **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
 
 ---
@@ -219,9 +219,9 @@ Agents often run tools in loops, modify multiple files, and produce diffs withou
   3. Git repository HEAD commit message.
 - Press `Esc`, `q`, or `P` to return to the diff.
 
-#### 6. In-App Test Authenticity & Mutation Check (`T`)
-- Press **`T`** to trigger an automated mutation probe across test files.
-- Identifies tautological assertions (`assert_eq!(x, x)`, `expect(res).toBe(res)`, `assertEquals(val, val)`), constant truth evaluations, and deleted assertions.
+#### 6. In-App Test Risk Summary (`T`)
+- Press **`T`** to summarize `test/` alerts already present in the current review.
+- Test guards identify tautological assertions, constant truth evaluations, and deleted assertions. This key reports those findings; it does not execute tests or mutate source.
 
 ---
 
@@ -496,9 +496,24 @@ Suppressed counts go to stderr; `check`/`ci --show-suppressed` lists them. `ci` 
 
 Baselines: `lgtm baseline update [--prune]` runs a full scan and records `{rule_id, file, fingerprint}` entries, sorted, in `[baseline] file` (default `.lgtm-baseline.json`). `check`, `ci`, `scan`, `risk` and the TUI then treat matching findings as existing: they are counted on stderr and never affect the exit code. `scan` also reports stale entries (no matching finding); `--prune` removes them. Critical findings are never baselined unless `[baseline] allow_critical = true`. Fingerprints ignore line numbers, so moving code keeps its baseline entry; Editing the flagged line makes it new again.
 
-Remote PR calls: `lgtm_core::github::GithubClient` hides `gh` (Azure DevOps uses `az`, see below); `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line and marks their lines in the diff gutter (`◆` open, `◇` resolved). Both run only on demand; a missing or unauthenticated `gh` gives a clear message and local features keep working. lgtm never handles tokens.
+Remote PR calls: `lgtm_core::github::GithubClient` hides `gh` (Azure DevOps uses `az`, see below); `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line and marks their lines in the diff gutter (`◆` open, `◇` resolved). Both run only on demand; missing credentials give a clear message and local features keep working. See the [README diagnostics guide](../README.md#debugging-slow-pr-reviews) for opt-in timing logs.
 
 Posting: `:pr post` previews how many comments would go inline (line is in the diff) or into one combined general comment; `:pr post --yes` sends them, saving each comment's `remote_id` right away so a failed run resumes without duplicates ("N of M posted"). Only unresolved comments made while that PR was open are posted. Not yet: re-anchoring on a changed PR head, orphan skipping, and a `↑ #id` marker in the UI.
+
+Public GitHub listings and stored patches support anonymous HTTPS fallback for a
+recognized `github.com` origin when no API token is set and `gh` is unavailable
+or needs login. Successful CLI reads are reused. Each fallback sends one GET
+without credentials; failures report missing/private resources, access restrictions,
+or public rate limits without retrying. Invalid API tokens, Git-fetch auth errors,
+network failures, enterprise hosts, and SSH aliases do not activate this fallback.
+Discussion threads and writes still require credentials.
+
+PR loading and directive preparation run in the background while the current review stays visible.
+Closing drafts, modals, and visual selections allows the prepared review to appear. If its
+comments, marks, or turn changed during loading, preparation runs again against the fetched
+snapshot without another fetch or scan. The UI merges and saves current directives, preserving
+new edits, replies, and posting receipts. Local refresh reconciliation and this final save
+still run on the UI thread. Use `:reload` to fetch the current PR again.
 
 Threads: after `:threads`, `:thread reply <n> <text>`, `:thread resolve <n>` and `:thread unresolve <n>` (n = 1-based position in the list) preview what they would do; add `--yes` to send. Nothing is replied to or resolved without it, and a 403 or auth failure is shown as is, never retried.
 
@@ -609,12 +624,12 @@ lgtm hook uninstall   # cleanly removes hook
 
 ### Azure DevOps pull requests
 
-lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.com`, `*.visualstudio.com` are Azure DevOps; everything else keeps using `gh`). Azure uses the `az` CLI with the `azure-devops` extension: `az extension add --name azure-devops`, then `az login` (or `az devops login`). lgtm never handles tokens.
+lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.com`, `*.visualstudio.com` are Azure DevOps; other remotes use the GitHub provider). Azure uses the `az` CLI with the `azure-devops` extension: `az extension add --name azure-devops`, then `az login` (or `az devops login`). The REST path reuses a short-lived token in memory and passes it to curl through a private temporary file.
 
 | Works | Not yet (planned) |
 |---|---|
-| `:prs`, `lgtm prs`: active PRs | |
-| `:pr <n>`, `lgtm pr <n>`: fetches `refs/pull/<n>/merge` (one `git fetch`, no `az` call) and diffs target against source locally; if that ref is missing it fetches the source and target branches into `refs/lgtm/pr/<n>/head` and `base` (one `az` call) | |
+| `:prs open/closed/all`, `lgtm prs --state open/closed/all`: list PRs by state (default open) | |
+| `:pr <n>`, `lgtm pr <n>`: reads fresh metadata through REST with cached authentication and CLI fallback; uses recorded commits before probing refs, including completed/abandoned PRs | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
 | `:pr post --yes`: inline comments become threads on the new-side line, the rest one general thread; `:thread reply`, `resolve` (status `fixed`), `unresolve` (`active`) | |
@@ -632,16 +647,16 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 
 | Command | Aliases | Description |
 |---|---|---|
-| `:audit` | `:issues` | Audit the whole codebase (issues only, no diff) |
-| `:scan [repo]` | — | Scan changed files; `:scan repo` audits the whole codebase |
+| `:audit` | — | Audit the whole codebase (issues only, no diff) |
+| `:scan [repo]` | `:issues` | Scan changed files; `:scan repo` audits the whole codebase |
 | `:export [path]` | — | Export audit scorecard report to Markdown (default: `lgtm-report.md`) |
 | `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/comments.jsonl` |
 | `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load a range, e.g. `:diff main..feat`; a bare branch name means `<branch>...HEAD`, audited on load) |
-| `:q` | `:quit`, `:exit` | Quit `lgtm` (`:q!` force quit without saving) |
-| `:wq` | `:x` | Save directives and quit |
+| `:q` | `:quit` | Quit `lgtm` (`:q!` force quit without saving) |
+| `:wq` | `:x`, `:exit` | Save directives and quit |
 | `:commit [msg]` | `:ci` | Open Commit Forge modal or commit staged changes with message |
-| `:pr <number>` | — | Fetch and review GitHub pull request diff directly (e.g. `:pr 42`) |
-| `:prs` | — | Open interactive GitHub PR picker modal |
+| `:pr <number>` | — | Review an open or closed GitHub/Azure DevOps PR in the background |
+| `:prs [open\|closed\|all]` | — | Open PR picker; `1`/`2`/`3` select open/closed/all |
 | `:f` | `:files`, `:find` | Open fuzzy file switcher popup |
 | `:pane [id]` | `:panes` | Select or set target agent pane ID (`tmux`, `zellij`, `wezterm`, `kitty`) |
 | `:sink [name]` | — | View or set active agent steering sink (`tmux`, `zellij`, `wezterm`, `kitty`, `clipboard`, `auto`) |
@@ -660,29 +675,36 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:reload` | `:e`, `:edit` | Reload diff snapshot from working tree or GitHub PR |
 | `:filter <1\|2\|3\|crit\|high\|all>` | `:sev` | Filter audit issues by severity |
 | `:inject [all]` | — | Inject violation remediation directive(s) into agent pane |
-| `:approve` | `:lgtm`, `:accept` | Approve pending agent breakpoint gate (`.lgtm/gate.json`) |
+| `:approve` | `:lgtm` | Approve pending agent breakpoint gate (`.lgtm/gate.json`) |
 | `:reject` | — | Reject & revert hunk under cursor and re-prompt agent with reason |
 | `:reject-all` | `:reject-gate` | Reject waiting agent breakpoint gate |
 | `:prompt` | `:context` | Open agent prompt context modal from gate, prompt log, or commit |
+| `:editor [name]` | — | View or configure active editor (`nvim`, `vim`, `vi`, `vscode`, `code`, `cursor`, `helix`) |
 | `:hook [install\|uninstall\|status]` | — | Manage Git pre-commit hook directly from the TUI |
 | `:y` | `:yank` | Yank current code line to clipboard |
 | `:yr` | `:ref` | Yank `#ref file:line` to clipboard |
-| `:d` | `:del`, `:delete` | Delete directive anchored on current line |
 | `:<number>` | — | Jump directly to line number (e.g. `:42` or `:150`) |
 
 ---
 
-## 9. Configuration Reference (`.lgtm/config.toml`)
+## 9. Configuration Reference (`.lgtm.toml`)
 
-Run `lgtm --init` to create a starter configuration file at `.lgtm/config.toml`:
+Run `lgtm init` (or `lgtm --init`) to create a starter configuration file at `.lgtm.toml`:
 
 ```toml
-# LGTM Configuration File
+# LGTM Configuration File (.lgtm.toml)
 # Documentation: https://github.com/mgabs/lgtm
 
-[review]
-# Ignore patterns (glob expressions)
-ignore = [
+editor = "nvim"
+agent_sink = "tmux"
+
+[thresholds]
+complexity_line_delta = 15
+complexity_nesting_depth = 4
+blast_radius_files = 8
+
+[ignore]
+paths = [
     "package-lock.json",
     "Cargo.lock",
     "yarn.lock",
@@ -691,20 +713,12 @@ ignore = [
     "dist/**"
 ]
 
-[presets]
-# Custom canned directive templates
-why = "Why this specific approach? Explain rationale and architectural invariants."
-perf = "Is this hot path allocating or creating N+1 queries?"
-security = "Please ensure all user inputs are sanitized and parameterized."
-test = "Please add unit tests covering edge cases and error branches."
+[severity]
+# Override rule severity ("critical", "high", "warn", or "off"), e.g.:
+# "arch/blast-radius" = "off"
 
-[ui]
-# File drawer sidebar width in columns
-drawer_width = 35
-# Default view mode: "unified" or "split"
-default_view = "unified"
-# Watcher debounce interval in milliseconds
-debounce_ms = 300
+[baseline]
+path = ".lgtm-baseline.json"
 ```
 
 ## 10. CLI Command Reference
@@ -715,21 +729,18 @@ debounce_ms = 300
 | `lgtm gate [--timeout <s>] [-m <msg>]` | Human-in-the-loop breakpoint gate; halts until approved/rejected in TUI |
 | `lgtm hook [install\|uninstall\|status]` | Install, uninstall, or inspect the LGTM Git pre-commit hook |
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
-| `lgtm init` / `--init` | Create `.lgtm/config.toml` |
-| `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via `gh`, Azure DevOps via `az`) |
-| `lgtm prs` | List and pick open PRs |
+| `lgtm init` / `--init` | Create `.lgtm.toml` |
+| `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via Git/API/`gh`, Azure DevOps via `az`) |
+| `lgtm prs --state open/closed/all` | List and pick PRs by state (default open) |
 | `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
 | `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
 | `lgtm ci [--strict] [--rev <spec>] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF. `--rev origin/main...HEAD` checks a committed range. Exit 0 pass, 1 blocking findings, 2 tool error (also on `check`) |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
 | `lgtm audit` | Interactive repository audit TUI |
-| `lgtm coverage [--min 90] [--delta] [--lcov file]` | Coverage gate; `--delta` checks only added lines |
-| `lgtm mutate [--min 90]` | Mutation testing gate |
-| `lgtm verify-tests` | Inverted test verification (detect tautological tests) |
 | `lgtm mcp` / `lgtm serve --mcp` | MCP stdio server |
 | `lgtm log\|commit\|add\|...` | Git passthrough |
 
-Global options: `-r/--repo <path>`, `-p/--agent-pane <id>`, `-d/--debounce <ms>` (default 300).
+Global options: `-r/--repo <path>`, `-p/--agent-pane <id>`, `--agent-sink <kind>`, `--pr <n>`, `-d/--debounce <ms>` (default 300), `--debug`, `--debug-log <path>`, `--init`.
 
 ---
 
@@ -752,14 +763,37 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 |---|---|
 | `make build` / `release` | Debug / LTO release binary |
 | `make test` | Unit + integration tests |
-| `make coverage` | `scripts/coverage.sh` — tests + coverage gate (>= 90%) |
-| `make delta-coverage` | Coverage on changed lines only |
-| `make mutate` | `scripts/mutate.sh` — mutation gate (>= 90%) |
-| `make verify-tests` | Inverted test verification |
+| `make bdd-report` | Automated BDD scenario catalog report (`./scripts/bdd-report.sh`) |
 | `make lint` / `fmt` / `check-fmt` | Clippy (`-D warnings`) / rustfmt |
-| `make check` | fmt check + lint + test + coverage + mutate |
+| `make check` | `check-fmt` + `lint` + boundary check + `test` |
 | `make ci` | `check` + SARIF export |
 | `make tap` | `scripts/update-tap.sh` — update Homebrew formula |
+
+### Behavior scenarios and coverage
+
+Public API acceptance scenarios live in `crates/lgtm-core/tests/bdd.rs`; scenarios
+that launch the application live in `tests/bdd.rs`. Both use ordinary Rust tests
+with Given/When/Then comments. Run them with:
+
+```sh
+cargo test --workspace --test bdd
+```
+
+Private UI and provider behavior tests stay beside their modules and run with
+`cargo test --workspace`. The [scenario catalog](bdd-scenarios.md) maps both types
+and distinguishes offline fixtures from terminal and live-provider verification.
+The [Q0–Q6 roadmap](superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
+tracks the acceptance milestones (all complete).
+
+Run the automated BDD catalog coverage report:
+
+```sh
+make bdd-report
+# or ./scripts/bdd-report.sh
+```
+
+It maps all 41 agreed criteria to executable tests and evaluates pass/fail status,
+automation coverage, verified coverage, and pass rate.
 
 ---
 
@@ -767,20 +801,24 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 
 | Path (under `crates/lgtm-core/src/` unless noted) | Role |
 |---|---|
-| `src/main.rs` | Entry point, TUI launcher |
-| `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `coverage`, `init`) |
-| `src/app/` | TUI state machine split by concern: input, motion, command, comments, staging, audit, pr, commit, external; `state` holds CommandLine, pickers, AuditState, PrState |
-| `src/ui/` | Ratatui rendering split by view; `modals/` for dialogs |
-| `model.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine` |
+| `src/main.rs`, `src/event_loop.rs`, `src/diagnostics.rs` | Entry point, bounded terminal/watcher/callback event loop, and UI workload diagnostics |
+| Root `tests/bdd.rs`, `crates/lgtm-core/tests/bdd.rs` | Application-launch and public API acceptance scenarios |
+| `crates/lgtm-core/tests/live_provider.rs` | Opt-in live GitHub & Azure DevOps provider verification |
+| `scripts/bdd-report.py`, `scripts/bdd-report.sh` | Automated BDD scenario catalog coverage and verification reporting |
+| `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `review`, `init`) |
+| `src/app/` | TUI state machine and background coordinators (`refresh`, `view_data`, `rows`, `audit/jobs`, `pr/completion`) |
+| `src/ui/` | Ratatui rendering with viewport/layout caches (`diff/cache.rs`, `diff/viewport.rs`) and `modals/` |
+| `crates/lgtm-ast/src/lib.rs` | Tree-sitter AST parsing, queries, and block folding (TS/JS, Swift, Python, Go, Java) |
+| `model.rs`, `debug.rs` | `DiffSnapshot`, `FileDiff`, `DiffHunk`, `DiffLine`; structured JSONL timing recorder |
 | `scan.rs` | Full repo scanner and report generator |
-| `git/`, `pr/`, `forge/` | Git diff engine; PR providers (`forge`: GitHub via `gh`, Azure DevOps via `az`) |
+| `git/`, `pr/`, `forge/` | Git diff engine; PR providers (`forge`: GitHub via Git/API/`gh`, Azure DevOps via `az`, `failure.rs`) |
 | `guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
-| `comment/`, `turn/` | Directives; reviewed-file state |
-| `ipc/` | tmux injection, OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |
+| `config/`, `findings/`, `baseline/` | `.lgtm.toml` loader, suppression/severity pipeline, and baseline partitioning |
+| `comment/`, `turn/`, `review/`, `outcome/` | Directives, reviewed-file state, durable hunk/fold marks, and directive outcome tracking |
+| `ipc/` | Multiplexer sinks (`tmux`, `zellij`, `wezterm`, `kitty`), OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |
 | `diff_source.rs` | `DiffSource` trait: working tree, revision, PR |
 | `watcher/` | Debounced filesystem watcher |
-| `crates/lgtm-mcp/src/lib.rs` (crate root) | MCP server |
-| `coverage/`, `mutate/`, `verify/` | Quality gates |
+| `crates/lgtm-mcp/src/lib.rs` (crate root) | MCP server and live resource watcher notifications |
 
 ---
 

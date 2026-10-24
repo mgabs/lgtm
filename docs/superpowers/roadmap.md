@@ -1,21 +1,153 @@
 # lgtm Roadmap
 
-Date: 2026-10-12 · Status: in implementation · Baseline: `main` @ a90d5b0 (v0.7.0)
+Date: 2026-10-12 · Status: original roadmap, P0–P7, and Q0–Q6 complete · Baseline: `main` @ a90d5b0 (v0.7.0)
 
-**Progress:** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E5′, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. All roadmap items complete!
+**Progress (updated 2026-10-24):** R1–R5, B1–B5, C1–C5, A1–A6, E1–E4, E5′, E6–E8, F1–F3, G1–G5, D1–D4 done; R6 and E5 dropped. Original roadmap items complete. P0 diagnostics, P1 cached viewport rendering, P2 background local refreshes, P3 bounded event processing, P4 background audits, P5 prepared render data, P6 shared navigation mappings, and P7 background PR completion preparation are complete. The BDD acceptance catalog is fully established and automated (Q0–Q6 complete).
 
 | Branch | Contents | Release | State |
 |---|---|---|---|
 | `rel.0.8.2` | D1–D3, F1–F3, G1–G5 | v0.8.2 | `--rev`, Action, CI recipes, orphaned comments, Azure DevOps read path; cut from `main` after v0.8.0, plus the roadmap commit |
 | `rel.0.8` | R1–R5, B1–B5, C1–C5, A1–A3, E1–E4 | v0.8.0 | merged to `main` via PR #10, released as v0.8.0 |
 
-All waves land in v0.8.0 (decision: one release). `rel.0.10`, `rel.0.11` and `rel.0.12` are superseded by `rel.0.8`. A4–A6 and D1–D4 are open and will follow in later releases.
+Historical release plan: `rel.0.10`, `rel.0.11` and `rel.0.12` were superseded by `rel.0.8`. A4–A6 and D1–D4 have since been completed; the progress summary above reflects the current backlog.
 
 Specs: [refactor](specs/2026-10-12-modular-breakdown-design.md) · [B guards](specs/2026-10-12-guard-config-baselines-design.md) · [C review state + GitHub](specs/2026-10-12-review-state-github-design.md) · [A agent loop + MCP](specs/2026-10-12-agent-loop-mcp-design.md)
 
-Rules for every item: one PR, cut from trunk, merged before the next; `make check` green (fmt, clippy `-D warnings`, tests, coverage >= 90%, mutation >= 90%); docs updated in the same PR. Effort sizes are rough estimates (XS/S/M/L), not commitments.
+Rules for every item: one PR, cut from trunk, merged before the next; `make check` green (fmt, clippy `-D warnings`, tests, built-in coverage gate, fixed mutation catalog with zero survivors); docs updated in the same PR. Effort sizes are rough estimates (XS/S/M/L), not commitments.
 
 ## Work items
+
+### P — Main-thread performance TODOs (added 2026-10-23)
+
+P0 added debug-only render/input/refresh/callback timings, idle redraw and input-batch
+counts, and an opt-in offline workload benchmark. Initial unoptimized TestBackend samples
+with logging disabled measured about 408 ms for a 2,000-file local refresh, 22 ms per
+10,000-line draw, and 17 ms per draw with 1,000 comments (baseline draw: 2.6 ms).
+These fixture measurements motivated P2 for working-tree stalls and P1/P6 for
+large-review rendering/navigation; P3 addresses repeated idle work. A release-build pseudo-terminal
+smoke test with debug enabled confirmed about 9 idle redraws/second across these scenarios
+(roughly 30 idle frames in each three-second sample); selected-line/comment counts were
+checked against the fixtures. Recheck with representative user workloads before treating
+this as a general bottleneck ranking. See README's
+debugging section for reproduction and metric definitions. P0–P7 are complete; provider
+optimizations are documented separately from these UI TODOs.
+
+After P2, the same unoptimized 2,000-file fixture measured about 0.05 ms to request a
+refresh and 398 ms to complete it: computation still takes time, but runs off the UI thread.
+A release-build terminal check handled input during a 306 ms snapshot computation, with
+2–3 ms input-to-draw samples and under 1 ms for the resulting UI apply. This is one local
+fixture run, not a general latency guarantee. Revision loading, explicit reloads, startup,
+and staging/watcher requests share a coordinator with one active and one latest queued
+request. Nine deterministic tests cover coalescing, input responsiveness while blocked,
+watcher/completion ordering, draft/directive preservation, selection handling, failures,
+review-target cancellation, revision reloads, and initial diff-audit startup.
+
+After P1/P6, an unoptimized 120x40 TestBackend run with diagnostics disabled measured
+warm draw medians of 2.6 ms for 10,000 lines (previously 21.2 ms), and 3.5 ms for 1,000
+comments (previously 16.2 ms). First draws took 158 ms and 51 ms respectively: layout
+preparation is cached, but remains synchronous. The benchmark now reports that cold cost
+separately. These are local fixture observations, not timing guarantees. Golden text/style
+fixtures and deterministic tests cover Unicode wrapping, annotations, folding, split-pair
+selection, resize, tiny viewports, scrolling beyond 65,535 rows, cache invalidation, and
+bounded word preparation. Selection markers now use a fixed-width gutter to avoid reflow.
+A release terminal check with 1,000 changed pairs completed 51 draws at a 2.5 ms median;
+12 navigation steps caused no row-map or layout rebuilds. Folding, split view, and resize
+also completed successfully. All 287 automated tests and the repository quality gates pass.
+P5 subsequently removed filesystem queries from rendering.
+
+After P3, a release terminal run recorded zero redraws or diagnostic records during three
+idle seconds (previously about nine redraws/second). It processed all 1,600 held-key inputs
+while a watcher refresh completed, including 38 frames during its background scan. Its
+211 draws had a 2.4 ms median. The debug log lived inside `.lgtm/` to check that ignored
+log notifications do not create a feedback loop. Background checks have a 16 ms polling
+interval; input remains on the UI thread to preserve terminal-editor access. Separate
+count/time budgets bound each batch, but cannot interrupt an individual handler. Tests
+cover idle/startup, held keys, resize/focus, quit, draw failure, missing-watcher fallback,
+watcher/callback fairness, slow callback yielding, internal log exclusion, and stale
+completions and newer external directives behind watcher backlogs. All 299 automated
+tests and the repository quality gates pass.
+
+P4 moves repository audits, changed-file scans, risk checks, and export's fallback scan into
+workers. One audit runs at a time with one latest queued request. File progress is throttled
+to about twenty updates; repository scans stop between files when superseded. Old audit
+results remain usable, and completions preserve newer filters/drafts without reopening a
+closed view. Target, snapshot, and watcher invalidation prevent obsolete results from applying.
+Export uses the displayed audit or scans when none exists; normal quit waits for its write.
+Thirteen new tests cover coordination, cancellation, scanner parity, progress bounds, drafts,
+failures, risk checks, and export/quit behavior. Diagnostic isolation tests cover the new spans.
+All 312 automated tests and the quality gates pass. A release terminal fixture with 17 source
+files measured 39.7 ms of background repository scanning, 0.05 ms to enqueue it, and under
+0.01 ms to apply it. Three input batches were presented during scanning, with a maximum
+1.6 ms input-to-draw sample. Full/diff/risk scans, progress counts, and report export completed.
+These are local fixture observations. Diff-snapshot copying and completion UI work remain
+synchronous and measured separately.
+
+P5 removes filesystem/Git reads from production render functions. Repository availability,
+turn/gate state, prompt context, staged counts, and source snippets are prepared outside
+drawing. A silent worker coalesces current view demand and rejects stale results. A bounded
+32-entry snippet cache keeps seven-line contexts, including missing-file results; selection
+and invalidation keys prevent displaying another finding's source. Opening the commit modal
+still validates the staged count once; typing uses cached data and index events refresh it.
+Nine new tests cover render independence from changed/removed files, selection coalescing,
+cache reuse, invalidation, watcher/gate refresh, malformed files, and modal drafts. Privacy
+checks exercise cached prompt and source contents. All 321 automated tests and quality gates pass.
+An unoptimized offline run measured warm draw medians of 1.4 ms for 10,000 lines (previously
+2.6 ms) and 2.0 ms for 1,000 comments (previously 3.5 ms). Initial view preparation is now
+reported separately (about 2.6 ms including the test callback wait); the 10,000-line cold
+layout preparation remains about 157 ms. A release terminal fixture with 500 untracked files
+recorded no additional view/Git-status reads during commit typing, prompt redraws, or inspector
+scrolling (median draws about 1.0/1.0/0.8 ms). An external index change updated the staged
+count from one to two, and two idle seconds produced no redraws. These are local fixture
+observations, not latency guarantees.
+
+P7 prepares PR directive anchors, outcomes, reviewed flags, and saved folds in the worker.
+The UI applies only results matching the repository, load generation, target directive
+inputs, and marks/turn revision. Edits, replies, deletions, receipts, and relevant watcher
+changes cause re-preparation of the existing snapshot without refetching or rescanning.
+Unrelated directives are retained; modals and visual selections defer the switch. Worker
+preparation never writes directive files. The UI-owned merged save remains synchronous,
+and the existing posting receipt acknowledgement still precedes the next remote request.
+A failed completion save remains visible. The Git fetch lock is released before scanning
+and preparation, so a superseding load need not wait for obsolete CPU preparation.
+Ten new behavior regressions cover edits/receipts, draft and visual deferral, deletion,
+scoping, mark/fold changes, turn changes, stale targets, cancellation, and persistence failure.
+Privacy tests exercise all new phase spans. All 331 automated tests, repository quality
+gates, and the release build pass. The fixed mutation catalog and passing behavior tests
+do not establish a separate BDD coverage percentage or a mutation score for the new guards.
+
+The unoptimized 1,000-directive/2,000-line fixture previously spent about 4,778 ms in the UI
+completion. It now spends about 4,788 ms preparing in the worker and 16.1 ms completing on
+the UI (including the synchronous save), with 0.44 ms input capture/queue time. The test
+presented 1,913 frames while preparing; input/draw p95 was 1.32 ms. A release terminal test
+using a local Git remote and fixture provider measured about 464 ms per preparation,
+9.6 ms UI apply (mostly saving), and 17 input presentations during the first preparation
+(maximum 0.34 ms input-to-draw). A new external edit, reply, and receipt survived; there was
+one provider diff request across preparation retries. These are local fixture observations,
+not latency guarantees. Initial cold layout preparation, local-refresh reconciliation,
+and UI-owned saves remain measurable costs beyond this completed P0–P7 batch.
+
+- [x] **P0 — Measure UI work behind `--debug`.** Render/draw, input-to-draw, idle frame/event counts, callback execution/queue waits, and refresh/completion phases are instrumented. Offline fixtures compare large diffs, many-comment reviews, and large working trees. Isolated-process tests verify disabled logging, paired records, activity classification, and content exclusion. Entry points: `src/main.rs`, `src/diagnostics.rs`, `src/ui/mod.rs`, `src/app/mod.rs`.
+- [x] **P1 — Render only the viewport and cache diff preparation.** Avoid rebuilding off-screen lines and word differences on every redraw. Cache content/token differences and folded-row mappings; index comments, threads, and alerts by file and line. Keep cursor, selection, and search styling separate so navigation does not invalidate content caches. Entry points: `src/ui/diff.rs`, `src/ui/mod.rs`.
+- [x] **P2 — Coordinate working-tree refreshes in the background.** Local startup, revision selection, and reloads compute snapshots/findings in a worker. Watcher, staging, and explicit requests coalesce; stale completions cannot replace a newer request or review target. The current snapshot, modal drafts, visual selections, newer directive edits, and posted-comment receipts are preserved until a safe update. Entry points: `src/app/refresh.rs`, `src/app/mod.rs`, `src/app/staging.rs`, `src/app/command.rs`. Local-refresh directive reconciliation and mark loading remain UI work; P7 covers PR completion.
+- [x] **P3 — Schedule redraws and bound event processing.** Draw after relevant activity; idle background checks wait up to 16 ms. Process at most 32 terminal events, 32 watcher messages, and eight callbacks per iteration, with separate 4 ms batch budgets. Preserve stale-result guards across watcher backlogs and ignore internal debug-log notifications. Missing-watcher status polling runs once a second. Entry points: `src/event_loop.rs`, `src/main.rs`, `src/app/mod.rs`. Individual handlers remain non-preemptible; P7 reduces PR completion preparation.
+- [x] **P4 — Run audit coordination in a background job.** Repository/diff/risk scans run in a serialized worker coordinator with one latest queued request, numeric file progress, cancellation between repository files, and stale-target guards. Previous results and newer filters/drafts survive. Report generation and fallback scanning also run in a worker; normal quit waits for export. Entry points: `src/app/audit/jobs.rs`, `crates/lgtm-core/src/scan.rs`.
+- [x] **P5 — Remove filesystem and Git status work from rendering.** Render prepared repository, turn/gate, staged-count, prompt, and snippet data. Silent worker reads coalesce to current demand; watcher/action/view changes invalidate caches and stale results are rejected. Keep a bounded snippet cache and preserve modal drafts. Opening the commit modal retains one staged-count validation. Entry points: `src/app/view_data.rs`, `src/event_loop.rs`, `src/ui/modals/commit.rs`, `src/ui/audit.rs`, `src/ui/header.rs`, `src/ui/mod.rs`.
+- [x] **P6 — Reuse visible-row mappings for cursor movement.** Stop rebuilding the selected file's visible-line list for every movement. Share the cached mapping with the renderer and invalidate it on snapshot or fold changes. Verify folded navigation, split/unified views, and large-file scrolling retain their behavior. Entry points: `src/app/motion.rs`, `src/app/staging.rs`.
+- [x] **P7 — Reduce PR completion work on the UI thread.** Prepare directive re-anchoring/outcomes and review marks/folds in the worker. Guard apply by repository/load generation, exact target directive inputs, and marks/turn revision; retry preparation without refetching when inputs change. Preserve modal/visual state, unrelated edits, receipts, and the existing UI-owned save acknowledgement. Entry points: `src/app/pr.rs`, `src/app/pr/completion.rs`, `src/app/comments.rs`.
+
+### Q — BDD acceptance gaps (added 2026-10-23)
+
+The [scenario catalog](../bdd-scenarios.md) maps current integration and internal
+tests. Anonymous GitHub listing/patch fallback now has offline public-API scenarios, including failure boundaries; provider parity and live checks remain incomplete. The following work remains open; start with Q0, Q1, and Q2. Existing tests
+and response-normalization fixtures do not establish live-provider coverage.
+
+- [x] **Q0 — Verify provider request contracts.** Add offline GitHub and Azure scenarios for open/closed/all listing, replies, resolution, and reopening. Assert request targets, payloads, confirmations, and failure handling; record provider and transport separately (`bdd_core_019`, `bdd_core_020`).
+- [x] **Q1 — Recover from ambiguous remote writes.** Simulate a timeout after a provider may have accepted a comment or reply. Verify the outcome is surfaced as uncertain and recovery does not blindly resubmit the write; define and test reconciliation or an explicit reviewer decision (`bdd_core_021`, `bdd_ui_009`).
+- [x] **Q2 — Add terminal acceptance journeys.** Exercise the compiled application through a real terminal fixture: navigate while loading, switch PRs, retain drafts and visual selections, and reject stale completions. Keep fixtures local and isolate repositories and provider commands (`bdd_cli_006`).
+- [x] **Q3 — Recover after a failed receipt save and restart.** Post successfully, fail its local receipt save, restart the application, and verify recovery can identify the remote success without duplicating it (`bdd_core_022`, `bdd_ui_010`).
+- [x] **Q4 — Automate BDD catalog reporting.** Map stable criterion IDs to executable tests and current results. Report passing, failed, skipped, and not-automated criteria; distinguish automation coverage, verified coverage, and pass rate (`scripts/bdd-report.sh`, `make bdd-report`).
+- [x] **Q5 — Add opt-in live-provider acceptance checks.** Verify real GitHub and Azure authentication, PR retrieval, replies, and resolve/reopen behavior against designated fixtures (`crates/lgtm-core/tests/live_provider.rs`).
+- [x] **Q6 — Measure terminal responsiveness under load.** Record actual input-to-presentation latency during large reviews and background work. Report fixture/environment and percentile measurements separately from functional BDD results; avoid machine-speed assertions in the acceptance suite (`bdd_cli_007`).
 
 ### Refactor (R) — structure
 | ID | Item | Effort | Depends on |
@@ -101,7 +233,7 @@ Soft dependency: A3's `lgtm_scan_changes` prefers B1 fingerprints but has a fall
 ## Dependency spine
 `R1 -> R2 -> R3 -> R4`. After R2: C1 can start. After R3: B1 and A5 can start. After R4: A3, R6.
 
-## Prioritization (in progress)
+## Historical prioritization (original roadmap)
 
 Decided:
 1. **Refactor fully first (R1–R5), then features** in the order B > C > A.
@@ -116,7 +248,7 @@ Decided:
 | 4 | A1–A6 | Agent loop last |
 | — | R6 (async spike) | Right after R4, time-boxed; go/no-go |
 
-Open: none. Prioritization complete; next step is implementation plans (writing-plans), starting with the refactor.
+The original wave plan is complete. Current open work is Q0–Q6 above, starting with provider request contracts, ambiguous-write recovery, and terminal acceptance journeys.
 
 4. **Each wave is gated by outcome criteria and ends with a tagged release.**
 

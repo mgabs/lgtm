@@ -49,7 +49,11 @@ fn in_diff(files: &[FileDiff], c: &CommentAnchor) -> bool {
 pub fn plan(comments: &[CommentAnchor], files: &[FileDiff], pr: u64) -> Plan {
     let mut p = Plan::default();
     for (i, c) in comments.iter().enumerate() {
-        if c.pr_number != Some(pr) || c.remote_id.is_some() || c.is_resolved {
+        if c.pr_number != Some(pr)
+            || c.remote_id.is_some()
+            || c.is_remote_uncertain()
+            || c.is_resolved
+        {
             continue;
         }
         if in_diff(files, c) {
@@ -74,6 +78,89 @@ fn general_body(comments: &[CommentAnchor], idx: &[usize]) -> String {
         .join("\n\n")
 }
 
+struct PostSession<'a> {
+    client: &'a dyn GithubClient,
+    pr: u64,
+    delay: Duration,
+    save: &'a mut dyn FnMut(&[CommentAnchor]) -> Result<()>,
+    posted: &'a mut usize,
+}
+
+fn post_inline_comments(
+    session: &mut PostSession<'_>,
+    sha: &str,
+    comments: &mut [CommentAnchor],
+    inline: &[usize],
+    has_general: bool,
+) -> Result<()> {
+    for (position, &i) in inline.iter().enumerate() {
+        let c = &comments[i];
+        let id = match session.client.post_inline(
+            session.pr,
+            sha,
+            &c.file_path,
+            c.target_line_no,
+            &c.comment_text,
+        ) {
+            Ok(id) => id,
+            Err(err) => {
+                if crate::forge::failure::is_ambiguous_write(&err) {
+                    comments[i].set_remote_uncertain(true);
+                    let _ = (session.save)(comments);
+                    return Err(err.context(
+                        "remote write outcome is uncertain; reconcile threads before retrying",
+                    ));
+                }
+                return Err(err);
+            }
+        };
+        comments[i].set_remote_uncertain(false);
+        comments[i].remote_id = Some(id);
+        *session.posted += 1;
+        (session.save)(comments)?;
+        if position + 1 < inline.len() || has_general {
+            let _timing = crate::debug::Span::new("pr.post_throttle");
+            std::thread::sleep(session.delay);
+        }
+    }
+    Ok(())
+}
+
+fn post_general_comments(
+    session: &mut PostSession<'_>,
+    comments: &mut [CommentAnchor],
+    general: &[usize],
+) -> Result<()> {
+    if general.is_empty() {
+        return Ok(());
+    }
+    let id = match session
+        .client
+        .post_general(session.pr, &general_body(comments, general))
+    {
+        Ok(id) => id,
+        Err(err) => {
+            if crate::forge::failure::is_ambiguous_write(&err) {
+                for &i in general {
+                    comments[i].set_remote_uncertain(true);
+                }
+                let _ = (session.save)(comments);
+                return Err(err.context(
+                    "remote write outcome is uncertain; reconcile threads before retrying",
+                ));
+            }
+            return Err(err);
+        }
+    };
+    for &i in general {
+        comments[i].set_remote_uncertain(false);
+        comments[i].remote_id = Some(id);
+    }
+    *session.posted += general.len();
+    (session.save)(comments)?;
+    Ok(())
+}
+
 fn run(
     client: &dyn GithubClient,
     pr: u64,
@@ -83,24 +170,70 @@ fn run(
     save: &mut dyn FnMut(&[CommentAnchor]) -> Result<()>,
     posted: &mut usize,
 ) -> Result<()> {
-    let sha = client.head_sha(pr)?;
-    for &i in &plan.inline {
-        let c = &comments[i];
-        let id = client.post_inline(pr, &sha, &c.file_path, c.target_line_no, &c.comment_text)?;
-        comments[i].remote_id = Some(id);
-        *posted += 1;
-        save(comments)?;
-        std::thread::sleep(delay);
-    }
-    if !plan.general.is_empty() {
-        let id = client.post_general(pr, &general_body(comments, &plan.general))?;
-        for &i in &plan.general {
-            comments[i].remote_id = Some(id);
-        }
-        *posted += plan.general.len();
-        save(comments)?;
-    }
+    let sha = if plan.inline.is_empty() {
+        String::new()
+    } else {
+        client.head_sha(pr)?
+    };
+    let mut session = PostSession {
+        client,
+        pr,
+        delay,
+        save,
+        posted,
+    };
+    post_inline_comments(
+        &mut session,
+        &sha,
+        comments,
+        &plan.inline,
+        !plan.general.is_empty(),
+    )?;
+    post_general_comments(&mut session, comments, &plan.general)?;
     Ok(())
+}
+
+/// Reconcile unconfirmed or uncertain directives for `pr` against remote `threads`.
+/// Attaches `remote_id` when the directive text is present on the remote line (e.g. after
+/// an ambiguous write or a failed local receipt save and restart);
+/// returns the number of directives confirmed as delivered.
+pub fn reconcile(comments: &mut [CommentAnchor], threads: &[super::Thread], pr: u64) -> usize {
+    let mut used: std::collections::HashSet<u64> =
+        comments.iter().filter_map(|c| c.remote_id).collect();
+    let mut confirmed = 0;
+    for c in comments.iter_mut() {
+        if c.pr_number != Some(pr) || c.remote_id.is_some() {
+            continue;
+        }
+        let matched = threads
+            .iter()
+            .filter(|t| t.path == c.file_path && t.line == Some(c.target_line_no))
+            .flat_map(|t| &t.comments)
+            .find(|tc| {
+                tc.id != 0 && !used.contains(&tc.id) && tc.body.trim() == c.comment_text.trim()
+            })
+            .map(|tc| tc.id);
+        if let Some(id) = matched {
+            c.remote_id = Some(id);
+            c.set_remote_uncertain(false);
+            used.insert(id);
+            confirmed += 1;
+        }
+    }
+    confirmed
+}
+
+/// Clear remaining `remote_uncertain` flags for `pr` after an explicit reviewer decision
+/// (or after verifying the comment is absent remotely) so unconfirmed directives can be retried.
+pub fn clear_uncertain(comments: &mut [CommentAnchor], pr: u64) -> usize {
+    let mut cleared = 0;
+    for c in comments.iter_mut() {
+        if c.pr_number == Some(pr) && c.remote_id.is_none() && c.is_remote_uncertain() {
+            c.set_remote_uncertain(false);
+            cleared += 1;
+        }
+    }
+    cleared
 }
 
 /// Post `plan`, calling `save` after every success so a failed run resumes where it stopped.
@@ -113,11 +246,14 @@ pub fn post(
     delay: Duration,
     mut save: impl FnMut(&[CommentAnchor]) -> Result<()>,
 ) -> Report {
+    let mut timing = crate::debug::Span::new("pr.post_batch");
     let mut r = Report {
         total: plan.total(),
         ..Default::default()
     };
-    if let Err(e) = run(client, pr, comments, plan, delay, &mut save, &mut r.posted) {
+    let result = run(client, pr, comments, plan, delay, &mut save, &mut r.posted);
+    timing.result(&result);
+    if let Err(e) = result {
         r.error = Some(e.to_string());
     }
     r

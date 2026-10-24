@@ -6,8 +6,10 @@ use anyhow::{bail, Result};
 use std::path::Path;
 
 pub mod azure;
+pub mod failure;
 pub mod github;
 
+pub use azure::AzureForge;
 pub use github::GitHubForge;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,10 +32,42 @@ pub fn detect(url: &str) -> ForgeKind {
 }
 
 pub fn kind_of(repo: &Path) -> ForgeKind {
-    let url = git2::Repository::open(repo)
+    origin_url(repo).map_or(ForgeKind::Unknown, |u| detect(&u))
+}
+
+pub(crate) fn origin_url(repo: &Path) -> Option<String> {
+    git2::Repository::open(repo)
         .ok()
-        .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string));
-    url.map_or(ForgeKind::Unknown, |u| detect(&u))
+        .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
+}
+
+pub(crate) struct PrivateTempFile(std::path::PathBuf);
+
+impl PrivateTempFile {
+    pub fn write(prefix: &str, contents: &[u8]) -> std::io::Result<Self> {
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        use std::io::Write;
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("{prefix}-{}-{seq}", std::process::id()));
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+        let mut file = o.open(&path)?;
+        let guard = Self(path);
+        file.write_all(contents)?;
+        Ok(guard)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for PrivateTempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 pub trait Forge: GithubClient {
@@ -41,6 +75,16 @@ pub trait Forge: GithubClient {
         true
     }
     fn list_prs(&self) -> Result<Vec<PullRequestSummary>>;
+    fn list_prs_state(
+        &self,
+        state: crate::pr::PullRequestState,
+    ) -> Result<Vec<PullRequestSummary>> {
+        if state == crate::pr::PullRequestState::Open {
+            self.list_prs()
+        } else {
+            bail!("This provider does not support historical PR listing")
+        }
+    }
     fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot>;
     fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()>;
 }
@@ -95,10 +139,91 @@ impl Forge for Unsupported {
 
 /// Provider for `repo`'s `origin`. Unknown hosts keep the GitHub (`gh`) behavior.
 pub fn open(repo: &Path) -> Box<dyn Forge> {
-    match kind_of(repo) {
-        ForgeKind::Azure => Box::new(azure::AzureForge::new(repo.to_path_buf())),
-        _ => Box::new(GitHubForge::new(repo.to_path_buf())),
+    let url = origin_url(repo);
+    let kind = url.as_deref().map_or(ForgeKind::Unknown, detect);
+    Box::new(TimedForge(match kind {
+        ForgeKind::Azure => Box::new(azure::AzureForge::with_origin(repo.to_path_buf(), url)),
+        _ => Box::new(GitHubForge::with_origin(repo.to_path_buf(), url)),
+    }))
+}
+
+/// Observe provider selection and fallbacks as one end-to-end operation.
+struct TimedForge(Box<dyn Forge>);
+impl GithubClient for TimedForge {
+    fn checks(&self, pr: u64) -> Result<Vec<Check>> {
+        crate::debug::measure("pr.checks", || self.0.checks(pr))
     }
+    fn threads(&self, pr: u64) -> Result<Vec<Thread>> {
+        crate::debug::measure("pr.threads", || self.0.threads(pr))
+    }
+    fn thread(&self, pr: u64, id: &str) -> Result<Option<Thread>> {
+        crate::debug::measure("pr.thread", || self.0.thread(pr, id))
+    }
+    fn head_sha(&self, pr: u64) -> Result<String> {
+        crate::debug::measure("pr.head_sha", || self.0.head_sha(pr))
+    }
+    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+        crate::debug::measure("pr.post_inline", || {
+            self.0.post_inline(pr, sha, path, line, body)
+        })
+    }
+    fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
+        crate::debug::measure("pr.post_general", || self.0.post_general(pr, body))
+    }
+    fn reply(&self, pr: u64, thread: &str, comment: u64, body: &str) -> Result<u64> {
+        crate::debug::measure("pr.reply", || self.0.reply(pr, thread, comment, body))
+    }
+    fn set_resolved(&self, pr: u64, thread: &str, resolved: bool) -> Result<()> {
+        crate::debug::measure(
+            if resolved {
+                "pr.resolve"
+            } else {
+                "pr.unresolve"
+            },
+            || self.0.set_resolved(pr, thread, resolved),
+        )
+    }
+}
+impl Forge for TimedForge {
+    fn available(&self) -> bool {
+        self.0.available()
+    }
+    fn list_prs(&self) -> Result<Vec<PullRequestSummary>> {
+        crate::debug::measure("pr.list", || self.0.list_prs())
+    }
+    fn list_prs_state(
+        &self,
+        state: crate::pr::PullRequestState,
+    ) -> Result<Vec<PullRequestSummary>> {
+        crate::debug::measure("pr.list", || self.0.list_prs_state(state))
+    }
+    fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
+        crate::debug::measure("pr.diff", || self.0.pr_diff(pr))
+    }
+    fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()> {
+        crate::debug::measure("pr.post_review", || self.0.post_review(pr, event, body))
+    }
+}
+
+fn have_commits(repo: &Path, source: &str, target: &str) -> bool {
+    let Ok(repo) = git2::Repository::open(repo) else {
+        return false;
+    };
+    [source, target].iter().all(|sha| {
+        git2::Oid::from_str(sha)
+            .ok()
+            .is_some_and(|oid| repo.find_commit(oid).is_ok())
+    })
+}
+
+fn build_pr_diff(repo: &Path, spec: &str) -> Result<DiffSnapshot> {
+    let result = crate::debug::measure("pr.build_diff", || {
+        crate::git::GitEngine::new(repo).compute_revision_diff(spec)
+    });
+    if result.is_err() {
+        crate::debug::command_failure("pr.build_diff", "diff_build", None, None);
+    }
+    result.map_err(|error| error.context("Building PR diff"))
 }
 
 #[cfg(test)]

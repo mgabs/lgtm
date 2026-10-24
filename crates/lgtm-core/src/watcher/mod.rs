@@ -10,6 +10,22 @@ pub enum WatcherMessage {
     Error(String),
 }
 
+/// Internal review writes and fetched refs must not trigger diff/scan feedback loops.
+pub fn affects_diff(root: &Path, path: &Path) -> bool {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    if relative
+        .components()
+        .any(|c| c.as_os_str() == ".lgtm" || c.as_os_str() == "target")
+    {
+        return false;
+    }
+    if let Ok(git_path) = relative.strip_prefix(".git") {
+        return matches!(git_path.to_str(), Some("index" | "HEAD"))
+            || git_path.starts_with("refs/heads");
+    }
+    true
+}
+
 pub struct RepoWatcher {
     _debouncer: notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
 }
@@ -46,6 +62,30 @@ impl RepoWatcher {
 mod tests {
     use super::*;
     use crossbeam_channel::unbounded;
+
+    #[test]
+    fn internal_writes_do_not_invalidate_diff() {
+        let root = Path::new("/repo");
+        for path in [
+            ".lgtm/comments.jsonl",
+            ".lgtm/state.json",
+            ".lgtm/debug.jsonl",
+            ".git/FETCH_HEAD",
+            ".git/refs/lgtm/pr/1/merge",
+            "target/debug/lgtm",
+        ] {
+            assert!(!affects_diff(root, &root.join(path)), "{path}");
+        }
+        for path in [
+            "src/lib.rs",
+            ".lgtm.toml",
+            ".git/index",
+            ".git/HEAD",
+            ".git/refs/heads/main",
+        ] {
+            assert!(affects_diff(root, &root.join(path)), "{path}");
+        }
+    }
 
     #[test]
     fn test_repo_watcher_spawn() {

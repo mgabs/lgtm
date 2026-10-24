@@ -1,9 +1,21 @@
 use super::*;
 
 impl App {
-    pub fn toggle_stage_current_file(&mut self) {
+    fn ensure_working_tree_modifiable(&mut self) -> bool {
+        if self.pr.current_number.is_some() || self.active_revision.is_some() {
+            self.status_message =
+                Some("Staging and discarding are only available on working tree diffs".to_string());
+            return false;
+        }
         if !self.git_engine.is_git_repo() {
             self.status_message = Some("Not a git repository".to_string());
+            return false;
+        }
+        true
+    }
+
+    pub fn toggle_stage_current_file(&mut self) {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
@@ -21,18 +33,18 @@ impl App {
     }
 
     pub fn discard_current_file_changes(&mut self) {
-        if !self.git_engine.is_git_repo() {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path = file.display_name();
             let res = std::process::Command::new("git")
                 .current_dir(&self.git_engine.repo_path)
-                .args(["restore", &path])
-                .status();
+                .args(["restore", "--", &path])
+                .output();
 
             match res {
-                Ok(s) if s.success() => {
+                Ok(out) if out.status.success() => {
                     self.status_message = Some(format!("Discarded changes in {}", path));
                     self.reload_diff();
                 }
@@ -63,8 +75,7 @@ impl App {
     }
 
     pub fn stage_current_hunk(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, h_idx)) = self.current_hunk_info() {
@@ -85,8 +96,7 @@ impl App {
     }
 
     pub fn unstage_current_hunk(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, h_idx)) = self.current_hunk_info() {
@@ -107,8 +117,7 @@ impl App {
     }
 
     pub fn discard_current_hunk(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, h_idx)) = self.current_hunk_info() {
@@ -173,8 +182,7 @@ impl App {
     }
 
     pub fn reject_hunk_and_reprompt(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, _h_idx)) = self.current_hunk_info() {
@@ -202,8 +210,7 @@ impl App {
     }
 
     pub fn unstage_current_file(&mut self) {
-        if !self.git_engine.is_git_repo() {
-            self.status_message = Some("Not a git repository".to_string());
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
@@ -444,22 +451,7 @@ impl App {
     }
 
     pub fn staged_files_count(&self) -> usize {
-        if let Ok(repo) = self.git_engine.open_repo() {
-            if let Ok(statuses) = repo.statuses(None) {
-                return statuses
-                    .iter()
-                    .filter(|s| {
-                        let st = s.status();
-                        st.is_index_new()
-                            || st.is_index_modified()
-                            || st.is_index_deleted()
-                            || st.is_index_renamed()
-                            || st.is_index_typechange()
-                    })
-                    .count();
-            }
-        }
-        0
+        view_data::read_staged_count(&self.git_engine.repo_path)
     }
 
     pub fn toggle_visual_mode(&mut self) {
@@ -522,7 +514,7 @@ impl App {
     }
 
     pub fn stage_selected_lines(&mut self) {
-        if !self.git_engine.is_git_repo() {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, indices)) = self.selected_line_indices_in_current_hunk() {
@@ -547,7 +539,7 @@ impl App {
     }
 
     pub fn unstage_selected_lines(&mut self) {
-        if !self.git_engine.is_git_repo() {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, indices)) = self.selected_line_indices_in_current_hunk() {
@@ -572,7 +564,7 @@ impl App {
     }
 
     pub fn discard_selected_lines(&mut self) {
-        if !self.git_engine.is_git_repo() {
+        if !self.ensure_working_tree_modifiable() {
             return;
         }
         if let Some((file, hunk, indices)) = self.selected_line_indices_in_current_hunk() {
@@ -810,7 +802,7 @@ mod tests {
         app.selected_file_idx = 0;
 
         // Initial visible lines: all 9 lines
-        assert_eq!(app.visible_line_indices(), (0..9).collect::<Vec<_>>());
+        assert_eq!(*app.visible_line_indices(), (0..9).collect::<Vec<_>>());
 
         // Position cursor on line 3 ("if b > 10 {") -> toggle_fold_at_cursor
         app.cursor_line_idx = 2;
@@ -824,7 +816,7 @@ mod tests {
 
         // Visible lines should now have 0, 1, 2 (fold marker), 6, 7, 8
         let visible = app.visible_line_indices();
-        assert_eq!(visible, vec![0, 1, 2, 6, 7, 8]);
+        assert_eq!(*visible, vec![0, 1, 2, 6, 7, 8]);
 
         // Motion: moving down from fold marker (idx 2) skips lines 3-5 and lands on 6
         app.cursor_line_idx = 2;
@@ -838,7 +830,7 @@ mod tests {
         // Unfold at cursor: toggling again unfolds the block
         app.toggle_fold_at_cursor();
         assert!(app.snapshot.files[0].hunks[0].folded_blocks.is_empty());
-        assert_eq!(app.visible_line_indices(), (0..9).collect::<Vec<_>>());
+        assert_eq!(*app.visible_line_indices(), (0..9).collect::<Vec<_>>());
 
         // Position cursor on line 0 ("fn compute...") -> toggle_fold_at_cursor folds entire function
         app.cursor_line_idx = 0;
@@ -849,12 +841,12 @@ mod tests {
             1
         );
         assert_eq!(app.snapshot.files[0].hunks[0].folded_blocks[0].end_line, 9);
-        assert_eq!(app.visible_line_indices(), vec![0]);
+        assert_eq!(*app.visible_line_indices(), vec![0]);
 
         // Unfold function
         app.toggle_fold_at_cursor();
         assert!(app.snapshot.files[0].hunks[0].folded_blocks.is_empty());
-        assert_eq!(app.visible_line_indices(), (0..9).collect::<Vec<_>>());
+        assert_eq!(*app.visible_line_indices(), (0..9).collect::<Vec<_>>());
     }
 
     #[test]
@@ -889,6 +881,7 @@ mod tests {
         };
         app.snapshot = DiffSnapshot::new(vec![file.clone()]);
         app.comments.push(CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "src/main.rs".into(),
             target_line_no: 1,
             target_code: "let x = 10;".into(),

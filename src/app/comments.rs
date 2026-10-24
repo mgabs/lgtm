@@ -1,5 +1,19 @@
 use super::*;
 
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum ThreadAction {
+    Reply { target: u64, text: String },
+    Resolve(bool),
+}
+pub(crate) enum ThreadOutcome {
+    Reply(u64),
+    Resolved,
+}
+pub(crate) struct ThreadJob {
+    action: ThreadAction,
+    work: Option<Box<dyn FnOnce() -> anyhow::Result<ThreadOutcome> + Send>>,
+}
+
 impl App {
     pub fn current_line_number(&self) -> Option<u32> {
         let file = self.snapshot.files.get(self.selected_file_idx)?;
@@ -61,37 +75,254 @@ impl App {
             return false;
         };
         let t = &self.threads[idx];
-        let thread_id = t.id.clone();
-        let next_resolved = !t.resolved;
-        let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
-        match forge.set_resolved(pr, &thread_id, next_resolved) {
-            Ok(()) => {
-                if let Some(t_mut) = self.threads.get_mut(idx) {
-                    t_mut.resolved = next_resolved;
-                }
-                self.status_message = Some(if next_resolved {
-                    "✅ Thread marked resolved".into()
-                } else {
-                    "💬 Thread marked active".into()
-                });
-                true
-            }
-            Err(e) => {
-                self.status_message = Some(format!("Failed to update thread: {e}"));
-                false
+        self.set_thread_resolved_async(pr, t.id.clone(), !t.resolved);
+        true
+    }
+
+    pub(crate) fn set_thread_resolved_async(&mut self, pr: u64, id: String, resolved: bool) {
+        let repo = self.git_engine.repo_path.clone();
+        let factory = self.forge_factory;
+        let target = id.clone();
+        self.resolve_thread_job(pr, id, resolved, move || {
+            factory(&repo).set_resolved(pr, &target, resolved)
+        });
+    }
+
+    pub(crate) fn resolve_thread_job(
+        &mut self,
+        pr: u64,
+        id: String,
+        resolved: bool,
+        work: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.enqueue_thread_job(pr, id, ThreadAction::Resolve(resolved), move || {
+            work().map(|()| ThreadOutcome::Resolved)
+        });
+    }
+
+    pub(crate) fn enqueue_thread_job(
+        &mut self,
+        pr: u64,
+        id: String,
+        action: ThreadAction,
+        work: impl FnOnce() -> anyhow::Result<ThreadOutcome> + Send + 'static,
+    ) {
+        if let ThreadAction::Reply { text, .. } = &action {
+            if self.uncertain_replies.get(&(pr, id.clone())) == Some(text) {
+                self.status_message = Some(
+                    "Reply outcome is uncertain; refresh with :threads to reconcile before retrying"
+                        .into(),
+                );
+                return;
             }
         }
+        let queue = self.thread_jobs.entry((pr, id.clone())).or_default();
+        if queue.iter().any(|job| job.action == action) {
+            self.status_message = Some("This thread action is already pending".into());
+            return;
+        }
+        queue.push_back(ThreadJob {
+            action,
+            work: Some(Box::new(work)),
+        });
+        self.thread_revision += 1;
+        if queue.len() == 1 {
+            self.start_thread_job(pr, id);
+        } else {
+            self.status_message = Some("Thread action queued".into());
+        }
+    }
+
+    fn start_thread_job(&mut self, pr: u64, id: String) {
+        let job = self
+            .thread_jobs
+            .get_mut(&(pr, id.clone()))
+            .unwrap()
+            .front_mut()
+            .unwrap();
+        let label = match job.action {
+            ThreadAction::Reply { .. } => "Posting reply",
+            ThreadAction::Resolve(true) => "Resolving thread",
+            ThreadAction::Resolve(false) => "Reopening thread",
+        };
+        let work = job.work.take().unwrap();
+        self.spawn_job(label, work, move |app, result| {
+            let key = (pr, id.clone());
+            let action = app
+                .thread_jobs
+                .get_mut(&key)
+                .unwrap()
+                .pop_front()
+                .unwrap()
+                .action;
+            app.thread_revision += 1;
+            let message = match result {
+                Ok(outcome) => {
+                    app.uncertain_replies.remove(&key);
+                    if let ThreadAction::Reply { text, .. } = &action {
+                        if app.reply_drafts.get(&key) == Some(text) {
+                            app.reply_drafts.remove(&key);
+                        }
+                        app.thread_reconcile.insert(key.clone());
+                    }
+                    if app.pr.current_number == Some(pr) {
+                        if let Some(thread) = app.threads.iter_mut().find(|t| t.id == id) {
+                            match (&action, outcome) {
+                                (ThreadAction::Resolve(resolved), _) => thread.resolved = *resolved,
+                                (
+                                    ThreadAction::Reply { text, .. },
+                                    ThreadOutcome::Reply(comment_id),
+                                ) if !thread.comments.iter().any(|c| c.id == comment_id) => {
+                                    thread.comments.push(lgtm_core::github::ThreadComment {
+                                        id: comment_id,
+                                        author: "You".into(),
+                                        body: text.clone(),
+                                    });
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    match action {
+                        ThreadAction::Reply { .. } => "Reply posted".into(),
+                        ThreadAction::Resolve(true) => "✅ Thread marked resolved".into(),
+                        _ => "💬 Thread marked active".into(),
+                    }
+                }
+                Err(error) => {
+                    app.quit_after_jobs = false;
+                    let ambiguous = lgtm_core::forge::failure::is_ambiguous_write(&error);
+                    if let ThreadAction::Reply { text, .. } = action {
+                        if ambiguous {
+                            app.uncertain_replies.insert(key.clone(), text.clone());
+                            app.thread_reconcile.insert(key.clone());
+                        } else {
+                            app.thread_reconcile.remove(&key);
+                        }
+                        app.reply_drafts.insert(key.clone(), text);
+                    } else {
+                        app.thread_reconcile.remove(&key);
+                    }
+                    if ambiguous {
+                        format!(
+                            "Reply outcome is uncertain ({error}); reconciling thread before retry"
+                        )
+                    } else {
+                        format!("Thread update failed: {error}; reply drafts are retained")
+                    }
+                }
+            };
+            if app.pr.current_number == Some(pr) {
+                app.status_message = Some(message);
+            }
+            if app.thread_jobs.get(&key).is_some_and(|q| !q.is_empty()) {
+                app.start_thread_job(pr, id);
+            } else {
+                app.thread_jobs.remove(&key);
+                if app.thread_reconcile.remove(&key) && app.pr.current_number == Some(pr) {
+                    app.refresh_one_thread(pr, id);
+                }
+            }
+        });
+    }
+
+    fn refresh_one_thread(&mut self, pr: u64, id: String) {
+        let repo = self.git_engine.repo_path.clone();
+        let factory = self.forge_factory;
+        let target = id.clone();
+        self.refresh_thread_job(pr, id, move || factory(&repo).thread(pr, &target));
+    }
+
+    pub(crate) fn refresh_thread_job(
+        &mut self,
+        pr: u64,
+        id: String,
+        work: impl FnOnce() -> anyhow::Result<Option<lgtm_core::github::Thread>> + Send + 'static,
+    ) {
+        let revision = self.thread_revision;
+        let generation = self.review_generation;
+        let tx = self.jobs_tx.clone();
+        std::thread::spawn(move || {
+            let result = work();
+            let _ = tx.send(Box::new(move |app| {
+                if app.pr.current_number != Some(pr)
+                    || app.review_generation != generation
+                    || app.thread_revision != revision
+                {
+                    return;
+                }
+                if let Ok(Some(updated)) = result {
+                    if updated.id == id {
+                        app.reconcile_uncertain_reply(pr, &updated);
+                        if let Some(thread) = app.threads.iter_mut().find(|t| t.id == id) {
+                            *thread = updated;
+                        }
+                    }
+                }
+                // A read failure never turns an acknowledged write into a failed submission.
+            }));
+        });
+    }
+
+    fn reconcile_uncertain_reply(&mut self, pr: u64, updated: &lgtm_core::github::Thread) {
+        let key = (pr, updated.id.clone());
+        let Some(uncertain_text) = self.uncertain_replies.remove(&key) else {
+            return;
+        };
+        let delivered = updated
+            .comments
+            .iter()
+            .any(|c| c.body.trim() == uncertain_text.trim());
+        if delivered {
+            if self.reply_drafts.get(&key) == Some(&uncertain_text) {
+                self.reply_drafts.remove(&key);
+            }
+            self.status_message = Some("Reply confirmed on remote thread".into());
+        } else {
+            self.status_message = Some(
+                "Remote thread checked: reply was not delivered; draft retained for retry".into(),
+            );
+        }
+    }
+
+    pub(crate) fn start_thread_reply(&mut self, index: usize) {
+        let draft = self
+            .pr
+            .current_number
+            .and_then(|pr| {
+                self.threads
+                    .get(index)
+                    .and_then(|t| self.reply_drafts.get(&(pr, t.id.clone())))
+            })
+            .cloned()
+            .unwrap_or_default();
+        self.thread_selected_idx = index;
+        self.command.input = format!("thread reply {} {}", index + 1, draft);
+        self.command.history_idx = None;
+        self.active_view = ActiveView::CommandLine;
+    }
+
+    pub fn thread_pending_label(&self, id: &str) -> Option<&'static str> {
+        let pr = self.pr.current_number?;
+        let job = self.thread_jobs.get(&(pr, id.to_string()))?.front()?;
+        Some(match job.action {
+            ThreadAction::Reply { .. } => "Reply pending",
+            ThreadAction::Resolve(true) => "Resolving…",
+            ThreadAction::Resolve(false) => "Reopening…",
+        })
     }
 
     pub fn open_comment_list(&mut self) {
         self.comments = self.comment_store.load_comments();
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path_str = file.display_name();
+            let clean_path = std::path::Path::new(path_str.trim_start_matches("./"));
             if let Some(lno) = self.current_line_number() {
                 if let Some(pos) = self.comments.iter().position(|c| {
-                    (c.file_path == path_str
-                        || c.file_path.ends_with(&path_str)
-                        || path_str.ends_with(&c.file_path))
+                    let c_path = std::path::Path::new(c.file_path.trim_start_matches("./"));
+                    (c_path == clean_path
+                        || c_path.ends_with(clean_path)
+                        || clean_path.ends_with(c_path))
                         && c.target_line_no == lno
                 }) {
                     self.comment_list_selected_idx = pos;
@@ -251,24 +482,46 @@ impl App {
             return;
         };
         let repo = self.git_engine.repo_path.clone();
+        let factory = self.forge_factory;
+        let revision = self.thread_revision;
+        let generation = self.review_generation;
         if threads {
             self.spawn_job(
                 "Loading threads",
-                move || lgtm_core::forge::open(&repo).threads(pr),
-                |app, r| app.apply_threads(r),
+                move || factory(&repo).threads(pr),
+                move |app, r| {
+                    if app.pr.current_number == Some(pr)
+                        && app.review_generation == generation
+                        && app.thread_revision == revision
+                    {
+                        app.apply_threads(r);
+                    }
+                },
             );
         } else {
             self.spawn_job(
                 "Loading checks",
-                move || lgtm_core::forge::open(&repo).checks(pr),
-                |app, r| app.apply_checks(r),
+                move || factory(&repo).checks(pr),
+                move |app, r| {
+                    if app.pr.current_number == Some(pr) && app.review_generation == generation {
+                        app.apply_checks(r);
+                    }
+                },
             );
         }
     }
 
-    fn apply_threads(&mut self, res: anyhow::Result<Vec<lgtm_core::github::Thread>>) {
+    pub(crate) fn apply_threads(&mut self, res: anyhow::Result<Vec<lgtm_core::github::Thread>>) {
         self.status_message = Some(match res {
             Ok(t) => {
+                if let Some(pr) = self.pr.current_number {
+                    for thread in &t {
+                        self.reconcile_uncertain_reply(pr, thread);
+                    }
+                    if lgtm_core::github::post::reconcile(&mut self.comments, &t, pr) > 0 {
+                        let _ = self.comment_store.save_comments(&self.comments);
+                    }
+                }
                 let open: Vec<String> = t
                     .iter()
                     .filter(|t| !t.resolved)
@@ -304,6 +557,7 @@ impl App {
     }
 
     /// `:pr post`: preview unless `confirmed` (`--yes`); nothing is sent without it.
+    #[cfg(test)]
     pub fn post_pr_comments(
         &mut self,
         client: &dyn lgtm_core::github::GithubClient,
@@ -340,9 +594,190 @@ impl App {
         self.status_message = Some(report.summary());
     }
 
+    pub fn post_pr_comments_async(&mut self, confirmed: bool) {
+        let repo = self.git_engine.repo_path.clone();
+        let factory = self.forge_factory;
+        self.post_pr_comments_job(confirmed, move || {
+            // Trait upcasting keeps the provider client inside its worker thread.
+            factory(&repo) as Box<dyn lgtm_core::github::GithubClient>
+        });
+    }
+
+    pub(crate) fn post_pr_comments_job(
+        &mut self,
+        confirmed: bool,
+        client: impl FnOnce() -> Box<dyn lgtm_core::github::GithubClient> + Send + 'static,
+    ) {
+        use lgtm_core::github::post;
+        let Some(pr) = self.pr.current_number else {
+            self.status_message = Some("Open a PR first (:pr <n>)".into());
+            return;
+        };
+        if self.posting_prs.contains(&pr) {
+            self.status_message = Some("Comments for this PR are already being posted".into());
+            return;
+        }
+        if !self.threads.is_empty() {
+            let confirmed = post::reconcile(&mut self.comments, &self.threads, pr);
+            if confirmed > 0 {
+                let _ = self.comment_store.save_comments(&self.comments);
+            }
+        }
+        let plan = post::plan(&self.comments, &self.snapshot.files, pr);
+        if plan.total() == 0 {
+            self.status_message = Some("No unposted comments for this PR".into());
+            return;
+        }
+        if !confirmed {
+            self.status_message = Some(format!("Would post {} inline + {} general comment(s) to PR #{}; run `:pr post --yes` to send", plan.inline.len(), plan.general.len(), pr));
+            return;
+        }
+        for comment in &mut self.comments {
+            if comment.id.is_empty() {
+                comment.id = lgtm_core::comment::new_id();
+            }
+        }
+        if let Err(error) = self.comment_store.save_comments(&self.comments) {
+            self.status_message = Some(format!("Comments were not posted: {error}"));
+            return;
+        }
+        let ids: Vec<String> = plan
+            .inline
+            .iter()
+            .chain(&plan.general)
+            .map(|&i| self.comments[i].id.clone())
+            .collect();
+        self.posting_comments.extend(ids.iter().cloned());
+        self.posting_prs.insert(pr);
+        let mut comments = self.comments.clone();
+        let planned_ids: std::collections::HashSet<_> = ids.iter().cloned().collect();
+        let progress = self.jobs_tx.clone();
+        let plan_files = self.snapshot.files.clone();
+        self.spawn_job(
+            "Posting PR comments",
+            move || {
+                let cl = client();
+                let mut active_plan = plan;
+                if let Ok(threads) = cl.threads(pr) {
+                    let reconciled = post::reconcile(&mut comments, &threads, pr);
+                    if reconciled > 0 {
+                        let receipts: Vec<(String, u64)> = comments
+                            .iter()
+                            .filter(|c| planned_ids.contains(&c.id))
+                            .filter_map(|c| c.remote_id.map(|id| (c.id.clone(), id)))
+                            .collect();
+                        if !receipts.is_empty() {
+                            let (tx, rx) = crossbeam_channel::bounded(1);
+                            let _ = progress.send(Box::new(move |app| {
+                                let _ = app.save_post_receipts(&receipts, &[]);
+                                let _ = tx.send(());
+                            }));
+                            let _ = rx.recv();
+                        }
+                        active_plan = post::plan(&comments, &plan_files, pr);
+                    }
+                }
+                if active_plan.total() == 0 {
+                    return post::Report {
+                        total: 0,
+                        posted: 0,
+                        error: None,
+                    };
+                }
+                post::post(
+                    &*cl,
+                    pr,
+                    &mut comments,
+                    &active_plan,
+                    std::time::Duration::from_millis(500),
+                    |posted| {
+                        // Only the UI owns mutable local state. Merge receipts there and wait for the
+                        // durable save before sending another remote comment.
+                        let receipts: Vec<(String, u64)> = posted
+                            .iter()
+                            .filter(|c| planned_ids.contains(&c.id))
+                            .filter_map(|c| c.remote_id.map(|id| (c.id.clone(), id)))
+                            .collect();
+                        let uncertain: Vec<String> = posted
+                            .iter()
+                            .filter(|c| planned_ids.contains(&c.id) && c.is_remote_uncertain())
+                            .map(|c| c.id.clone())
+                            .collect();
+                        let (tx, rx) = crossbeam_channel::bounded(1);
+                        progress
+                            .send(Box::new(move |app| {
+                                let result = app.save_post_receipts(&receipts, &uncertain);
+                                if app.pr.current_number == Some(pr) {
+                                    app.status_message = Some(format!(
+                                        "Posting PR #{pr} comments… ({} saved)",
+                                        receipts.len()
+                                    ));
+                                }
+                                let _ = tx.send(result);
+                            }))
+                            .map_err(|_| {
+                                anyhow::anyhow!("review closed before progress could be saved")
+                            })?;
+                        rx.recv().map_err(|_| {
+                            anyhow::anyhow!("review closed before progress could be saved")
+                        })?
+                    },
+                )
+            },
+            move |app, report| {
+                app.posting_prs.remove(&pr);
+                if report.error.is_some() {
+                    app.quit_after_jobs = false;
+                }
+                for id in &ids {
+                    app.posting_comments.remove(id);
+                }
+                if app.pr.current_number == Some(pr) {
+                    app.status_message = Some(report.summary());
+                }
+            },
+        );
+    }
+
+    pub(crate) fn save_post_receipts(
+        &mut self,
+        receipts: &[(String, u64)],
+        uncertain: &[String],
+    ) -> anyhow::Result<()> {
+        for (local_id, remote_id) in receipts {
+            if let Some(comment) = self.comments.iter_mut().find(|c| &c.id == local_id) {
+                comment.remote_id = Some(*remote_id);
+                comment.set_remote_uncertain(false);
+            }
+            self.posting_comments.remove(local_id);
+        }
+        for local_id in uncertain {
+            if let Some(comment) = self.comments.iter_mut().find(|c| &c.id == local_id) {
+                if comment.remote_id.is_none() {
+                    comment.set_remote_uncertain(true);
+                }
+            }
+            self.posting_comments.remove(local_id);
+        }
+        self.comment_store.save_comments(&self.comments)
+    }
+
     /// `:thread reply <n> <text> --yes` / `:thread resolve|unresolve <n> --yes`; `n` is the 1-based
     /// position in `:threads`. Without `--yes` it only previews.
+    #[cfg(test)]
     pub fn thread_action(&mut self, client: &dyn lgtm_core::github::GithubClient, args: &[&str]) {
+        self.thread_action_impl(Some(client), args);
+    }
+
+    pub fn thread_action_async(&mut self, args: &[&str]) {
+        self.thread_action_impl(None, args);
+    }
+
+    fn thread_action_impl(
+        &mut self,
+        client: Option<&dyn lgtm_core::github::GithubClient>,
+        args: &[&str],
+    ) {
         let Some(pr) = self.pr.current_number else {
             self.status_message = Some("Open a PR first (:pr <n>)".to_string());
             return;
@@ -370,6 +805,11 @@ impl App {
         let text = args[2..].join(" ");
         let (id, target) = (t.id.clone(), t.comments.first().map_or(0, |c| c.id));
         let preview = match verb {
+            "reply" if target == 0 => {
+                self.status_message =
+                    Some("Thread has no reply target; refresh with :threads".into());
+                return;
+            }
             "reply" if text.is_empty() => {
                 self.status_message = Some("Reply text is empty".to_string());
                 return;
@@ -390,6 +830,26 @@ impl App {
             self.status_message = Some(format!("{preview}; add --yes to send"));
             return;
         }
+        let Some(client) = client else {
+            if verb == "reply" {
+                let repo = self.git_engine.repo_path.clone();
+                let factory = self.forge_factory;
+                let action = ThreadAction::Reply {
+                    target,
+                    text: text.clone(),
+                };
+                let thread = id.clone();
+                self.reply_drafts.insert((pr, id.clone()), text.clone());
+                self.enqueue_thread_job(pr, id, action, move || {
+                    factory(&repo)
+                        .reply(pr, &thread, target, &text)
+                        .map(ThreadOutcome::Reply)
+                });
+            } else {
+                self.set_thread_resolved_async(pr, id, verb == "resolve");
+            }
+            return;
+        };
         let res = match verb {
             "reply" => client.reply(pr, &id, target, &text).map(|_| "Reply posted"),
             _ => client
@@ -504,6 +964,8 @@ impl App {
 
     /// Reload marks for the current target and refresh each file's reviewed flag and folds.
     pub fn load_marks(&mut self) {
+        self.invalidate_pr_completion();
+        self.invalidate_diff_folds();
         let state = self
             .marks_store()
             .and_then(|s| s.load().ok())
@@ -514,15 +976,14 @@ impl App {
             let name = f.display_name();
             for hunk in f.hunks.iter_mut() {
                 let hash = lgtm_core::review::hunk_hash(hunk);
-                let saved_folds = lgtm_core::review::load_hunk_folds(&state.folds, &name, &hash);
-                if !saved_folds.is_empty() {
-                    hunk.folded_blocks = saved_folds;
-                }
+                hunk.folded_blocks = lgtm_core::review::load_hunk_folds(&state.folds, &name, &hash);
             }
         }
     }
 
     pub fn save_marks(&mut self) {
+        self.invalidate_pr_completion();
+        self.invalidate_diff_folds();
         let Some(store) = self.marks_store() else {
             return;
         };
@@ -582,13 +1043,14 @@ impl App {
         self.save_marks();
     }
 
-    pub fn save_current_line_comment(&mut self) {
-        if let Some(alert) = self.comment_target_alert.take() {
+    pub(crate) fn save_current_line_comment(&mut self) -> bool {
+        if let Some(alert) = self.comment_target_alert.clone() {
             let target_line_no = alert.line_no.unwrap_or(1);
             let path_str = alert.file_path;
             let target_code = format!("[{}] {}", alert.severity.badge(), alert.title);
             let turn_state = self.turn_manager.load_state();
             let anchor = CommentAnchor {
+                id: lgtm_core::comment::new_id(),
                 file_path: path_str.clone(),
                 target_line_no,
                 target_code,
@@ -613,8 +1075,9 @@ impl App {
 
             if let Err(e) = self.comment_store.add_comment(&anchor) {
                 self.status_message = Some(format!("Failed to save comment: {}", e));
-                return;
+                return false;
             }
+            self.comment_target_alert = None;
             self.comments.push(anchor);
             if let Some(pr_num) = self.pr.current_number {
                 self.status_message =
@@ -623,7 +1086,7 @@ impl App {
                 self.status_message =
                     Some("Comment on finding added to .lgtm/comments.jsonl".to_string());
             }
-            return;
+            return true;
         }
 
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
@@ -645,6 +1108,7 @@ impl App {
 
             let turn_state = self.turn_manager.load_state();
             let anchor = CommentAnchor {
+                id: lgtm_core::comment::new_id(),
                 file_path: path_str.clone(),
                 target_line_no,
                 target_code,
@@ -669,6 +1133,7 @@ impl App {
 
             if let Err(e) = self.comment_store.add_comment(&anchor) {
                 self.status_message = Some(format!("Failed to save comment: {}", e));
+                return false;
             } else {
                 self.comments.push(anchor);
                 if let Some(pr_num) = self.pr.current_number {
@@ -676,8 +1141,10 @@ impl App {
                 } else {
                     self.status_message = Some("Comment added to .lgtm/comments.jsonl".to_string());
                 }
+                return true;
             }
         }
+        false
     }
 }
 
@@ -776,6 +1243,7 @@ mod tests {
         app.snapshot = DiffSnapshot::new(vec![file]);
 
         let anchor = CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "src/lib.rs".into(),
             target_line_no: 12,
             target_code: "line 12".into(),
@@ -838,6 +1306,7 @@ mod tests {
 
         // Test open_comment_list and Enter key navigation
         let second_anchor = CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "src/lib.rs".into(),
             target_line_no: 5,
             target_code: "line 5".into(),

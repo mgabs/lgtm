@@ -2,7 +2,9 @@ use super::*;
 
 impl App {
     pub fn open_commit_modal(&mut self) {
+        self.invalidate_view_data();
         let staged_count = self.staged_files_count();
+        self.record_staged_count(staged_count);
         if staged_count == 0 {
             self.status_message =
                 Some("⚠️ No staged changes to commit (stage with 's' or 'S')".to_string());

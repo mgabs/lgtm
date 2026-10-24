@@ -1,13 +1,17 @@
-//! Azure DevOps through the `az` CLI (`azure-devops` extension). lgtm never touches tokens.
+//! Azure DevOps REST with cached CLI authentication and an `az` CLI fallback.
 use super::Forge;
-use crate::git::GitEngine;
+
 use crate::github::{Bucket, Check, GithubClient, Thread, ThreadComment};
 use crate::model::DiffSnapshot;
 use crate::pr::{PrAuthor, PullRequestSummary};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::PathBuf;
+#[cfg(test)]
 use std::process::Command;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 pub trait Runner {
     fn run(&self, program: &str, args: &[&str]) -> Result<String>;
@@ -17,33 +21,11 @@ pub struct SystemRunner(pub PathBuf);
 
 impl Runner for SystemRunner {
     fn run(&self, program: &str, args: &[&str]) -> Result<String> {
-        let out = Command::new(program)
-            .args(args)
-            .env("AZURE_CORE_COLLECT_TELEMETRY", "false")
-            .current_dir(&self.0)
-            .output()
-            .with_context(|| format!("`{program}` is not installed or not on PATH"))?;
-        if out.status.success() {
-            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-        } else {
-            bail!(explain(&String::from_utf8_lossy(&out.stderr)))
-        }
+        super::failure::run(&self.0, program, args)
     }
 }
 
-pub fn explain(stderr: &str) -> String {
-    let e = stderr.trim();
-    if e.contains("az login") || e.contains("TF400813") || e.contains("401") {
-        "az is not authenticated; run `az login` (or `az devops login`)".to_string()
-    } else if e.contains("not in the 'az' command group") || e.contains("azure-devops") {
-        "the Azure DevOps extension is missing; run `az extension add --name azure-devops`"
-            .to_string()
-    } else {
-        format!("az failed: {e}")
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Remote {
     pub org: String,
     pub project: String,
@@ -51,7 +33,37 @@ pub struct Remote {
 }
 
 fn unescape(s: &str) -> String {
-    s.replace("%20", " ")
+    let mut decoded = Vec::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(high), Some(low)) = (
+                (bytes[i + 1] as char).to_digit(16),
+                (bytes[i + 2] as char).to_digit(16),
+            ) {
+                decoded.push((high * 16 + low) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn url_component(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            use std::fmt::Write;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
 }
 
 /// Parses the three Azure DevOps remote shapes (https, ssh `v3`, legacy `visualstudio.com`).
@@ -89,7 +101,10 @@ static CACHE: std::sync::Mutex<Vec<(String, std::time::Instant, Value)>> =
 const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 const DEVOPS_RESOURCE: &str = "499b84ac-1321-427f-aa17-267ca6975798";
 
-static BODY_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+type MergeKey = (PathBuf, Option<Remote>, u64);
+type MissingMergeRefs = Arc<Mutex<HashMap<MergeKey, Instant>>>;
+static MISSING_MERGES: OnceLock<MissingMergeRefs> = OnceLock::new();
+const MISSING_MERGE_TTL: Duration = Duration::from_secs(5 * 60);
 
 pub struct AzureForge {
     repo: PathBuf,
@@ -97,20 +112,35 @@ pub struct AzureForge {
     runner: Box<dyn Runner>,
     /// Reuse the process-wide token (off in tests so each forge fetches its own).
     shared: bool,
+    missing_merges: MissingMergeRefs,
 }
 
 impl AzureForge {
     pub fn new(repo: PathBuf) -> Self {
-        let remote = git2::Repository::open(&repo)
-            .ok()
-            .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
-            .and_then(|u| parse_remote(&u));
+        let url = super::origin_url(&repo);
+        Self::with_origin(repo, url)
+    }
+
+    pub fn with_runner(repo: PathBuf, runner: Box<dyn Runner>) -> Self {
+        let remote = super::origin_url(&repo).as_deref().and_then(parse_remote);
+        Self {
+            repo,
+            remote,
+            runner,
+            shared: false,
+            missing_merges: Default::default(),
+        }
+    }
+
+    pub(crate) fn with_origin(repo: PathBuf, origin_url: Option<String>) -> Self {
+        let remote = origin_url.as_deref().and_then(parse_remote);
         let runner = Box::new(SystemRunner(repo.clone()));
         Self {
             repo,
             remote,
             runner,
             shared: true,
+            missing_merges: MISSING_MERGES.get_or_init(Default::default).clone(),
         }
     }
 
@@ -152,15 +182,23 @@ impl AzureForge {
     /// `scope` is `repo` (under the repository) or `project` (under the project). The bearer token
     /// goes through a private temp file so it never appears in the process list.
     fn rest(&self, scope: &str, path: &str) -> Result<Value> {
+        self.rest_read(scope, path, true)
+    }
+
+    fn rest_read(&self, scope: &str, path: &str, cached: bool) -> Result<Value> {
         let Some(r) = &self.remote else {
             bail!("origin is not a recognized Azure DevOps URL");
         };
-        let root = format!("https://dev.azure.com/{}/{}/_apis", r.org, r.project);
+        let root = format!(
+            "https://dev.azure.com/{}/{}/_apis",
+            url_component(&r.org),
+            url_component(&r.project)
+        );
         let url = match scope {
-            "repo" => format!("{root}/git/repositories/{}/{path}", r.repo),
+            "repo" => format!("{root}/git/repositories/{}/{path}", url_component(&r.repo)),
             _ => format!("{root}/{path}"),
         };
-        if self.shared {
+        if self.shared && cached {
             let cache = CACHE.lock().unwrap();
             if let Some((_, _, v)) = cache
                 .iter()
@@ -169,24 +207,16 @@ impl AzureForge {
                 return Ok(v.clone());
             }
         }
-        let file = std::env::temp_dir().join(format!(
-            "lgtm-hdr-{}-{}",
-            std::process::id(),
-            BODY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        {
-            use std::io::Write;
-            let mut o = std::fs::OpenOptions::new();
-            o.write(true).create_new(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
-            writeln!(o.open(&file)?, "Authorization: Bearer {}", self.token()?)?;
-        }
-        let hdr = format!("@{}", file.display());
+        let token = self.token()?;
+        let file = super::PrivateTempFile::write(
+            "lgtm-hdr",
+            format!("Authorization: Bearer {token}\n").as_bytes(),
+        )?;
+        let hdr = format!("@{}", file.path().display());
         let out = self
             .runner
             .run("curl", &["-sS", "--fail", "-H", &hdr, &url]);
-        let _ = std::fs::remove_file(&file);
+        drop(file);
         let v: Value =
             serde_json::from_str(&out?).context("unexpected Azure DevOps REST response")?;
         if self.shared {
@@ -195,6 +225,40 @@ impl AzureForge {
             cache.push((url, std::time::Instant::now(), v.clone()));
         }
         Ok(v)
+    }
+
+    fn pr_metadata(&self, pr: u64) -> Result<Value> {
+        crate::debug::measure("pr.fetch_metadata", || {
+            self.rest_read("repo", &format!("pullRequests/{pr}?api-version=7.1"), false)
+                .or_else(|_| {
+                    let id = pr.to_string();
+                    let org = self
+                        .remote
+                        .as_ref()
+                        .map(|r| format!("https://dev.azure.com/{}", r.org));
+                    let mut args = vec!["repos", "pr", "show", "--id", &id];
+                    if let Some(org) = &org {
+                        args.extend(["--organization", org]);
+                    }
+                    self.az_json(&args)
+                })
+        })
+    }
+
+    fn merge_key(&self, pr: u64) -> MergeKey {
+        (self.repo.clone(), self.remote.clone(), pr)
+    }
+    fn merge_ref_missing(&self, pr: u64) -> bool {
+        self.missing_merges
+            .lock()
+            .unwrap()
+            .get(&self.merge_key(pr))
+            .is_some_and(|at| at.elapsed() < MISSING_MERGE_TTL)
+    }
+    fn remember_missing_merge(&self, pr: u64) {
+        let mut cache = self.missing_merges.lock().unwrap();
+        cache.retain(|_, at| at.elapsed() < MISSING_MERGE_TTL);
+        cache.insert(self.merge_key(pr), Instant::now());
     }
 
     fn invalidate(&self) {
@@ -252,15 +316,10 @@ impl AzureForge {
             route.push(format!("threadId={t}"));
         }
         let file = match body {
-            Some(b) => {
-                let p = std::env::temp_dir().join(format!(
-                    "lgtm-az-{}-{}.json",
-                    std::process::id(),
-                    BODY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                ));
-                std::fs::write(&p, b.to_string())?;
-                Some(p)
-            }
+            Some(b) => Some(super::PrivateTempFile::write(
+                "lgtm-az",
+                b.to_string().as_bytes(),
+            )?),
             None => None,
         };
         if method != "get" {
@@ -282,16 +341,16 @@ impl AzureForge {
             "--output",
             "json",
         ];
-        let path = file.as_ref().map(|p| p.to_string_lossy().into_owned());
+        let path = file
+            .as_ref()
+            .map(|p| p.path().to_string_lossy().into_owned());
         if let Some(p) = &path {
             args.extend(["--in-file", p]);
         }
         args.push("--route-parameters");
         args.extend(route.iter().map(String::as_str));
         let out = self.runner.run("az", &args);
-        if let Some(p) = &file {
-            let _ = std::fs::remove_file(p);
-        }
+        drop(file);
         serde_json::from_str(&out?).context("unexpected `az` output")
     }
 
@@ -405,39 +464,85 @@ pub fn parse_policies(v: &Value) -> Vec<Check> {
 
 impl Forge for AzureForge {
     fn list_prs(&self) -> Result<Vec<PullRequestSummary>> {
-        if let Ok(v) = self.rest(
-            "repo",
-            "pullrequests?searchCriteria.status=active&api-version=7.1",
-        ) {
-            return Ok(parse_prs(&v["value"]));
-        }
-        Ok(parse_prs(
-            &self.az_json(&["repos", "pr", "list", "--status", "active"])?,
-        ))
+        self.list_prs_state(crate::pr::PullRequestState::Open)
     }
 
-    /// Fast path: one `git fetch` of `refs/pull/<n>/merge` (parents are target, source), no `az`
-    /// call (each costs seconds). Falls back to fetching both branches when that ref is missing.
-    fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
-        let merge = format!("refs/lgtm/pr/{pr}/merge");
-        let fetched = self.runner.run(
-            "git",
-            &[
-                "fetch",
-                "--quiet",
-                "origin",
-                &format!("+refs/pull/{pr}/merge:{merge}"),
-            ],
-        );
-        if fetched.is_ok() {
-            if let Ok(snap) =
-                GitEngine::new(&self.repo).compute_revision_diff(&format!("{merge}^1...{merge}^2"))
-            {
-                return Ok(snap);
-            }
+    fn list_prs_state(
+        &self,
+        state: crate::pr::PullRequestState,
+    ) -> Result<Vec<PullRequestSummary>> {
+        let statuses: &[&str] = match state {
+            crate::pr::PullRequestState::Open => &["active"],
+            crate::pr::PullRequestState::Closed => &["completed", "abandoned"],
+            crate::pr::PullRequestState::All => &["all"],
+        };
+        let mut prs = Vec::new();
+        for status in statuses {
+            let page = match self.rest(
+                "repo",
+                &format!("pullrequests?searchCriteria.status={status}&api-version=7.1"),
+            ) {
+                Ok(value) => parse_prs(&value["value"]),
+                Err(_) => parse_prs(&self.az_json(&["repos", "pr", "list", "--status", status])?),
+            };
+            prs.extend(page.into_iter().filter(|pr| state.includes(&pr.state)));
         }
-        let id = pr.to_string();
-        let v = self.az_json(&["repos", "pr", "show", "--id", &id])?;
+        prs.sort_by_key(|pr| std::cmp::Reverse(pr.number));
+        prs.dedup_by_key(|pr| pr.number);
+        Ok(prs)
+    }
+
+    /// Read fresh metadata before Git; recorded commits avoid unavailable historical refs.
+    fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
+        let v = self.pr_metadata(pr).context("Reading PR metadata")?;
+        // Historical PRs may no longer have either branch. These commits describe the
+        // source and target at the last PR merge attempt, including completed PRs.
+        let source = v
+            .pointer("/lastMergeSourceCommit/commitId")
+            .and_then(Value::as_str);
+        let target = v
+            .pointer("/lastMergeTargetCommit/commitId")
+            .and_then(Value::as_str);
+        if let (Some(source), Some(target)) = (source, target) {
+            git2::Oid::from_str(source).context("PR has an invalid recorded source commit")?;
+            git2::Oid::from_str(target).context("PR has an invalid recorded target commit")?;
+            if !super::have_commits(&self.repo, source, target) {
+                let head = format!("refs/lgtm/pr/{pr}/head");
+                let base = format!("refs/lgtm/pr/{pr}/base");
+                self.runner.run("git", &["fetch", "--quiet", "origin", &format!("+{source}:{head}"), &format!("+{target}:{base}")])
+                    .context("Fetching the PR's recorded commits; its branches may be deleted or its history unavailable")?;
+            }
+            return super::build_pr_diff(&self.repo, &format!("{target}...{source}"));
+        }
+        if matches!(v["status"].as_str(), Some("completed" | "abandoned")) {
+            bail!("PR #{pr} is closed but its recorded source/target commits are unavailable; cannot safely reconstruct its historical diff");
+        }
+        if !self.merge_ref_missing(pr) {
+            let merge = format!("refs/lgtm/pr/{pr}/merge");
+            match self.runner.run(
+                "git",
+                &[
+                    "fetch",
+                    "--quiet",
+                    "origin",
+                    &format!("+refs/pull/{pr}/merge:{merge}"),
+                ],
+            ) {
+                Ok(_) => {
+                    self.missing_merges
+                        .lock()
+                        .unwrap()
+                        .remove(&self.merge_key(pr));
+                    return super::build_pr_diff(&self.repo, &format!("{merge}^1...{merge}^2"));
+                }
+                Err(error) if super::failure::missing_ref(&error) => {
+                    self.remember_missing_merge(pr)
+                }
+                Err(error) => return Err(error).context("Fetching PR merge ref"),
+            }
+        } else {
+            let _cached = crate::debug::Span::new("pr.merge_ref_cache_hit");
+        }
         let (Some(src), Some(tgt)) = (v["sourceRefName"].as_str(), v["targetRefName"].as_str())
         else {
             bail!("PR #{pr} has no source or target branch");
@@ -453,16 +558,16 @@ impl Forge for AzureForge {
                 &format!("+{src}:{head}"),
                 &format!("+{tgt}:{base}"),
             ],
-        )?;
-        GitEngine::new(&self.repo).compute_revision_diff(&format!("{base}...{head}"))
+        ).context("Fetching PR source/target branches; a branch may be deleted or belong to another repository")?;
+        super::build_pr_diff(&self.repo, &format!("{base}...{head}"))
     }
 
     /// `APPROVE` and `REQUEST_CHANGES` set the vote (plus the body as a comment); `COMMENT` only comments.
     fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()> {
         let vote = match event {
-            "APPROVE" => Some("approve"),
-            "REQUEST_CHANGES" => Some("wait-for-author"),
-            "COMMENT" => None,
+            "APPROVE" | "approve" => Some("approve"),
+            "REQUEST_CHANGES" | "request-changes" | "request_changes" => Some("wait-for-author"),
+            "COMMENT" | "comment" => None,
             other => bail!("unknown review event '{other}'"),
         };
         if !body.is_empty() {
@@ -507,8 +612,22 @@ impl GithubClient for AzureForge {
         }
         Ok(parse_threads(&self.invoke("pullRequestThreads", pr)?))
     }
+    fn thread(&self, pr: u64, id: &str) -> Result<Option<Thread>> {
+        // Thread ids are numeric in Azure; reject unexpected routes before making a request.
+        id.parse::<u64>().context("invalid Azure thread id")?;
+        let value = match self.rest(
+            "repo",
+            &format!("pullRequests/{pr}/threads/{id}?api-version=7.1"),
+        ) {
+            Ok(value) => value,
+            Err(_) => self.call("get", "pullRequestThreads", pr, Some(id), None)?,
+        };
+        Ok(parse_threads(&serde_json::json!({"value":[value]}))
+            .into_iter()
+            .next())
+    }
     fn head_sha(&self, pr: u64) -> Result<String> {
-        let v = self.az_json(&["repos", "pr", "show", "--id", &pr.to_string()])?;
+        let v = self.pr_metadata(pr)?;
         v.pointer("/lastMergeSourceCommit/commitId")
             .and_then(Value::as_str)
             .map(str::to_string)
@@ -527,6 +646,9 @@ impl GithubClient for AzureForge {
         self.new_thread(pr, body, None)
     }
     fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
+        thread_id
+            .parse::<u64>()
+            .context("invalid Azure thread id")?;
         let c =
             serde_json::json!({"parentCommentId": comment_id, "content": body, "commentType": 1});
         let v = self.call(
@@ -541,12 +663,24 @@ impl GithubClient for AzureForge {
             .context("Azure DevOps returned no comment id")
     }
     fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
+        thread_id
+            .parse::<u64>()
+            .context("invalid Azure thread id")?;
         let status = if resolved { "fixed" } else { "active" };
         let b = serde_json::json!({ "status": status });
-        self.call("patch", "pullRequestThreads", pr, Some(thread_id), Some(&b))?;
+        let v = self.call("patch", "pullRequestThreads", pr, Some(thread_id), Some(&b))?;
+        v["id"]
+            .as_u64()
+            .context("Thread update has no confirmation; refresh before retrying")?;
         Ok(())
     }
 }
+
+#[cfg(test)]
+static SHARED_CACHE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+mod performance_tests;
 
 #[cfg(test)]
 mod tests {
@@ -563,7 +697,18 @@ mod tests {
                 .iter()
                 .find(|(k, _)| line.contains(k))
                 .map(|(_, v)| v.to_string())
-                .ok_or_else(|| anyhow::anyhow!("no fake for {line}"))
+                .ok_or_else(|| {
+                    if program == "git" && args.first() == Some(&"fetch") {
+                        super::super::failure::classify(
+                            "git",
+                            Some(128),
+                            "couldn't find remote ref",
+                        )
+                        .into()
+                    } else {
+                        anyhow::anyhow!("no fake for {line}")
+                    }
+                })
         }
     }
 
@@ -573,6 +718,7 @@ mod tests {
             remote: parse_remote("https://dev.azure.com/org/My%20Proj/_git/repo"),
             runner: Box::new(Fake(RefCell::new(vec![]), fakes)),
             shared: false,
+            missing_merges: Default::default(),
         }
     }
 
@@ -640,7 +786,7 @@ mod tests {
         git(&["commit", "-qam", "head"]);
         git(&["update-ref", "refs/lgtm/pr/7/head", "HEAD"]);
         // the fake "git fetch" succeeds; refs were prepared above
-        let f = forge(
+        let mut f = forge(
             dir.to_str().unwrap(),
             vec![
                 (
@@ -650,6 +796,21 @@ mod tests {
                 ("git fetch", ""),
             ],
         );
+        struct MissingMerge(Box<dyn Runner>);
+        impl Runner for MissingMerge {
+            fn run(&self, program: &str, args: &[&str]) -> Result<String> {
+                if args.iter().any(|a| a.contains("/merge:")) {
+                    return Err(super::super::failure::classify(
+                        "git",
+                        Some(128),
+                        "couldn't find remote ref",
+                    )
+                    .into());
+                }
+                self.0.run(program, args)
+            }
+        }
+        f.runner = Box::new(MissingMerge(f.runner));
         let snap = f.pr_diff(7).unwrap();
         assert_eq!(snap.files.len(), 1);
         assert_eq!(snap.total_additions, 1);
@@ -657,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_uses_the_merge_ref_without_calling_az() {
+    fn incomplete_active_metadata_can_still_use_the_merge_ref() {
         let dir = std::env::temp_dir().join(format!("lgtm-az-merge-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -683,8 +844,10 @@ mod tests {
         git(&["checkout", "-q", "t-base"]);
         git(&["merge", "--no-ff", "-qm", "m", "t-tip"]);
         git(&["update-ref", "refs/lgtm/pr/8/merge", "HEAD"]);
-        // only "git fetch" is faked: any `az` call would error
-        let f = forge(dir.to_str().unwrap(), vec![("git fetch", "")]);
+        let f = forge(
+            dir.to_str().unwrap(),
+            vec![("pr show", r#"{"status":"active"}"#), ("git fetch", "")],
+        );
         let snap = f.pr_diff(8).unwrap();
         assert_eq!((snap.files.len(), snap.total_additions), (1, 1));
         let _ = std::fs::remove_dir_all(&dir);
@@ -695,13 +858,6 @@ mod tests {
         let f = forge(".", vec![("pr show", "{}")]);
         assert!(f.pr_diff(1).unwrap_err().to_string().contains("no source"));
         assert!(f.post_review(1, "BOGUS", "y").is_err());
-    }
-
-    #[test]
-    fn explains_az_errors() {
-        assert!(explain("Please run 'az login' to setup account").contains("az login"));
-        assert!(explain("'repos' is not in the 'az' command group").contains("extension add"));
-        assert!(explain("boom").starts_with("az failed"));
     }
 
     #[test]
@@ -768,7 +924,7 @@ mod tests {
             ".",
             vec![
                 ("--http-method post --output json --in-file", r#"{"id":7}"#),
-                ("--http-method patch", "{}"),
+                ("--http-method patch", r#"{"id":5}"#),
                 ("set-vote", "{}"),
                 ("pr show", r#"{"lastMergeSourceCommit":{"commitId":"abc"}}"#),
             ],
@@ -817,7 +973,10 @@ mod tests {
     fn reads_fall_back_to_az_when_rest_fails() {
         let f = forge(
             ".",
-            vec![("pr list", r#"[{"pullRequestId":9,"title":"t"}]"#)],
+            vec![(
+                "pr list",
+                r#"[{"pullRequestId":9,"title":"t","status":"active"}]"#,
+            )],
         );
         assert_eq!(f.list_prs().unwrap()[0].number, 9);
     }
@@ -831,5 +990,289 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("not a recognized"));
+    }
+    #[test]
+    fn fetch_authentication_and_network_errors_do_not_trigger_fallbacks() {
+        use super::super::failure::{Failure, Kind};
+        struct FailedFetch(Kind, std::sync::Arc<std::sync::atomic::AtomicUsize>);
+        impl Runner for FailedFetch {
+            fn run(&self, program: &str, _args: &[&str]) -> Result<String> {
+                if program == "az" {
+                    if _args.contains(&"show") {
+                        return Ok(r#"{"status":"active"}"#.into());
+                    }
+                    anyhow::bail!("REST token unavailable in test");
+                }
+                assert_eq!(program, "git", "provider fallback must not run");
+                self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Err(Failure {
+                    kind: self.0,
+                    exit_code: Some(128),
+                    http_status: None,
+                }
+                .into())
+            }
+        }
+        for kind in [
+            Kind::Authentication,
+            Kind::Network,
+            Kind::Timeout,
+            Kind::Other,
+        ] {
+            let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let mut provider = forge(".", vec![]);
+            provider.runner = Box::new(FailedFetch(kind, calls.clone()));
+            let error = provider.pr_diff(42).unwrap_err();
+            assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+            assert_eq!(error.downcast_ref::<Failure>().unwrap().kind, kind);
+            assert!(!provider.merge_ref_missing(42));
+        }
+    }
+    #[test]
+    fn reads_only_the_changed_thread() {
+        let provider = forge(
+            ".",
+            vec![
+                ("get-access-token", "test-token"),
+                (
+                    "pullRequests/12/threads/3",
+                    r#"{"id":3,"status":"fixed","threadContext":{"filePath":"/a.rs","rightFileStart":{"line":1}},"comments":[{"id":2,"content":"reply","commentType":"text","author":{"displayName":"Ann"}}]}"#,
+                ),
+            ],
+        );
+        let thread = provider.thread(12, "3").unwrap().unwrap();
+        assert_eq!(thread.id, "3");
+        assert!(thread.resolved);
+        assert_eq!(thread.comments[0].author, "Ann");
+        assert!(provider.thread(12, "../other").is_err());
+    }
+    #[test]
+    fn closed_list_includes_completed_and_abandoned_but_not_active() {
+        let provider = forge(
+            ".",
+            vec![
+                (
+                    "--status completed",
+                    r#"[{"pullRequestId":1,"status":"completed","title":"merged"}]"#,
+                ),
+                (
+                    "--status abandoned",
+                    r#"[{"pullRequestId":2,"status":"abandoned","title":"closed"}]"#,
+                ),
+                (
+                    "--status all",
+                    r#"[{"pullRequestId":3,"status":"active"},{"pullRequestId":2,"status":"abandoned"},{"pullRequestId":1,"status":"completed"}]"#,
+                ),
+            ],
+        );
+        let closed = provider
+            .list_prs_state(crate::pr::PullRequestState::Closed)
+            .unwrap();
+        assert_eq!(
+            closed.iter().map(|p| p.number).collect::<Vec<_>>(),
+            vec![2, 1]
+        );
+        assert_eq!(
+            provider
+                .list_prs_state(crate::pr::PullRequestState::All)
+                .unwrap()
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn completed_pr_uses_recorded_commits_without_the_deleted_source_branch() {
+        fn git(dir: &std::path::Path, args: &[&str]) -> String {
+            let output = Command::new("git")
+                .current_dir(dir)
+                .args([
+                    "-c",
+                    "user.name=test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                ])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let upstream = temp.path().join("upstream");
+        let client = temp.path().join("client");
+        std::fs::create_dir_all(&upstream).unwrap();
+        std::fs::create_dir_all(&client).unwrap();
+        git(&upstream, &["init", "-q"]);
+        std::fs::write(upstream.join("a.txt"), "base\n").unwrap();
+        git(&upstream, &["add", "a.txt"]);
+        git(&upstream, &["commit", "-qm", "base"]);
+        let target = git(&upstream, &["rev-parse", "HEAD"]);
+        std::fs::write(upstream.join("a.txt"), "base\nPR change\n").unwrap();
+        git(&upstream, &["commit", "-qam", "PR source"]);
+        let source = git(&upstream, &["rev-parse", "HEAD"]);
+        git(&upstream, &["branch", "deleted-feature"]);
+        // The only advertised branch has advanced beyond the PR, and no source branch exists.
+        std::fs::write(
+            upstream.join("a.txt"),
+            "base\nPR change\nunrelated later change\n",
+        )
+        .unwrap();
+        git(&upstream, &["commit", "-qam", "later target"]);
+        git(&upstream, &["branch", "-m", "main"]);
+        git(&upstream, &["branch", "-D", "deleted-feature"]);
+        git(&client, &["init", "-q"]);
+        git(
+            &client,
+            &["remote", "add", "origin", upstream.to_str().unwrap()],
+        );
+        struct Historical {
+            repo: PathBuf,
+            metadata: String,
+            fetches: Arc<std::sync::atomic::AtomicUsize>,
+        }
+        impl Runner for Historical {
+            fn run(&self, program: &str, args: &[&str]) -> Result<String> {
+                if program == "az" {
+                    assert!(
+                        args.contains(&"get-access-token"),
+                        "REST should avoid az pr show"
+                    );
+                    return Ok("test-token".into());
+                }
+                if program == "curl" {
+                    return Ok(self.metadata.clone());
+                }
+                assert_eq!(program, "git");
+                self.fetches
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                assert!(
+                    !args.iter().any(|a| a.contains("/merge:")),
+                    "historical PR must not probe a merge ref"
+                );
+                SystemRunner(self.repo.clone()).run(program, args)
+            }
+        }
+        let metadata = serde_json::json!({"status":"completed","sourceRefName":"refs/heads/deleted-feature","targetRefName":"refs/heads/main",
+            "lastMergeSourceCommit":{"commitId":source},"lastMergeTargetCommit":{"commitId":target}});
+        let mut provider = forge(client.to_str().unwrap(), vec![]);
+        let fetches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        provider.runner = Box::new(Historical {
+            repo: client,
+            metadata: metadata.to_string(),
+            fetches: fetches.clone(),
+        });
+        let diff = provider.pr_diff(19673).unwrap();
+        assert_eq!(diff.total_additions, 1);
+        assert_eq!(diff.total_deletions, 0);
+        assert_eq!(diff.files.len(), 1);
+        assert_eq!(provider.pr_diff(19673).unwrap().total_additions, 1);
+        assert_eq!(fetches.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert!(diff.files[0]
+            .hunks
+            .iter()
+            .flat_map(|h| &h.lines)
+            .all(|l| !l.content.contains("unrelated")));
+    }
+
+    #[test]
+    fn missing_merge_cache_is_shared_scoped_and_expires() {
+        let first = forge("repo-a", vec![]);
+        first.remember_missing_merge(42);
+        let mut second = forge("repo-a", vec![]);
+        second.missing_merges = first.missing_merges.clone();
+        assert!(second.merge_ref_missing(42));
+        assert!(!second.merge_ref_missing(43));
+        second.repo = "repo-b".into();
+        assert!(!second.merge_ref_missing(42));
+        second.repo = "repo-a".into();
+        second.remote.as_mut().unwrap().repo = "different".into();
+        assert!(!second.merge_ref_missing(42));
+        first
+            .missing_merges
+            .lock()
+            .unwrap()
+            .insert(first.merge_key(42), Instant::now() - MISSING_MERGE_TTL);
+        assert!(!first.merge_ref_missing(42));
+    }
+
+    #[test]
+    fn repeated_load_skips_a_known_missing_merge_ref() {
+        struct Missing(Arc<std::sync::atomic::AtomicUsize>);
+        impl Runner for Missing {
+            fn run(&self, program: &str, args: &[&str]) -> Result<String> {
+                if program == "az" && args.contains(&"show") {
+                    return Ok(r#"{"status":"active"}"#.into());
+                }
+                if program == "git" {
+                    self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return Err(super::super::failure::classify(
+                        "git",
+                        Some(128),
+                        "couldn't find remote ref",
+                    )
+                    .into());
+                }
+                bail!("no token in test");
+            }
+        }
+        let probes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut first = forge(".", vec![]);
+        first.runner = Box::new(Missing(probes.clone()));
+        assert!(first.pr_diff(42).is_err());
+        let mut second = forge(".", vec![]);
+        second.runner = Box::new(Missing(probes.clone()));
+        second.missing_merges = first.missing_merges.clone();
+        assert!(second.pr_diff(42).is_err());
+        assert_eq!(probes.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn metadata_is_fresh_and_rest_components_are_encoded() {
+        let _cache_guard = SHARED_CACHE_TEST_LOCK.lock().unwrap();
+        struct Fresh;
+        impl Runner for Fresh {
+            fn run(&self, program: &str, args: &[&str]) -> Result<String> {
+                if program == "az" {
+                    assert!(args.contains(&"get-access-token"));
+                    return Ok("test-token".into());
+                }
+                assert_eq!(program, "curl");
+                assert_eq!(args.last(), Some(&"https://dev.azure.com/org/Fresh%20Proj/_apis/git/repositories/r%C3%A9po/pullRequests/987654?api-version=7.1"));
+                Ok(r#"{"status":"completed"}"#.into())
+            }
+        }
+        let mut provider = forge(".", vec![]);
+        provider.remote = parse_remote("https://dev.azure.com/org/Fresh%20Proj/_git/r%C3%A9po");
+        provider.runner = Box::new(Fresh);
+        provider.shared = true;
+        let url = "https://dev.azure.com/org/Fresh%20Proj/_apis/git/repositories/r%C3%A9po/pullRequests/987654?api-version=7.1";
+        CACHE.lock().unwrap().push((
+            url.into(),
+            Instant::now(),
+            serde_json::json!({"status":"active"}),
+        ));
+        assert_eq!(provider.pr_metadata(987654).unwrap()["status"], "completed");
+        CACHE.lock().unwrap().retain(|(u, _, _)| u != url);
+    }
+
+    #[test]
+    fn closed_pr_without_recorded_commits_is_not_compared_to_current_branches() {
+        let provider = forge(
+            ".",
+            vec![(
+                "pr show",
+                r#"{"status":"completed","sourceRefName":"refs/heads/deleted","targetRefName":"refs/heads/main"}"#,
+            )],
+        );
+        assert!(provider
+            .pr_diff(1)
+            .unwrap_err()
+            .to_string()
+            .contains("historical diff"));
     }
 }

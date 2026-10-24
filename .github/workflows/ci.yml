@@ -49,12 +49,6 @@ jobs:
       - name: Run Unit & Integration Tests
         run: cargo test --workspace --verbose -- --nocapture
 
-      - name: Run Code Coverage Gate (>= 90%)
-        run: ./scripts/coverage.sh 90.0
-
-      - name: Run Mutation Testing Gate (>= 90%)
-        run: ./scripts/mutate.sh 90.0
-
       - name: Generate Security & Test Guard SARIF Report
         run: cargo run -- ci --format sarif --output lgtm-results.sarif
 

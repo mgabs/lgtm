@@ -353,22 +353,17 @@ pub(crate) fn render_audit_inspector(
 
     // 3. Code context snippet (read lines around line_no if available)
     if let Some(target_line) = alert.line_no {
-        let file_path = app.audit.root_dir.join(&alert.file_path);
-        if let Ok(content) = std::fs::read_to_string(&file_path) {
+        if let Some(snippet) = app.view_data.snippet_for(&app.audit.root_dir, alert) {
             lines.push(Line::from(Span::styled(
                 "Code Snippet Context:",
                 Style::default()
                     .fg(Color::LightBlue)
                     .add_modifier(Modifier::BOLD),
             )));
-            let all_file_lines: Vec<&str> = content.lines().collect();
-            let start = (target_line as usize).saturating_sub(4);
-            let end = ((target_line as usize) + 3).min(all_file_lines.len());
-
-            for (idx, line_item) in all_file_lines.iter().enumerate().take(end).skip(start) {
-                let current_no = idx + 1;
-                let is_hit = current_no == (target_line as usize);
-                let line_text = line_item.to_string();
+            for (current_no, line_item) in snippet {
+                let current_no = *current_no;
+                let is_hit = current_no == target_line as usize;
+                let line_text = line_item.as_str();
 
                 if is_hit {
                     let ptr_color = if is_focused { Color::Cyan } else { Color::Red };

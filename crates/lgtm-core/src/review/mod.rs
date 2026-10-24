@@ -1,5 +1,5 @@
 //! Durable review state: hunk marks and comments keyed by content hash, not line numbers.
-use crate::comment::{CommentAnchor, CommentStore};
+use crate::comment::CommentAnchor;
 use crate::model::{DiffHunk, FileDiff, LineType};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -424,18 +424,12 @@ fn file_stem(target: &str) -> String {
 }
 
 impl ReviewStore {
-    /// Opens the store for `target`, migrating legacy `comments.jsonl` on first use.
+    /// Opens the review store for `target`.
     pub fn open(repo: &Path, target: &str) -> Result<Self> {
-        let s = Self {
-            dir: repo.join(".lgtm").join("reviews"),
-            target: target.to_string(),
-        };
-        std::fs::create_dir_all(&s.dir)?;
-        migrate(repo, &s)?;
-        Ok(s)
+        Self::open_marks_only(repo, target)
     }
 
-    /// Like `open` but leaves legacy `comments.jsonl` alone (until comments move to this store).
+    /// Opens the review store for `target` without touching `.lgtm/comments.jsonl`.
     pub fn open_marks_only(repo: &Path, target: &str) -> Result<Self> {
         let s = Self {
             dir: repo.join(".lgtm").join("reviews"),
@@ -489,34 +483,8 @@ impl ReviewStore {
     }
 }
 
-/// comments.jsonl -> reviews/<target>.json (PR comments go to `pr-<n>`); original kept as `.bak`.
-/// state.json only holds the turn counter, so it stays where it is.
-fn migrate(repo: &Path, store: &ReviewStore) -> Result<()> {
-    let legacy = repo.join(".lgtm").join("comments.jsonl");
-    if !legacy.is_file() {
-        return Ok(());
-    }
-    let mut groups: std::collections::BTreeMap<String, Vec<ReviewComment>> = Default::default();
-    for a in CommentStore::new(repo).load_comments() {
-        let t = a
-            .pr_number
-            .map_or_else(|| store.target.clone(), |n| format!("pr-{n}"));
-        groups
-            .entry(t)
-            .or_default()
-            .push(ReviewComment::new(a, &[]));
-    }
-    for (t, comments) in groups {
-        store.write(
-            &t,
-            &ReviewState {
-                comments,
-                ..Default::default()
-            },
-        )?;
-    }
-    std::fs::rename(&legacy, legacy.with_extension("jsonl.bak"))?;
-    Ok(())
+pub fn target_pr(target: &str) -> Option<u64> {
+    target.strip_prefix("pr-")?.parse::<u64>().ok()
 }
 
 #[cfg(test)]

@@ -1,4 +1,7 @@
+pub(crate) mod cache;
+mod viewport;
 use super::*;
+use viewport::{padded_gutter, render_diff_view};
 
 pub(crate) fn render_body(frame: &mut Frame, area: Rect, app: &mut App) {
     if app.active_view == ActiveView::AuditReport {
@@ -21,7 +24,10 @@ pub(crate) fn render_body(frame: &mut Frame, area: Rect, app: &mut App) {
 }
 
 pub(crate) fn render_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
-    if !app.git_engine.is_git_repo() {
+    let mut timing = lgtm_core::debug::Span::new("ui.drawer_viewport");
+    timing.count("rows", 0);
+    app.render_cache.borrow_mut().drawer_rows = 0;
+    if !app.view_data.is_git {
         let items = vec![ListItem::new(Line::from(Span::styled(
             " (No git repository) ",
             Style::default().fg(Color::Yellow),
@@ -51,11 +57,20 @@ pub(crate) fn render_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    let visible_height = area.height.saturating_sub(2) as usize;
+    let first = app
+        .selected_file_idx
+        .saturating_sub(visible_height.saturating_sub(1));
+    let mut cache = app.render_cache.borrow_mut();
+    let annotations = cache.index(app, cache::annotation_signature(app));
+    cache.prepare_reviewed(app);
     let items: Vec<ListItem> = app
         .snapshot
         .files
         .iter()
         .enumerate()
+        .skip(first)
+        .take(visible_height)
         .map(|(idx, file)| {
             let is_selected = idx == app.selected_file_idx;
             let checkmark = if file.is_reviewed { "✓ " } else { "  " };
@@ -68,11 +83,11 @@ pub(crate) fn render_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
                 ChangeType::Untracked => Color::Magenta,
             };
 
-            let file_alerts_count = app
-                .alerts
-                .iter()
-                .filter(|a| a.file_path == file.display_name())
-                .count();
+            let file_alerts_count = annotations
+                .alert_counts
+                .get(&file.display_name())
+                .copied()
+                .unwrap_or(0);
             let alert_tag = if file_alerts_count > 0 {
                 format!(" ⚠️{}", file_alerts_count)
             } else {
@@ -94,10 +109,7 @@ pub(crate) fn render_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
                 ),
                 Span::raw(file.display_name()),
             ];
-            let done = lgtm_core::review::reviewed_flags(&app.marks, file)
-                .iter()
-                .filter(|&&b| b)
-                .count();
+            let done = cache.reviewed_count(app, idx);
             if done > 0 && !file.is_reviewed {
                 spans.push(Span::styled(
                     format!(" ✓{}/{}", done, file.hunks.len()),
@@ -134,6 +146,8 @@ pub(crate) fn render_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
+    cache.drawer_rows = items.len();
+    timing.count("rows", items.len() as u64);
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
@@ -144,8 +158,8 @@ pub(crate) fn render_file_drawer(frame: &mut Frame, area: Rect, app: &App) {
             .border_style(Style::default().fg(Color::Cyan)),
     );
 
-    let mut state =
-        ratatui::widgets::ListState::default().with_selected(Some(app.selected_file_idx));
+    let mut state = ratatui::widgets::ListState::default()
+        .with_selected(Some(app.selected_file_idx.saturating_sub(first)));
     frame.render_stateful_widget(list, area, &mut state);
 }
 
@@ -178,55 +192,47 @@ pub(crate) fn find_intra_line_pairs(
     pairs
 }
 
-pub(crate) fn render_inline_diff_spans(
+pub(super) fn prepare_inline_diff_pair(
     old_text: &str,
     new_text: &str,
-    is_deletion: bool,
     base_bg: Option<Color>,
-) -> Vec<Span<'static>> {
+) -> (Vec<Span<'static>>, Vec<Span<'static>>) {
     let diff = TextDiff::from_words(old_text, new_text);
-    let mut spans = Vec::new();
-
+    let mut old = Vec::new();
+    let mut new = Vec::new();
     for change in diff.iter_all_changes() {
-        let text = change.value().to_string();
         let mut style = Style::default();
         if let Some(bg) = base_bg {
             style = style.bg(bg);
         }
-
         match change.tag() {
             ChangeTag::Equal => {
-                if is_deletion {
-                    spans.push(Span::styled(text, style.fg(Color::LightRed)));
-                } else {
-                    spans.push(Span::styled(text, style.fg(Color::LightGreen)));
-                }
+                old.push(Span::styled(
+                    change.value().to_owned(),
+                    style.fg(Color::LightRed),
+                ));
+                new.push(Span::styled(
+                    change.value().to_owned(),
+                    style.fg(Color::LightGreen),
+                ));
             }
-            ChangeTag::Delete => {
-                if is_deletion {
-                    spans.push(Span::styled(
-                        text,
-                        style
-                            .bg(Color::Red)
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                }
-            }
-            ChangeTag::Insert => {
-                if !is_deletion {
-                    spans.push(Span::styled(
-                        text,
-                        style
-                            .bg(Color::Green)
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                }
-            }
+            ChangeTag::Delete => old.push(Span::styled(
+                change.value().to_owned(),
+                style
+                    .bg(Color::Red)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            ChangeTag::Insert => new.push(Span::styled(
+                change.value().to_owned(),
+                style
+                    .bg(Color::Green)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )),
         }
     }
-    spans
+    (old, new)
 }
 
 pub(crate) fn pad_or_truncate_spans(
@@ -256,10 +262,18 @@ pub(crate) fn pad_or_truncate_spans(
     out
 }
 
-pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
+// Cached rows deliberately contain no cursor/selection styling. Word differences are
+// filled lazily by the viewport; only cheap base text participates in wrap preparation.
+fn prepare_diff(
+    app: &App,
+    area: Rect,
+    index: &cache::Index,
+    mapping: &crate::app::rows::Mapping,
+    git: bool,
+) -> (String, cache::Rows) {
     let current_file = app.snapshot.files.get(app.selected_file_idx);
 
-    let (title, content_lines, active_cursor_row) = if !app.git_engine.is_git_repo() {
+    let (title, content_lines) = if !git {
         (
             " Not a Git Repository ".to_string(),
             vec![
@@ -293,18 +307,13 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                     "  [q] Quit lgtm",
                     Style::default().fg(Color::White),
                 )),
-            ],
-            None,
+            ]
+            .into(),
         )
     } else {
         match current_file {
             Some(file) => {
-                let mut active_cursor_row: Option<usize> = None;
-                let file_alerts: Vec<&crate::guard::GuardAlert> = app
-                    .alerts
-                    .iter()
-                    .filter(|a| a.file_path == file.display_name())
-                    .collect();
+                let file_alerts: Vec<&crate::guard::GuardAlert> = index.file_alerts.iter().map(|&i| &app.alerts[i]).collect();
 
                 let alert_badge_title = if !file_alerts.is_empty() {
                     format!(" | ⚠️ {} Alert(s)", file_alerts.len())
@@ -318,33 +327,15 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                     " [Unified]"
                 };
 
-                let active_scope = app.current_hunk_info().and_then(|(_, hunk, _)| {
-                    let parts: Vec<&str> = hunk.header.split("@@").collect();
-                    if parts.len() >= 3 {
-                        let candidate = parts[2].trim();
-                        if !candidate.is_empty() {
-                            return Some(candidate.to_string());
-                        }
-                    }
-                    None
-                });
-
-                let scope_badge = if let Some(ref scope) = active_scope {
-                    format!(" │ 📍 {}", scope)
-                } else {
-                    String::new()
-                };
-
                 let title = format!(
-                    " {}{}(+{}/-{}){}{} ",
+                    " {}{}(+{}/-{}){} ",
                     file.display_name(),
                     view_mode_tag,
                     file.additions,
                     file.deletions,
-                    alert_badge_title,
-                    scope_badge
+                    alert_badge_title
                 );
-                let mut lines = Vec::new();
+                let mut lines = cache::Rows::default();
 
                 // Surface file-level alerts (alerts without specific line numbers) at top
                 let file_level_alerts: Vec<&&crate::guard::GuardAlert> =
@@ -383,13 +374,12 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                     )));
                 } else if app.is_split_view && area.width >= 60 {
                     let col_width = ((area.width.saturating_sub(6)) / 2) as usize;
-                    let mut line_counter = 0;
 
-                    for hunk in &file.hunks {
+                    for (hunk_index, hunk) in file.hunks.iter().enumerate() {
+                        let hunk_base = mapping.starts[hunk_index];
                         if hunk.is_folded {
                             let hunk_len = hunk.lines.len();
-                            let is_cursor_in_hunk = app.cursor_line_idx >= line_counter
-                                && app.cursor_line_idx < line_counter + hunk_len;
+                            let is_cursor_in_hunk = false;
                             let style = if is_cursor_in_hunk {
                                 Style::default()
                                     .bg(Color::Indexed(237))
@@ -407,10 +397,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                 ),
                                 style,
                             )]));
-                            if is_cursor_in_hunk && active_cursor_row.is_none() {
-                                active_cursor_row = Some(lines.len() - 1);
-                            }
-                            line_counter += hunk_len;
+                            lines.tag(cache::Anchor::Fold {raw:hunk_base});
                             continue;
                         }
 
@@ -423,12 +410,12 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
 
                         let mut h_idx = 0;
                         let mut seen_blocks = Vec::new();
-                        let fold_map = App::fold_map(hunk);
+                        let fold_map = &mapping.folds[hunk_index];
                         while h_idx < hunk.lines.len() {
                             if let Some(range) = fold_map[h_idx] {
                                 if !seen_blocks.contains(&range) {
                                     seen_blocks.push(range);
-                                    let is_cursor = line_counter == app.cursor_line_idx;
+                                    let is_cursor = false;
                                     let style = if is_cursor {
                                         Style::default()
                                             .bg(Color::Indexed(237))
@@ -448,11 +435,8 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                         ),
                                         style,
                                     )]));
-                                    if is_cursor && active_cursor_row.is_none() {
-                                        active_cursor_row = Some(lines.len() - 1);
-                                    }
+                                    lines.tag(cache::Anchor::Fold {raw:hunk_base+h_idx});
                                 }
-                                line_counter += 1;
                                 h_idx += 1;
                                 continue;
                             }
@@ -460,8 +444,8 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                             let line = &hunk.lines[h_idx];
                             match line.line_type {
                                 LineType::Context => {
-                                    let is_cursor = line_counter == app.cursor_line_idx;
-                                    let in_visual = app.is_in_visual_selection(line_counter);
+                                    let is_cursor = false;
+                                    let in_visual = false;
                                     let base_bg = if in_visual && is_cursor {
                                         Some(Color::Indexed(241))
                                     } else if in_visual {
@@ -525,16 +509,14 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                     row_spans.extend(pad_or_truncate_spans(right_spans, col_width));
 
                                     lines.push(Line::from(row_spans));
-                                    if is_cursor && active_cursor_row.is_none() {
-                                        active_cursor_row = Some(lines.len() - 1);
-                                    }
-                                    line_counter += 1;
+                                    lines.tag(cache::Anchor::Split {hunk:hunk_index,old:Some(h_idx),new:Some(h_idx),base:hunk_base,context:true});
                                     h_idx += 1;
                                 }
                                 LineType::Deletion | LineType::Addition => {
                                     let mut dels = Vec::new();
                                     while h_idx < hunk.lines.len()
                                         && hunk.lines[h_idx].line_type == LineType::Deletion
+                                        && fold_map[h_idx].is_none()
                                     {
                                         dels.push((h_idx, &hunk.lines[h_idx]));
                                         h_idx += 1;
@@ -542,6 +524,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                     let mut adds = Vec::new();
                                     while h_idx < hunk.lines.len()
                                         && hunk.lines[h_idx].line_type == LineType::Addition
+                                        && fold_map[h_idx].is_none()
                                     {
                                         adds.push((h_idx, &hunk.lines[h_idx]));
                                         h_idx += 1;
@@ -550,8 +533,8 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                     for k in 0..max_len {
                                         let del_opt = dels.get(k);
                                         let add_opt = adds.get(k);
-                                        let is_cursor = line_counter == app.cursor_line_idx;
-                                        let in_visual = app.is_in_visual_selection(line_counter);
+                                        let is_cursor = false;
+                                        let in_visual = false;
                                         let base_bg = if in_visual && is_cursor {
                                             Some(Color::Indexed(241))
                                         } else if in_visual {
@@ -576,13 +559,8 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                                 "- ",
                                                 Style::default().fg(Color::Red),
                                             ));
-                                            if let Some((_, add_line)) = add_opt {
-                                                left_spans.extend(render_inline_diff_spans(
-                                                    &del_line.content,
-                                                    &add_line.content,
-                                                    true,
-                                                    base_bg,
-                                                ));
+                                            if let Some((_, _add_line)) = add_opt {
+                                                left_spans.push(Span::styled(del_line.content.clone(),Style::default().fg(Color::LightRed)));
                                             } else {
                                                 let mut style = Style::default().fg(Color::Red);
                                                 if let Some(bg) = base_bg {
@@ -628,13 +606,8 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                                 "+ ",
                                                 Style::default().fg(Color::Green),
                                             ));
-                                            if let Some((_, del_line)) = del_opt {
-                                                right_spans.extend(render_inline_diff_spans(
-                                                    &del_line.content,
-                                                    &add_line.content,
-                                                    false,
-                                                    base_bg,
-                                                ));
+                                            if let Some((_, _del_line)) = del_opt {
+                                                right_spans.push(Span::styled(add_line.content.clone(),Style::default().fg(Color::LightGreen)));
                                             } else {
                                                 let mut style = Style::default().fg(Color::Green);
                                                 if let Some(bg) = base_bg {
@@ -659,10 +632,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                         ));
 
                                         lines.push(Line::from(row_spans));
-                                        if is_cursor && active_cursor_row.is_none() {
-                                            active_cursor_row = Some(lines.len() - 1);
-                                        }
-                                        line_counter += 1;
+                                        lines.tag(cache::Anchor::Split {hunk:hunk_index,old:del_opt.map(|(i,_)|*i),new:add_opt.map(|(i,_)|*i),base:hunk_base,context:false});
                                     }
                                 }
                                 LineType::HunkHeader => {
@@ -673,11 +643,11 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                     }
                 } else {
                     let mut line_counter = 0;
-                    for hunk in &file.hunks {
+                    for (hunk_index, hunk) in file.hunks.iter().enumerate() {
+                        let hunk_base = mapping.starts[hunk_index];
                         if hunk.is_folded {
                             let hunk_len = hunk.lines.len();
-                            let is_cursor_in_hunk = app.cursor_line_idx >= line_counter
-                                && app.cursor_line_idx < line_counter + hunk_len;
+                            let is_cursor_in_hunk = false;
                             let style = if is_cursor_in_hunk {
                                 Style::default()
                                     .bg(Color::Indexed(237))
@@ -695,9 +665,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                 ),
                                 style,
                             )]));
-                            if is_cursor_in_hunk && active_cursor_row.is_none() {
-                                active_cursor_row = Some(lines.len() - 1);
-                            }
+                            lines.tag(cache::Anchor::Fold {raw:hunk_base});
                             line_counter += hunk_len;
                             continue;
                         }
@@ -711,13 +679,13 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
 
                         let pairs = find_intra_line_pairs(&hunk.lines);
                         let mut seen_blocks = Vec::new();
-                        let fold_map = App::fold_map(hunk);
+                        let fold_map = &mapping.folds[hunk_index];
 
                         for (h_line_idx, dline) in hunk.lines.iter().enumerate() {
                             if let Some(range) = fold_map[h_line_idx] {
                                 if !seen_blocks.contains(&range) {
                                     seen_blocks.push(range);
-                                    let is_cursor = line_counter == app.cursor_line_idx;
+                                    let is_cursor = false;
                                     let style = if is_cursor {
                                         Style::default()
                                             .bg(Color::Indexed(237))
@@ -737,16 +705,14 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                         ),
                                         style,
                                     )]));
-                                    if is_cursor && active_cursor_row.is_none() {
-                                        active_cursor_row = Some(lines.len() - 1);
-                                    }
+                                    lines.tag(cache::Anchor::Fold {raw:line_counter});
                                 }
                                 line_counter += 1;
                                 continue;
                             }
 
-                            let is_cursor = line_counter == app.cursor_line_idx;
-                            let in_visual = app.is_in_visual_selection(line_counter);
+                            let is_cursor = false;
+                            let in_visual = false;
 
                             let base_bg = if in_visual && is_cursor {
                                 Some(Color::Indexed(241))
@@ -773,35 +739,9 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                             };
 
                             // Check matching line-anchored alerts
-                            let matching_alerts: Vec<&&crate::guard::GuardAlert> = file_alerts
-                                .iter()
-                                .filter(|a| a.line_no.is_some() && a.line_no == line_no)
-                                .collect();
-
-                            // Check matching line-anchored comments
-                            let dname = file.display_name();
-                            let clean_dname = dname.trim_start_matches("./");
-                            let matching_comments: Vec<&crate::comment::CommentAnchor> = app
-                                .comments
-                                .iter()
-                                .filter(|c| {
-                                    if c.orphaned || Some(c.target_line_no) != line_no {
-                                        return false;
-                                    }
-                                    let clean_cpath = c.file_path.trim_start_matches("./");
-                                    clean_cpath == clean_dname
-                                        || clean_dname.ends_with(clean_cpath)
-                                        || clean_cpath.ends_with(clean_dname)
-                                })
-                                .collect();
-
-                            let thread_state = line_no.and_then(|n| {
-                                lgtm_core::github::thread_marker(
-                                    &app.threads,
-                                    &file.display_name(),
-                                    n,
-                                )
-                            });
+                            let matching_alerts: Vec<&crate::guard::GuardAlert> = line_no.and_then(|n| index.alerts.get(&n)).into_iter().flatten().map(|&i| &app.alerts[i]).collect();
+                            let matching_comments: Vec<&crate::comment::CommentAnchor> = line_no.and_then(|n| index.comments.get(&n)).into_iter().flatten().map(|&i| &app.comments[i]).collect();
+                            let thread_state = line_no.and_then(|n| index.threads.get(&n).copied());
 
                             let gutter_icon = if in_visual {
                                 "▌ "
@@ -857,7 +797,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
 
                             let mut line_spans = vec![
                                 Span::styled(line_no_str, line_no_style),
-                                Span::styled(gutter_icon, icon_style),
+                                Span::styled(padded_gutter(gutter_icon), icon_style),
                                 Span::styled(
                                     prefix,
                                     match dline.line_type {
@@ -869,16 +809,8 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                 Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
                             ];
 
-                            if let Some(&(paired_idx, is_del)) = pairs.get(&h_line_idx) {
-                                let paired_line = &hunk.lines[paired_idx];
-                                let (old_txt, new_txt) = if is_del {
-                                    (dline.content.as_str(), paired_line.content.as_str())
-                                } else {
-                                    (paired_line.content.as_str(), dline.content.as_str())
-                                };
-                                line_spans.extend(render_inline_diff_spans(
-                                    old_txt, new_txt, is_del, base_bg,
-                                ));
+                            if let Some(&(_, is_del)) = pairs.get(&h_line_idx) {
+                                line_spans.push(Span::styled(dline.content.clone(), Style::default().fg(if is_del {Color::LightRed} else {Color::LightGreen})));
                             } else {
                                 let mut style = match dline.line_type {
                                     LineType::Addition => Style::default().fg(Color::Green),
@@ -895,9 +827,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                             }
 
                             lines.push(Line::from(line_spans));
-                            if is_cursor && active_cursor_row.is_none() {
-                                active_cursor_row = Some(lines.len() - 1);
-                            }
+                            lines.tag(cache::Anchor::Unified {raw:line_counter,hunk:hunk_index,line:h_line_idx,pair:pairs.get(&h_line_idx).copied()});
 
                             // Render inline alerts directly beneath this code line
                             for alert in matching_alerts {
@@ -946,11 +876,20 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                                     )
                                 };
 
-                                lines.push(Line::from(vec![
+                                let mut comment_spans = vec![
                                     Span::raw("        │ "),
                                     Span::styled(badge, b_style),
                                     Span::styled(format!("\"{}\"", comment.comment_text), t_style),
-                                ]));
+                                ];
+                                if comment.remote_id.is_some() {
+                                    comment_spans.push(Span::styled(
+                                        " [↑]",
+                                        Style::default()
+                                            .fg(Color::Green)
+                                            .add_modifier(Modifier::BOLD),
+                                    ));
+                                }
+                                lines.push(Line::from(comment_spans));
 
                                 for (r_idx, reply) in comment.replies.iter().enumerate() {
                                     lines.push(Line::from(vec![
@@ -973,7 +912,7 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                         }
                     }
                 }
-                (title, lines, active_cursor_row)
+                (title, lines)
             }
             None => (
                 " Working Tree Clean ".to_string(),
@@ -1019,34 +958,15 @@ pub(crate) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
                     Line::from("  • v            Mark file reviewed and fold"),
                     Line::from("  • p            Select target tmux pane"),
                     Line::from("  • q            Quit"),
-                ],
-                None,
+                ].into(),
             ),
         }
     };
 
-    let inner_height = area.height.saturating_sub(2) as usize;
-    update_diff_scroll_offset(
-        &mut app.diff_scroll_offset,
-        content_lines.len(),
-        inner_height,
-        active_cursor_row,
-    );
-
-    let paragraph = Paragraph::new(content_lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title)
-                .border_style(Style::default().fg(Color::Cyan)),
-        )
-        .scroll((app.diff_scroll_offset as u16, 0))
-        .wrap(Wrap { trim: false });
-
-    frame.render_widget(paragraph, area);
+    (title, content_lines)
 }
 
-fn update_diff_scroll_offset(
+pub(super) fn update_diff_scroll_offset(
     scroll_offset: &mut usize,
     content_len: usize,
     inner_height: usize,
@@ -1121,6 +1041,7 @@ mod tests {
     fn test_render_diff_view_auto_scrolls_to_active_line() {
         let mut app = crate::app::test_util::create_test_app();
         app.git_engine = lgtm_core::git::GitEngine::new(".");
+        crate::app::test_util::wait_for_view_data(&mut app);
         let lines: Vec<DiffLine> = (0..50)
             .map(|i| DiffLine {
                 line_type: LineType::Context,
@@ -1197,6 +1118,7 @@ mod tests {
     fn test_render_diff_view_auto_scrolls_in_split_view() {
         let mut app = crate::app::test_util::create_test_app();
         app.git_engine = lgtm_core::git::GitEngine::new(".");
+        crate::app::test_util::wait_for_view_data(&mut app);
         app.is_split_view = true;
         let lines: Vec<DiffLine> = (0..50)
             .map(|i| DiffLine {
@@ -1250,3 +1172,6 @@ mod tests {
         assert!(active_row < app.diff_scroll_offset + inner_height);
     }
 }
+
+#[cfg(test)]
+mod regression;

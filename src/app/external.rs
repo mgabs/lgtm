@@ -3,20 +3,16 @@ use super::*;
 impl App {
     pub fn export_and_send_batch_review(&mut self) {
         if let Some(pr_num) = self.pr.current_number {
+            if self.review_posting_prs.contains(&pr_num) {
+                self.status_message = Some("A review for this PR is already being posted".into());
+                return;
+            }
             let (prompt, file_path) =
                 CommentStore::compile_pr_review_prompt(&self.comments, pr_num);
             let full_path = self.git_engine.repo_path.join(&file_path);
             let _ = std::fs::write(&full_path, &prompt);
 
             let mut notes = vec![format!("Saved to {}", file_path.display())];
-
-            let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
-            if forge.available() {
-                match forge.post_review(pr_num, "COMMENT", &prompt) {
-                    Ok(_) => notes.push("Posted review to PR".to_string()),
-                    Err(e) => notes.push(format!("review not posted: {}", e)),
-                }
-            }
 
             let sink = self.agent_sink();
             let text = if self.agent_pane.is_some() {
@@ -47,7 +43,33 @@ impl App {
             drop(sink);
             notes.push(format!("Delivered to {}", label));
 
-            self.status_message = Some(notes.join(" | "));
+            self.review_posting_prs.insert(pr_num);
+            let repo = self.git_engine.repo_path.clone();
+            let factory = self.forge_factory;
+            let label = format!("{} | Posting review", notes.join(" | "));
+            self.spawn_job(
+                &label,
+                move || {
+                    let forge = factory(&repo);
+                    if !forge.available() {
+                        anyhow::bail!("provider tools are unavailable");
+                    }
+                    forge.post_review(pr_num, "COMMENT", &prompt)
+                },
+                move |app, result| {
+                    app.review_posting_prs.remove(&pr_num);
+                    if result.is_err() {
+                        app.quit_after_jobs = false;
+                    }
+                    notes.push(match result {
+                        Ok(()) => "Posted review to PR".into(),
+                        Err(error) => format!("Review not posted: {error}; saved review retained"),
+                    });
+                    if app.pr.current_number == Some(pr_num) {
+                        app.status_message = Some(notes.join(" | "));
+                    }
+                },
+            );
             return;
         }
 
@@ -85,6 +107,8 @@ impl App {
         ));
 
         let _ = self.turn_manager.advance_turn(None);
+        self.invalidate_pr_completion();
+        self.invalidate_view_data();
     }
 
     pub fn run_test_mutation_probe(&mut self) {
@@ -214,6 +238,7 @@ impl App {
             .unwrap_or(1);
         let display_name = file.display_name();
         let editor = self.resolved_editor();
+        self.invalidate_view_data();
         self.status_message = Some(match launch_editor(&editor, &path, line_no) {
             Ok(_) => format!("Opened {}:{} in {}", display_name, line_no, editor),
             Err(err) => format!(
@@ -226,6 +251,7 @@ impl App {
     pub fn open_file_in_editor(&mut self, file_rel_path: &str, line_no: u32) {
         let path = self.git_engine.repo_path.join(file_rel_path);
         let editor = self.resolved_editor();
+        self.invalidate_view_data();
         self.status_message = Some(match launch_editor(&editor, &path, line_no) {
             Ok(_) => format!("Opened {}:{} in {}", file_rel_path, line_no, editor),
             Err(err) => format!(
@@ -410,6 +436,7 @@ mod tests {
     fn test_inject_reference_with_directive() {
         let mut app = setup_app_with_line(10);
         app.comments.push(CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "src/main.rs".into(),
             target_line_no: 10,
             target_code: "let x = 42;".into(),
@@ -444,6 +471,7 @@ mod tests {
             file_path: "src/main.rs".into(),
         });
         app.comments.push(CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "src/main.rs".into(),
             target_line_no: 10,
             target_code: "let x = 42;".into(),

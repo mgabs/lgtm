@@ -3,12 +3,13 @@ use super::*;
 impl App {
     pub fn jump_to_file_and_line(&mut self, file_path: &str, target_line: u32) {
         let clean_path = file_path.trim_start_matches("./");
+        let clean_path_ref = std::path::Path::new(clean_path);
         if let Some(idx) = self.snapshot.files.iter().position(|f| {
             let dname = f.display_name();
-            let clean_dname = dname.trim_start_matches("./");
-            clean_dname == clean_path
-                || clean_dname.ends_with(clean_path)
-                || clean_path.ends_with(clean_dname)
+            let clean_dname = std::path::Path::new(dname.trim_start_matches("./"));
+            clean_dname == clean_path_ref
+                || clean_dname.ends_with(clean_path_ref)
+                || clean_path_ref.ends_with(clean_dname)
         }) {
             self.selected_file_idx = idx;
             if let Some(f) = self.snapshot.files.get_mut(idx) {
@@ -188,7 +189,7 @@ impl App {
 
     /// Per-line folded range for a hunk (first matching range wins), computed in
     /// O(n log n + total range length) instead of scanning every range per line.
-    pub fn fold_map(
+    pub(crate) fn fold_map(
         hunk: &lgtm_core::model::DiffHunk,
     ) -> Vec<Option<lgtm_core::model::BlockRange>> {
         let mut map = vec![None; hunk.lines.len()];
@@ -201,51 +202,32 @@ impl App {
             by_key.entry(key).or_default().push(idx);
         }
         for range in &hunk.folded_blocks {
-            if range.start_line > range.end_line {
-                continue;
-            }
-            for idxs in by_key
-                .range(range.start_line..=range.end_line)
-                .map(|(_, v)| v)
-            {
-                for &idx in idxs {
-                    map[idx].get_or_insert(*range);
-                }
+            if range.start_line <= range.end_line {
+                apply_range_to_map(&mut map, &by_key, *range);
             }
         }
         map
     }
+}
 
-    pub fn visible_line_indices(&self) -> Vec<usize> {
-        let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
-            return Vec::new();
-        };
-        let mut visible = Vec::new();
-        let mut line_offset = 0;
-        for hunk in &file.hunks {
-            if hunk.lines.is_empty() {
-                continue;
-            }
-            if hunk.is_folded {
-                visible.push(line_offset);
-                line_offset += hunk.lines.len();
-                continue;
-            }
-            let mut seen = Vec::new();
-            for (idx, folded) in Self::fold_map(hunk).into_iter().enumerate() {
-                let abs_idx = line_offset + idx;
-                if let Some(range) = folded {
-                    if !seen.contains(&range) {
-                        seen.push(range);
-                        visible.push(abs_idx);
-                    }
-                } else {
-                    visible.push(abs_idx);
-                }
-            }
-            line_offset += hunk.lines.len();
+fn apply_range_to_map(
+    map: &mut [Option<lgtm_core::model::BlockRange>],
+    by_key: &std::collections::BTreeMap<u32, Vec<usize>>,
+    range: lgtm_core::model::BlockRange,
+) {
+    for idxs in by_key
+        .range(range.start_line..=range.end_line)
+        .map(|(_, v)| v)
+    {
+        for &idx in idxs {
+            map[idx].get_or_insert(range);
         }
-        visible
+    }
+}
+
+impl App {
+    pub(crate) fn visible_line_indices(&self) -> std::rc::Rc<Vec<usize>> {
+        self.cached_rows().visible.clone()
     }
 
     pub fn cursor_down(&mut self) {

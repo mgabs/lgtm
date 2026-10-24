@@ -62,7 +62,11 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
                 Some(l) => format!("{}:{}", t.path, l),
                 None => t.path.clone(),
             };
-            let count_str = format!("({}💬)", t.comments.len());
+            let count_str = format!(
+                "({}💬) {}",
+                t.comments.len(),
+                app.thread_pending_label(&t.id).unwrap_or("")
+            );
             let author = t
                 .comments
                 .first()
@@ -132,7 +136,7 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
             " #{}: {} • {} ",
             app.thread_selected_idx + 1,
             loc,
-            status_text
+            app.thread_pending_label(&t.id).unwrap_or(status_text)
         );
 
         let mut lines = Vec::new();

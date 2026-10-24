@@ -4,6 +4,43 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Closed includes merged/completed as well as closed/abandoned PRs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PullRequestState {
+    #[default]
+    Open,
+    Closed,
+    All,
+}
+impl PullRequestState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+            Self::All => "all",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "open" => Ok(Self::Open),
+            "closed" => Ok(Self::Closed),
+            "all" => Ok(Self::All),
+            _ => bail!("Expected open, closed, or all"),
+        }
+    }
+    pub fn includes(self, state: &str) -> bool {
+        let open = matches!(state.to_ascii_lowercase().as_str(), "open" | "active");
+        match self {
+            Self::Open => open,
+            Self::Closed => matches!(
+                state.to_ascii_lowercase().as_str(),
+                "closed" | "merged" | "completed" | "abandoned"
+            ),
+            Self::All => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequestSummary {
     pub number: u64,
@@ -25,51 +62,17 @@ pub struct PrEngine;
 
 impl PrEngine {
     pub fn is_gh_installed() -> bool {
-        Command::new("gh").arg("--version").output().is_ok()
-    }
-
-    pub fn list_pull_requests() -> Result<Vec<PullRequestSummary>> {
-        let output = Command::new("gh")
-            .args([
-                "pr",
-                "list",
-                "--json",
-                "number,title,author,headRefName,additions,deletions,state",
-                "--limit",
-                "30",
-            ])
-            .output()
-            .context("Failed to run `gh pr list`")?;
-
-        if !output.status.success() {
-            bail!("`gh pr list` returned an error. Ensure `gh auth login` is configured.");
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let prs: Vec<PullRequestSummary> = serde_json::from_str(&stdout)
-            .context("Failed to parse pull requests JSON from `gh pr list`")?;
-        Ok(prs)
-    }
-
-    pub fn fetch_pr_diff(pr_number: u64) -> Result<DiffSnapshot> {
-        let output = Command::new("gh")
-            .args(["pr", "diff", &pr_number.to_string()])
-            .output()
-            .context(format!("Failed to run `gh pr diff {}`", pr_number))?;
-
-        if !output.status.success() {
-            bail!("`gh pr diff {}` failed", pr_number);
-        }
-
-        let raw_diff = String::from_utf8_lossy(&output.stdout);
-        Self::parse_unified_diff(&raw_diff)
+        static INSTALLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *INSTALLED.get_or_init(|| Command::new("gh").arg("--version").output().is_ok())
     }
 
     pub fn post_review(pr_number: u64, event: &str, body: &str) -> Result<()> {
+        let _timing = crate::debug::Span::new("command.gh.pr.review");
         let flag = match event {
-            "approve" => "--approve",
-            "request-changes" => "--request-changes",
-            _ => "--comment",
+            "approve" | "APPROVE" => "--approve",
+            "request-changes" | "request_changes" | "REQUEST_CHANGES" => "--request-changes",
+            "comment" | "COMMENT" => "--comment",
+            other => bail!("unknown review event '{other}'"),
         };
 
         let mut cmd = Command::new("gh");
@@ -78,10 +81,10 @@ impl PrEngine {
             cmd.args(["-b", body]);
         }
 
-        let status = cmd
-            .status()
+        let output = cmd
+            .output()
             .context("Failed to submit PR review via `gh`")?;
-        if !status.success() {
+        if !output.status.success() {
             bail!("`gh pr review` returned non-zero status code");
         }
         Ok(())

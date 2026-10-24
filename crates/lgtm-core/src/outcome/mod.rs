@@ -32,6 +32,8 @@ pub struct Tracking {
     pub outcome: Option<Outcome>,
     #[serde(default)]
     pub claim: Option<Claim>,
+    #[serde(default)]
+    pub remote_uncertain: bool,
 }
 
 pub fn classify(c: &CommentAnchor, files: &[FileDiff]) -> Outcome {

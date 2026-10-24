@@ -13,7 +13,7 @@ pub(crate) fn render_commit_modal(frame: &mut Frame, area: Rect, app: &App) {
         ])
         .split(popup_area);
 
-    let staged_count = app.staged_files_count();
+    let staged_count = app.view_data.staged_count;
     let staged_summary = vec![
         Line::from(vec![
             Span::styled("Staged Files: ", Style::default().fg(Color::DarkGray)),

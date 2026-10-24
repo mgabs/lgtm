@@ -1,2 +1,5 @@
+[thresholds]
+complexity_increase = 25
+
 [severity]
 "arch/blast-radius" = "off"

@@ -134,17 +134,20 @@ pub(crate) fn render_pr_picker(frame: &mut Frame, area: Rect, app: &App) {
         let text = vec![
             Line::from(""),
             Line::from(Span::styled(
-                "  (No open pull requests found or `gh` CLI not authenticated)",
+                "  Loading, or no matching pull requests. Check the status bar for errors.",
                 Style::default().fg(Color::DarkGray),
             )),
             Line::from(""),
-            Line::from("  Ensure `gh auth login` is configured in this repository."),
+            Line::from("  Filters: 1 Open | 2 Closed | 3 All (closed includes merged/completed)."),
             Line::from("  Press `Esc` or `q` to close."),
         ];
         let p = Paragraph::new(text).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" GitHub Pull Requests (Esc to close) ")
+                .title(format!(
+                    " {} pull requests (1 Open | 2 Closed | 3 All) ",
+                    app.pr.filter.as_str()
+                ))
                 .border_style(Style::default().fg(Color::Blue)),
         );
         frame.render_widget(p, popup_area);
@@ -175,7 +178,7 @@ pub(crate) fn render_pr_picker(frame: &mut Frame, area: Rect, app: &App) {
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
-                    format!("[{}]", pr.head_ref_name),
+                    format!("[{}] ({})", pr.head_ref_name, pr.state),
                     Style::default().fg(Color::Cyan),
                 ),
             ]);
@@ -197,7 +200,8 @@ pub(crate) fn render_pr_picker(frame: &mut Frame, area: Rect, app: &App) {
         Block::default()
             .borders(Borders::ALL)
             .title(format!(
-                " Select Pull Request [{}] (Enter: Load Diff | Esc: Close) ",
+                " {} PRs [{}] (1 Open | 2 Closed | 3 All | Enter: Load) ",
+                app.pr.filter.as_str(),
                 app.pr.list.len()
             ))
             .border_style(Style::default().fg(Color::Blue)),

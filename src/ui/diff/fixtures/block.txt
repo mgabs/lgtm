@@ -1,0 +1,98 @@
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"┌ a.rs [Unified](+1/-1) | ⚠\u{fe0f}"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|" "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|" 2 Alert(s) │ 📍"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|" "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|" fn example() ─────────────────────────────────────┐"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().white().on_red().underline_color(Color::Reset).bold()|"  🟠"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|" "
+Style::new().white().on_red().underline_color(Color::Reset).bold()|" HIGH "
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|" "
+Style::new().yellow().bg(Color::Reset).underline_color(Color::Reset).bold()|"file finding"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|": "
+Style::new().white().bg(Color::Reset).underline_color(Color::Reset)|"check the change"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                     "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset).italic()|"  @@ -1,4 +1,4 @@ fn example()"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset).bold()|"▶  1 ◆  "
+Style::new().white().bg(Color::Reset).underline_color(Color::Reset)|" "
+Style::new().dark_gray().bg(Color::Reset).underline_color(Color::Reset)|" │ "
+Style::new().white().bg(Color::Indexed(237)).underline_color(Color::Reset).bold()|"fn example() {"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                    "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().yellow().bg(Color::Reset).underline_color(Color::Reset).bold()|"  ▶ [Folded AST Block (L2-L3, 2 lines): let answer = old_value; | zo/za to expand]"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"            "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().dark_gray().bg(Color::Reset).underline_color(Color::Reset)|"   4 "
+Style::new().magenta().bg(Color::Reset).underline_color(Color::Reset).bold()|"   "
+Style::new().white().bg(Color::Reset).underline_color(Color::Reset)|" "
+Style::new().dark_gray().bg(Color::Reset).underline_color(Color::Reset)|" │ "
+Style::new().white().bg(Color::Reset).underline_color(Color::Reset)|"}"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                 "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+Style::new().fg(Color::Reset).bg(Color::Reset).underline_color(Color::Reset)|"                                                                                              "
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"│"
+--
+Style::new().cyan().bg(Color::Reset).underline_color(Color::Reset)|"└──────────────────────────────────────────────────────────────────────────────────────────────┘"
+--

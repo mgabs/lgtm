@@ -920,7 +920,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "lgtm"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -933,11 +933,12 @@ dependencies = [
  "ratatui",
  "serde_json",
  "similar",
+ "tempfile",
 ]
 
 [[package]]
 name = "lgtm-ast"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -952,7 +953,7 @@ dependencies = [
 
 [[package]]
 name = "lgtm-core"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -969,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "lgtm-mcp"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",

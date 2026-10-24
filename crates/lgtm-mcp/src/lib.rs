@@ -1,6 +1,5 @@
 use anyhow::Result;
 use lgtm_core::git::GitEngine;
-use lgtm_core::guard::SecurityAndTestGuard;
 use lgtm_core::model::DiffSnapshot;
 use lgtm_core::watcher::{RepoWatcher, WatcherMessage};
 use serde_json::{json, Value};
@@ -387,8 +386,7 @@ impl McpServer {
                 self.format_diff_summary(&snapshot)
             }
             "lgtm_security_scan" => {
-                let snapshot = self.git_engine.compute_diff_snapshot()?;
-                let alerts = SecurityAndTestGuard::scan_snapshot(&snapshot.files);
+                let alerts = self.active_findings()?;
                 let strict = args
                     .get("strict")
                     .and_then(|s| s.as_bool())
@@ -437,6 +435,7 @@ impl McpServer {
 
                 let comment =
                     lgtm_core::comment::CommentAnchor {
+                        id: lgtm_core::comment::new_id(),
                         file_path: file.to_string(),
                         target_line_no: line,
                         target_code: String::new(),
@@ -539,9 +538,16 @@ impl McpServer {
         }))?)
     }
 
-    fn scan_changes(&self) -> Result<String> {
+    fn active_findings(&self) -> Result<Vec<lgtm_core::guard::GuardAlert>> {
         let snapshot = self.git_engine.compute_diff_snapshot()?;
-        let alerts = SecurityAndTestGuard::scan_snapshot(&snapshot.files);
+        let user_cfg = lgtm_core::config::user_config_path(false);
+        let cfg = lgtm_core::config::LgtmConfig::load(&self.repo_path, user_cfg.as_deref())?;
+        let findings = lgtm_core::findings::run_in(&self.repo_path, &snapshot.files, &cfg)?;
+        Ok(findings.active)
+    }
+
+    fn scan_changes(&self) -> Result<String> {
+        let alerts = self.active_findings()?;
         let path = self.git_engine.repo_path.join(".lgtm/last_scan.json");
         let seen: std::collections::HashSet<String> = std::fs::read_to_string(&path)
             .ok()
@@ -624,10 +630,8 @@ impl McpServer {
                 Ok(("text/plain".to_string(), text))
             }
             "lgtm://findings" => {
-                let snap = self.git_engine.compute_diff_snapshot()?;
-                let cfg = lgtm_core::config::LgtmConfig::default();
-                let findings = lgtm_core::findings::run(&snap.files, &cfg);
-                let text = serde_json::to_string_pretty(&findings.active)?;
+                let active = self.active_findings()?;
+                let text = serde_json::to_string_pretty(&active)?;
                 Ok(("application/json".to_string(), text))
             }
             "lgtm://review-state" => {
@@ -836,5 +840,58 @@ mod tests {
         let aff2 = McpServer::affected_resources(&[comments_path]);
         assert!(aff2.contains(&"lgtm://directives"));
         assert!(aff2.contains(&"lgtm://review-state"));
+    }
+
+    #[test]
+    fn test_mcp_findings_respect_config_and_baseline() {
+        let d = repo();
+        let line = format!(
+            "import requests\nrequests.get(u, {})\n",
+            ["verify=", "False"].concat()
+        );
+        std::fs::write(d.path().join("a.py"), &line).unwrap();
+        std::fs::write(d.path().join("ignored.py"), &line).unwrap();
+        std::fs::write(
+            d.path().join(".lgtm.toml"),
+            "[ignore]\npaths = [\"ignored.py\"]\n",
+        )
+        .unwrap();
+        std::process::Command::new("git")
+            .args(["add", "-N", "a.py", "ignored.py"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+
+        let s = McpServer::new(d.path());
+        let scan = text(&call(&s, "lgtm_security_scan", json!({})));
+        let arr = scan.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["file_path"], "a.py");
+
+        // Baseline the finding on a.py and verify MCP tools and resource suppress it
+        let cfg = lgtm_core::config::LgtmConfig::load(d.path(), None).unwrap();
+        let (_, unbaselined) =
+            lgtm_core::scan::FullRepoScanner::scan_unbaselined(d.path(), &cfg).unwrap();
+        let bl_path = lgtm_core::baseline::path_for(d.path(), &cfg);
+        let mut bl = lgtm_core::baseline::Baseline::load(&bl_path).unwrap();
+        bl.update(&unbaselined, false, false);
+        bl.save(&bl_path).unwrap();
+
+        let scan_after = text(&call(&s, "lgtm_security_scan", json!({})));
+        assert!(scan_after.as_array().unwrap().is_empty());
+
+        let changes_after = text(&call(&s, "lgtm_scan_changes", json!({})));
+        assert!(changes_after.as_array().unwrap().is_empty());
+
+        let res = s
+            .handle_request(
+                "resources/read",
+                &json!({ "uri": "lgtm://findings" }),
+                Some(json!(14)),
+            )
+            .unwrap();
+        let res_findings: Value =
+            serde_json::from_str(res["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
+        assert!(res_findings.as_array().unwrap().is_empty());
     }
 }

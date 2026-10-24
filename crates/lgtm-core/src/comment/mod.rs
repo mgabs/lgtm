@@ -4,8 +4,21 @@ use std::fs::{create_dir_all, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
+static COMMENT_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub fn new_id() -> String {
+    let sequence = COMMENT_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{:x}-{now:x}-{sequence:x}", std::process::id())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommentAnchor {
+    /// Stable local identity, retained when code moves or the directive is edited.
+    #[serde(default)]
+    pub id: String,
     pub file_path: String,
     pub target_line_no: u32,
     pub target_code: String,
@@ -38,6 +51,14 @@ impl CommentAnchor {
         self.is_resolved = !self.is_resolved;
         self.is_resolved
     }
+
+    pub fn is_remote_uncertain(&self) -> bool {
+        self.track.remote_uncertain
+    }
+
+    pub fn set_remote_uncertain(&mut self, uncertain: bool) {
+        self.track.remote_uncertain = uncertain;
+    }
 }
 
 pub struct CommentStore {
@@ -54,6 +75,7 @@ impl CommentStore {
     }
 
     pub fn load_comments(&self) -> Vec<CommentAnchor> {
+        let _timing = crate::debug::Span::new("comments.load_comments");
         if !self.comments_file.exists() {
             return Vec::new();
         }
@@ -64,14 +86,27 @@ impl CommentStore {
         };
 
         let reader = BufReader::new(file);
-        reader
+        let mut comments: Vec<CommentAnchor> = reader
             .lines()
             .map_while(Result::ok)
             .filter_map(|line| serde_json::from_str::<CommentAnchor>(&line).ok())
-            .collect()
+            .collect();
+        // Persist the one-time migration before any background post can capture these ids.
+        let mut migrated = false;
+        for comment in &mut comments {
+            if comment.id.is_empty() {
+                comment.id = new_id();
+                migrated = true;
+            }
+        }
+        if migrated {
+            let _ = self.save_comments(&comments);
+        }
+        comments
     }
 
     pub fn add_comment(&self, comment: &CommentAnchor) -> Result<()> {
+        let _timing = crate::debug::Span::new("comments.add_comment");
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -84,6 +119,7 @@ impl CommentStore {
     }
 
     pub fn save_comments(&self, comments: &[CommentAnchor]) -> Result<()> {
+        let _timing = crate::debug::Span::new("comments.save_comments");
         let mut file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -180,6 +216,7 @@ mod tests {
         let store = CommentStore::new(&tmp);
 
         let mut c1 = CommentAnchor {
+            id: crate::comment::new_id(),
             file_path: "src/main.rs".into(),
             target_line_no: 42,
             target_code: "let x = 1;".into(),
@@ -220,6 +257,7 @@ mod tests {
         assert!(!resolved_turn.contains("Refactor this"));
 
         let c2 = CommentAnchor {
+            id: crate::comment::new_id(),
             file_path: "src/lib.rs".into(),
             target_line_no: 10,
             target_code: "foo();".into(),
@@ -249,5 +287,28 @@ mod tests {
 
         let (empty_pr_prompt, _) = CommentStore::compile_pr_review_prompt(&[], 100);
         assert!(empty_pr_prompt.contains("LGTM!"));
+    }
+    #[test]
+    fn legacy_directives_get_persisted_stable_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CommentStore::new(dir.path());
+        let legacy = serde_json::json!({"file_path":"a.rs", "target_line_no":1, "target_code":"code",
+            "context_before":[], "context_after":[], "comment_text":"keep me", "created_at_turn":1, "is_resolved":false});
+        std::fs::write(
+            dir.path().join(".lgtm/comments.jsonl"),
+            format!("{legacy}\n"),
+        )
+        .unwrap();
+        let first = store.load_comments();
+        let second = store.load_comments();
+        assert_eq!(first.len(), 1);
+        assert!(!first[0].id.is_empty());
+        assert_eq!(first, second);
+        assert_eq!(first[0].comment_text, "keep me");
+        assert!(
+            std::fs::read_to_string(dir.path().join(".lgtm/comments.jsonl"))
+                .unwrap()
+                .contains(&first[0].id)
+        );
     }
 }

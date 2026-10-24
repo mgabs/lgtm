@@ -1,12 +1,12 @@
-//! GitHub forge: native git fetch for PR diffs, direct REST/GraphQL API with GITHUB_TOKEN, and gh fallback.
+//! GitHub forge: native Git diffs, authenticated API/CLI access, and anonymous public reads.
 use super::Forge;
-use crate::git::GitEngine;
 use crate::github::{parse_threads, Bucket, Check, GhClient, GithubClient, Thread, THREADS_QUERY};
 use crate::model::DiffSnapshot;
 use crate::pr::{PrAuthor, PrEngine, PullRequestSummary};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::path::PathBuf;
+#[cfg(test)]
 use std::process::Command;
 
 pub trait Runner {
@@ -17,20 +17,11 @@ pub struct SystemRunner(pub PathBuf);
 
 impl Runner for SystemRunner {
     fn run(&self, program: &str, args: &[&str]) -> Result<String> {
-        let out = Command::new(program)
-            .args(args)
-            .current_dir(&self.0)
-            .output()
-            .with_context(|| format!("`{program}` is not installed or not on PATH"))?;
-        if out.status.success() {
-            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-        } else {
-            bail!(String::from_utf8_lossy(&out.stderr).trim().to_string())
-        }
+        super::failure::run(&self.0, program, args)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Remote {
     pub owner: String,
     pub repo: String,
@@ -82,115 +73,204 @@ pub fn parse_check_runs(v: &Value) -> Vec<Check> {
         .collect()
 }
 
-static BODY_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+type MergeKey = (PathBuf, Option<Remote>, u64);
+type MissingMergeRefs =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<MergeKey, std::time::Instant>>>;
+static MISSING_MERGES: std::sync::OnceLock<MissingMergeRefs> = std::sync::OnceLock::new();
+const MISSING_MERGE_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+fn is_github_com_url(url: &str) -> bool {
+    url.starts_with("https://github.com/")
+        || url.starts_with("http://github.com/")
+        || url.starts_with("git@github.com:")
+        || url.starts_with("ssh://git@github.com/")
+        || url.starts_with("ssh://github.com/")
+}
 
 pub struct GitHubForge {
     repo: PathBuf,
     remote: Option<Remote>,
+    is_github_com: bool,
     runner: Box<dyn Runner>,
     explicit_token: Option<String>,
+    missing_merges: MissingMergeRefs,
 }
 
 impl GitHubForge {
     pub fn new(repo: PathBuf) -> Self {
-        let remote = git2::Repository::open(&repo)
-            .ok()
-            .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
-            .and_then(|u| parse_remote(&u));
+        let url = super::origin_url(&repo);
+        Self::with_origin(repo, url)
+    }
+
+    pub(crate) fn with_origin(repo: PathBuf, origin_url: Option<String>) -> Self {
+        let remote = origin_url.as_deref().and_then(parse_remote);
+        let is_github_com = origin_url.as_deref().is_some_and(is_github_com_url);
         let runner = Box::new(SystemRunner(repo.clone()));
         Self {
             repo,
             remote,
+            is_github_com,
             runner,
             explicit_token: None,
+            missing_merges: MISSING_MERGES.get_or_init(Default::default).clone(),
         }
     }
 
     pub fn with_runner(repo: PathBuf, runner: Box<dyn Runner>) -> Self {
-        let remote = git2::Repository::open(&repo)
-            .ok()
-            .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
-            .and_then(|u| parse_remote(&u));
+        let origin_url = super::origin_url(&repo);
+        let remote = origin_url.as_deref().and_then(parse_remote);
+        let is_github_com = origin_url.as_deref().is_some_and(is_github_com_url);
         Self {
             repo,
             remote,
+            is_github_com,
             runner,
             explicit_token: None,
+            missing_merges: MISSING_MERGES.get_or_init(Default::default).clone(),
         }
+    }
+
+    /// Override the token used by direct API requests. `None` disables environment
+    /// token lookup; authentication managed by `gh` remains independent.
+    pub fn with_api_token(mut self, token: Option<String>) -> Self {
+        self.explicit_token = Some(token.unwrap_or_default());
+        self
+    }
+
+    fn merge_key(&self, pr: u64) -> MergeKey {
+        (self.repo.clone(), self.remote.clone(), pr)
+    }
+    fn merge_ref_missing(&self, pr: u64) -> bool {
+        self.missing_merges
+            .lock()
+            .unwrap()
+            .get(&self.merge_key(pr))
+            .is_some_and(|at| at.elapsed() < MISSING_MERGE_TTL)
+    }
+    fn remember_missing_merge(&self, pr: u64) {
+        let mut cache = self.missing_merges.lock().unwrap();
+        cache.retain(|_, at| at.elapsed() < MISSING_MERGE_TTL);
+        cache.insert(self.merge_key(pr), std::time::Instant::now());
     }
 
     fn token(&self) -> Option<String> {
         if let Some(t) = &self.explicit_token {
-            return Some(t.clone());
+            return (!t.trim().is_empty()).then(|| t.clone());
         }
-        std::env::var("GITHUB_TOKEN")
-            .or_else(|_| std::env::var("GH_TOKEN"))
-            .ok()
-            .filter(|t| !t.trim().is_empty())
+        ["GITHUB_TOKEN", "GH_TOKEN"]
+            .into_iter()
+            .filter_map(|name| std::env::var(name).ok())
+            .find(|token| !token.trim().is_empty())
+    }
+
+    fn anonymous_remote(&self) -> bool {
+        self.is_github_com
+    }
+
+    fn can_read_anonymously(&self, error: &anyhow::Error) -> bool {
+        self.token().is_none()
+            && self.anonymous_remote()
+            && error
+                .downcast_ref::<super::failure::Failure>()
+                .is_some_and(|failure| {
+                    matches!(
+                        failure.kind,
+                        super::failure::Kind::Authentication
+                            | super::failure::Kind::ToolUnavailable
+                    )
+                })
+    }
+
+    fn anonymous_get(&self, url: &str, accept: &str) -> Result<String> {
+        let _timing = crate::debug::Span::new("pr.anonymous_read");
+        let header = format!("Accept: {accept}");
+        // This path only performs GET requests and carries no authorization or body.
+        self.runner
+            .run("curl", &["-sS", "--fail", "-H", "User-Agent: lgtm", "-H", &header, url])
+            .map_err(|error| {
+                let detail = error.downcast_ref::<super::failure::Failure>()
+                    .map(ToString::to_string).unwrap_or_else(|| "provider request failed".into());
+                error.context(format!("Anonymous GitHub read failed: {detail}; private repositories require authentication, and public reads may be rate limited"))
+            })
+    }
+
+    fn cli_list(&self, state: crate::pr::PullRequestState) -> Result<Vec<PullRequestSummary>> {
+        let mut args = vec!["pr", "list", "--state"];
+        if state == crate::pr::PullRequestState::Closed {
+            args.extend(["all", "--search", "is:closed"]);
+        } else {
+            args.push(state.as_str());
+        }
+        args.extend([
+            "--json",
+            "number,title,author,headRefName,additions,deletions,state",
+            "--limit",
+            "30",
+        ]);
+        let _timing = crate::debug::Span::new("command.gh.pr.list");
+        let raw = self.runner.run("gh", &args)?;
+        serde_json::from_str(&raw).context("Failed to parse pull requests JSON from GitHub CLI")
     }
 
     fn curl(&self, url: &str, method: &str, body: Option<&Value>) -> Result<Value> {
+        let raw = self.curl_raw(url, method, body, "application/vnd.github+json")?;
+        if raw.trim().is_empty() {
+            return Ok(Value::Null);
+        }
+        serde_json::from_str(&raw).context("unexpected GitHub API response")
+    }
+
+    fn curl_raw(
+        &self,
+        url: &str,
+        method: &str,
+        body: Option<&Value>,
+        accept: &str,
+    ) -> Result<String> {
         let Some(tok) = self.token() else {
             bail!("GITHUB_TOKEN is not set");
         };
-        let seq = BODY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let pid = std::process::id();
-        let hdr_file = std::env::temp_dir().join(format!("lgtm-gh-hdr-{pid}-{seq}"));
-        let body_file = std::env::temp_dir().join(format!("lgtm-gh-body-{pid}-{seq}"));
+        let hdr_file = super::PrivateTempFile::write(
+            "lgtm-gh-hdr",
+            format!("Authorization: Bearer {tok}\n").as_bytes(),
+        )?;
 
-        {
-            use std::io::Write;
-            let mut o = std::fs::OpenOptions::new();
-            o.write(true).create_new(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
-            writeln!(o.open(&hdr_file)?, "Authorization: Bearer {tok}")?;
-        }
-
+        let accept_header = format!("Accept: {accept}");
         let mut args = vec![
             "-sS",
             "--fail",
             "-H",
             "User-Agent: lgtm",
             "-H",
-            "Accept: application/vnd.github+json",
+            &accept_header,
         ];
-        let hdr_arg = format!("@{}", hdr_file.display());
+        let hdr_arg = format!("@{}", hdr_file.path().display());
         args.extend(["-H", &hdr_arg]);
 
-        let body_arg;
-        if let Some(b) = body {
-            {
-                let mut o = std::fs::OpenOptions::new();
-                o.write(true).create_new(true);
-                #[cfg(unix)]
-                std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
-                serde_json::to_writer(o.open(&body_file)?, b)?;
-            }
-            body_arg = format!("@{}", body_file.display());
+        let body_file = match body {
+            Some(b) => Some(super::PrivateTempFile::write(
+                "lgtm-gh-body",
+                &serde_json::to_vec(b)?,
+            )?),
+            None => None,
+        };
+        let body_arg = body_file
+            .as_ref()
+            .map(|f| format!("@{}", f.path().display()));
+        if let Some(body_arg) = &body_arg {
             args.extend([
                 "-H",
                 "Content-Type: application/json",
                 "-X",
                 method,
                 "-d",
-                &body_arg,
+                body_arg,
             ]);
         }
 
         args.push(url);
 
-        let out = self.runner.run("curl", &args);
-        let _ = std::fs::remove_file(&hdr_file);
-        if body.is_some() {
-            let _ = std::fs::remove_file(&body_file);
-        }
-
-        let raw = out?;
-        if raw.trim().is_empty() {
-            return Ok(Value::Null);
-        }
-        serde_json::from_str(&raw).context("unexpected GitHub API response")
+        self.runner.run("curl", &args)
     }
 }
 
@@ -200,85 +280,125 @@ impl Forge for GitHubForge {
     }
 
     fn list_prs(&self) -> Result<Vec<PullRequestSummary>> {
-        if let Some(r) = &self.remote {
-            let url = format!(
-                "https://api.github.com/repos/{}/{}/pulls?state=open&per_page=30",
-                r.owner, r.repo
-            );
-            if let Ok(v) = self.curl(&url, "GET", None) {
-                if let Some(arr) = v.as_array() {
-                    let prs: Vec<PullRequestSummary> = arr
-                        .iter()
-                        .map(|item| PullRequestSummary {
-                            number: item["number"].as_u64().unwrap_or(0),
-                            title: item["title"].as_str().unwrap_or("").to_string(),
-                            author: PrAuthor {
-                                login: item["user"]["login"].as_str().unwrap_or("").to_string(),
-                            },
-                            head_ref_name: item["head"]["ref"].as_str().unwrap_or("").to_string(),
-                            additions: 0,
-                            deletions: 0,
-                            state: item["state"].as_str().unwrap_or("open").to_string(),
-                        })
-                        .collect();
-                    return Ok(prs);
+        self.list_prs_state(crate::pr::PullRequestState::Open)
+    }
+
+    fn list_prs_state(
+        &self,
+        state: crate::pr::PullRequestState,
+    ) -> Result<Vec<PullRequestSummary>> {
+        let Some(r) = &self.remote else {
+            return self.cli_list(state);
+        };
+        let url = format!(
+            "https://api.github.com/repos/{}/{}/pulls?state={}&per_page=30",
+            r.owner,
+            r.repo,
+            state.as_str()
+        );
+        let value = if self.token().is_some() {
+            self.curl(&url, "GET", None)?
+        } else {
+            match self.cli_list(state) {
+                Ok(prs) => return Ok(prs),
+                Err(error) if self.can_read_anonymously(&error) => {
+                    let raw = self.anonymous_get(&url, "application/vnd.github+json")?;
+                    serde_json::from_str(&raw).context("Invalid public GitHub PR listing")?
                 }
+                Err(error) => return Err(error),
             }
-        }
-        PrEngine::list_pull_requests()
+        };
+        let items = value
+            .as_array()
+            .context("GitHub PR listing was not an array")?;
+        Ok(items
+            .iter()
+            .map(|item| PullRequestSummary {
+                number: item["number"].as_u64().unwrap_or(0),
+                title: item["title"].as_str().unwrap_or("").to_string(),
+                author: PrAuthor {
+                    login: item["user"]["login"].as_str().unwrap_or("").to_string(),
+                },
+                head_ref_name: item["head"]["ref"].as_str().unwrap_or("").to_string(),
+                additions: 0,
+                deletions: 0,
+                state: if item["merged_at"].as_str().is_some() {
+                    "merged".into()
+                } else {
+                    item["state"].as_str().unwrap_or("open").to_string()
+                },
+            })
+            .collect())
     }
 
     /// Fast path: git fetch refs/pull/<n>/merge, then revision diff.
-    /// Next path: git fetch refs/pull/<n>/head, then diff against base.
-    /// Fallback: gh pr diff <n>.
+    /// Missing merge ref: retrieve the stored PR patch through the API or gh, including closed PRs.
     fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
-        let merge = format!("refs/lgtm/pr/{pr}/merge");
-        let fetched_merge = self.runner.run(
-            "git",
-            &[
-                "fetch",
-                "--quiet",
-                "origin",
-                &format!("+refs/pull/{pr}/merge:{merge}"),
-            ],
-        );
-        if fetched_merge.is_ok() {
-            if let Ok(snap) =
-                GitEngine::new(&self.repo).compute_revision_diff(&format!("{merge}^1...{merge}^2"))
-            {
-                return Ok(snap);
-            }
-        }
-
-        let head = format!("refs/lgtm/pr/{pr}/head");
-        let fetched_head = self.runner.run(
-            "git",
-            &[
-                "fetch",
-                "--quiet",
-                "origin",
-                &format!("+refs/pull/{pr}/head:{head}"),
-            ],
-        );
-        if fetched_head.is_ok() {
-            for base in &["origin/main", "origin/master", "main", "master", "HEAD"] {
-                if let Ok(snap) =
-                    GitEngine::new(&self.repo).compute_revision_diff(&format!("{base}...{head}"))
-                {
-                    return Ok(snap);
+        if !self.merge_ref_missing(pr) {
+            let merge = format!("refs/lgtm/pr/{pr}/merge");
+            let fetched_merge = self.runner.run(
+                "git",
+                &[
+                    "fetch",
+                    "--quiet",
+                    "origin",
+                    &format!("+refs/pull/{pr}/merge:{merge}"),
+                ],
+            );
+            match fetched_merge {
+                Ok(_) => {
+                    self.missing_merges
+                        .lock()
+                        .unwrap()
+                        .remove(&self.merge_key(pr));
+                    return super::build_pr_diff(&self.repo, &format!("{merge}^1...{merge}^2"));
                 }
+                Err(error) if super::failure::missing_ref(&error) => {
+                    self.remember_missing_merge(pr);
+                }
+                Err(error) => return Err(error).context("Fetching PR merge ref"),
             }
+        } else {
+            let _cached = crate::debug::Span::new("pr.merge_ref_cache_hit");
         }
-
-        PrEngine::fetch_pr_diff(pr)
+        // The stored PR patch remains meaningful for merged/closed PRs. Guessing a
+        // current base branch can produce an empty or unrelated historical diff.
+        if let Some(remote) = self.remote.as_ref().filter(|_| self.token().is_some()) {
+            let url = format!(
+                "https://api.github.com/repos/{}/{}/pulls/{pr}",
+                remote.owner, remote.repo
+            );
+            let patch = self
+                .curl_raw(&url, "GET", None, "application/vnd.github.diff")
+                .context("Loading PR patch from GitHub")?;
+            return PrEngine::parse_unified_diff(&patch);
+        }
+        let _timing = crate::debug::Span::new("command.gh.pr.diff");
+        let patch = match self.runner.run("gh", &["pr", "diff", &pr.to_string()]) {
+            Ok(patch) => patch,
+            Err(error) if self.can_read_anonymously(&error) => {
+                let remote = self
+                    .remote
+                    .as_ref()
+                    .context("GitHub origin is unavailable")?;
+                let url = format!(
+                    "https://api.github.com/repos/{}/{}/pulls/{pr}",
+                    remote.owner, remote.repo
+                );
+                self.anonymous_get(&url, "application/vnd.github.diff")?
+            }
+            Err(error) => return Err(error).context("Loading PR patch through GitHub CLI"),
+        };
+        PrEngine::parse_unified_diff(&patch)
     }
 
     fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()> {
-        if let Some(r) = &self.remote {
+        if let Some(r) = self.remote.as_ref().filter(|_| self.token().is_some()) {
             let ev = match event {
-                "approve" => "APPROVE",
-                "request-changes" => "REQUEST_CHANGES",
-                _ => "COMMENT",
+                "approve" | "APPROVE" => "APPROVE",
+                "request-changes" | "request_changes" | "REQUEST_CHANGES" => "REQUEST_CHANGES",
+                "comment" | "COMMENT" => "COMMENT",
+                other => bail!("unknown review event '{other}'"),
             };
             let body_val = serde_json::json!({
                 "event": ev,
@@ -288,9 +408,11 @@ impl Forge for GitHubForge {
                 "https://api.github.com/repos/{}/{}/pulls/{pr}/reviews",
                 r.owner, r.repo
             );
-            if self.curl(&url, "POST", Some(&body_val)).is_ok() {
-                return Ok(());
-            }
+            let receipt = self.curl(&url, "POST", Some(&body_val))?;
+            receipt["id"]
+                .as_u64()
+                .context("Review response has no receipt; check the PR before retrying")?;
+            return Ok(());
         }
         PrEngine::post_review(pr, event, body)
     }
@@ -332,6 +454,18 @@ impl GithubClient for GitHubForge {
         GhClient.threads(pr)
     }
 
+    fn thread(&self, pr: u64, id: &str) -> Result<Option<Thread>> {
+        if self.token().is_some() {
+            let payload =
+                serde_json::json!({"query":crate::github::THREAD_QUERY,"variables":{"id":id}});
+            if let Ok(value) = self.curl("https://api.github.com/graphql", "POST", Some(&payload)) {
+                if let Ok(thread) = crate::github::parse_thread(&value.to_string()) {
+                    return Ok(thread);
+                }
+            }
+        }
+        GhClient.thread(pr, id)
+    }
     fn head_sha(&self, pr: u64) -> Result<String> {
         if let Some(r) = &self.remote {
             let url = format!(
@@ -348,7 +482,7 @@ impl GithubClient for GitHubForge {
     }
 
     fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
-        if let Some(r) = &self.remote {
+        if let Some(r) = self.remote.as_ref().filter(|_| self.token().is_some()) {
             let url = format!(
                 "https://api.github.com/repos/{}/{}/pulls/{pr}/comments",
                 r.owner, r.repo
@@ -360,43 +494,40 @@ impl GithubClient for GitHubForge {
                 "line": line,
                 "side": "RIGHT"
             });
-            if let Ok(v) = self.curl(&url, "POST", Some(&payload)) {
-                if let Some(id) = v["id"].as_u64() {
-                    return Ok(id);
-                }
-            }
+            let receipt = self.curl(&url, "POST", Some(&payload))?;
+            return receipt["id"]
+                .as_u64()
+                .context("Comment response has no receipt; check the thread before retrying");
         }
         GhClient.post_inline(pr, sha, path, line, body)
     }
 
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
-        if let Some(r) = &self.remote {
+        if let Some(r) = self.remote.as_ref().filter(|_| self.token().is_some()) {
             let url = format!(
                 "https://api.github.com/repos/{}/{}/issues/{pr}/comments",
                 r.owner, r.repo
             );
             let payload = serde_json::json!({ "body": body });
-            if let Ok(v) = self.curl(&url, "POST", Some(&payload)) {
-                if let Some(id) = v["id"].as_u64() {
-                    return Ok(id);
-                }
-            }
+            let receipt = self.curl(&url, "POST", Some(&payload))?;
+            return receipt["id"]
+                .as_u64()
+                .context("Comment response has no receipt; check the thread before retrying");
         }
         GhClient.post_general(pr, body)
     }
 
     fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
-        if let Some(r) = &self.remote {
+        if let Some(r) = self.remote.as_ref().filter(|_| self.token().is_some()) {
             let url = format!(
                 "https://api.github.com/repos/{}/{}/pulls/{pr}/comments/{comment_id}/replies",
                 r.owner, r.repo
             );
             let payload = serde_json::json!({ "body": body });
-            if let Ok(v) = self.curl(&url, "POST", Some(&payload)) {
-                if let Some(id) = v["id"].as_u64() {
-                    return Ok(id);
-                }
-            }
+            let receipt = self.curl(&url, "POST", Some(&payload))?;
+            return receipt["id"]
+                .as_u64()
+                .context("Comment response has no receipt; check the thread before retrying");
         }
         GhClient.reply(pr, thread_id, comment_id, body)
     }
@@ -413,16 +544,22 @@ impl GithubClient for GitHubForge {
                 "query": q,
                 "variables": { "id": thread_id }
             });
-            if self
-                .curl("https://api.github.com/graphql", "POST", Some(&payload))
-                .is_ok()
-            {
-                return Ok(());
+            let result = self.curl("https://api.github.com/graphql", "POST", Some(&payload))?;
+            if result.get("errors").is_some() {
+                bail!("GitHub did not confirm the thread update");
             }
+            result
+                .pointer(&format!("/data/{op}/thread/id"))
+                .and_then(Value::as_str)
+                .context("Thread update has no confirmation; refresh before retrying")?;
+            return Ok(());
         }
         GhClient.set_resolved(pr, thread_id, resolved)
     }
 }
+
+#[cfg(test)]
+mod performance_tests;
 
 #[cfg(test)]
 mod tests {
@@ -511,8 +648,10 @@ mod tests {
                 owner: "mgabs".into(),
                 repo: "lgtm".into(),
             }),
+            is_github_com: true,
             runner: Box::new(Fake(RefCell::new(vec![]), fakes)),
             explicit_token: Some("mock-token-for-test".into()),
+            missing_merges: Default::default(),
         }
     }
 
@@ -594,5 +733,143 @@ mod tests {
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0].name, "ci/test");
         assert_eq!(checks[0].bucket, Bucket::Pass);
+    }
+    #[test]
+    fn fetch_authentication_and_network_errors_do_not_trigger_fallbacks() {
+        use super::super::failure::{Failure, Kind};
+        struct FailedFetch(Kind, std::sync::Arc<std::sync::atomic::AtomicUsize>);
+        impl Runner for FailedFetch {
+            fn run(&self, program: &str, _args: &[&str]) -> Result<String> {
+                assert_eq!(program, "git", "provider fallback must not run");
+                self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Err(Failure {
+                    kind: self.0,
+                    exit_code: Some(128),
+                    http_status: None,
+                }
+                .into())
+            }
+        }
+        for kind in [
+            Kind::Authentication,
+            Kind::Network,
+            Kind::Timeout,
+            Kind::Other,
+        ] {
+            let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let mut provider = test_forge(".", vec![]);
+            provider.runner = Box::new(FailedFetch(kind, calls.clone()));
+            let error = provider.pr_diff(42).unwrap_err();
+            assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+            assert_eq!(error.downcast_ref::<Failure>().unwrap().kind, kind);
+        }
+    }
+    #[test]
+    fn reads_one_thread_through_graphql() {
+        let provider = test_forge(
+            ".",
+            vec![(
+                "graphql",
+                r#"{"data":{"node":{"id":"RT1","isResolved":false,"path":"a.rs","line":1,"comments":{"nodes":[{"databaseId":10,"author":{"login":"Ann"},"body":"reply"}]}}}}"#,
+            )],
+        );
+        let thread = provider.thread(12, "RT1").unwrap().unwrap();
+        assert_eq!(thread.id, "RT1");
+        assert_eq!(thread.comments[0].author, "Ann");
+    }
+
+    #[test]
+    fn ambiguous_writes_never_retry_through_the_cli() {
+        struct TimedOut;
+        impl Runner for TimedOut {
+            fn run(&self, program: &str, _args: &[&str]) -> Result<String> {
+                assert_eq!(program, "curl");
+                Err(super::super::failure::Failure {
+                    kind: super::super::failure::Kind::Timeout,
+                    exit_code: Some(28),
+                    http_status: None,
+                }
+                .into())
+            }
+        }
+        let mut provider = test_forge(".", vec![]);
+        provider.runner = Box::new(TimedOut);
+        let failures = [
+            provider
+                .post_inline(1, "sha", "a.rs", 1, "text")
+                .map(|_| ()),
+            provider.post_general(1, "text").map(|_| ()),
+            provider.reply(1, "RT1", 1, "reply").map(|_| ()),
+            provider.post_review(1, "COMMENT", "body"),
+            provider.set_resolved(1, "RT1", true),
+        ];
+        for result in failures {
+            assert_eq!(
+                result
+                    .unwrap_err()
+                    .downcast_ref::<super::super::failure::Failure>()
+                    .unwrap()
+                    .kind,
+                super::super::failure::Kind::Timeout
+            );
+        }
+    }
+    #[test]
+    fn closed_and_all_listing_use_matching_api_filters() {
+        let provider = test_forge(
+            ".",
+            vec![
+                (
+                    "state=closed",
+                    r#"[{"number":1,"state":"closed","merged_at":"2026-10-22"},{"number":2,"state":"closed","merged_at":null}]"#,
+                ),
+                (
+                    "state=all",
+                    r#"[{"number":3,"state":"open"},{"number":2,"state":"closed"}]"#,
+                ),
+            ],
+        );
+        let closed = provider
+            .list_prs_state(crate::pr::PullRequestState::Closed)
+            .unwrap();
+        assert_eq!(closed.len(), 2);
+        assert_eq!(closed[0].state, "merged");
+        assert_eq!(closed[1].state, "closed");
+        assert_eq!(
+            provider
+                .list_prs_state(crate::pr::PullRequestState::All)
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn missing_merge_ref_uses_stored_patch_instead_of_guessing_current_base() {
+        struct StoredPatch;
+        impl Runner for StoredPatch {
+            fn run(&self, program: &str, args: &[&str]) -> Result<String> {
+                if program == "git" {
+                    assert!(
+                        args.iter().any(|a| a.contains("/merge:")),
+                        "no branch fetch should follow"
+                    );
+                    return Err(super::super::failure::classify(
+                        "git",
+                        Some(128),
+                        "couldn't find remote ref",
+                    )
+                    .into());
+                }
+                assert_eq!(program, "curl");
+                assert!(args.contains(&"Accept: application/vnd.github.diff"));
+                Ok("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1,2 @@\n base\n+historical change\n".into())
+            }
+        }
+        let mut provider = test_forge(".", vec![]);
+        provider.runner = Box::new(StoredPatch);
+        let snapshot = provider.pr_diff(42).unwrap();
+        assert_eq!(snapshot.total_additions, 1);
+        assert_eq!(snapshot.files.len(), 1);
     }
 }

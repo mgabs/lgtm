@@ -26,9 +26,17 @@ pub struct Cli {
     #[arg(long = "agent-sink")]
     pub agent_sink: Option<String>,
 
-    /// Review a specific GitHub pull request by number (e.g. --pr 16)
+    /// Review an open or closed GitHub or Azure DevOps PR by number
     #[arg(long = "pr")]
     pub pr: Option<u64>,
+
+    /// Enable timing diagnostics in the system temporary directory (lgtm-debug.jsonl)
+    #[arg(long, global = true)]
+    pub debug: bool,
+
+    /// Override the timing log path (requires --debug)
+    #[arg(long, global = true, requires = "debug", value_name = "PATH")]
+    pub debug_log: Option<PathBuf>,
 
     /// Watcher debounce interval in milliseconds
     #[arg(short, long, default_value_t = 300)]
@@ -77,19 +85,28 @@ pub enum Commands {
         #[arg(long)]
         no_user_config: bool,
     },
-    /// Initialize .lgtm/config.toml starter configuration
+    /// Initialize .lgtm.toml starter configuration
     Init {
         /// Target repository path
         #[arg(short, long, default_value = ".")]
         repo: Option<PathBuf>,
     },
-    /// Review a specific GitHub Pull Request
+    /// Review an open or closed GitHub or Azure DevOps pull request
+    ///
+    /// Public GitHub.com patches can fall back to anonymous HTTPS when gh is missing
+    /// or needs login and no API token is set. Private access and writes need authentication.
     Pr {
         /// Pull Request number
         number: u64,
     },
-    /// List open Pull Requests
-    Prs,
+    /// List pull requests by state (closed includes merged/completed and abandoned)
+    ///
+    /// Public GitHub.com listings can fall back to anonymous HTTPS when gh is missing
+    /// or needs login and no API token is set. Anonymous requests have lower rate limits.
+    Prs {
+        #[arg(long, default_value = "open", value_parser = ["open", "closed", "all"])]
+        state: String,
+    },
     /// Run headless CI / pre-commit check (fails on Critical/High risks)
     Check {
         /// Target repository path
@@ -185,26 +202,6 @@ pub enum Commands {
         #[arg(short, long)]
         repo: Option<PathBuf>,
     },
-    /// Audit test coverage across all modules or strictly on changed lines in diff
-    Coverage {
-        /// Minimum coverage percentage required to pass
-        #[arg(short, long, default_value_t = 90.0)]
-        min: f64,
-        /// Calculate and enforce delta coverage strictly on added lines in diff
-        #[arg(long)]
-        delta: bool,
-        /// Optional path to LCOV tracefile (e.g. lcov.info)
-        #[arg(long)]
-        lcov: Option<PathBuf>,
-    },
-    /// Run automated mutation testing suite and enforce mutation score threshold (default: 90%)
-    Mutate {
-        /// Minimum mutation score percentage required to pass
-        #[arg(short, long, default_value_t = 90.0)]
-        min: f64,
-    },
-    /// Run inverted test verification to detect fraudulent or tautological tests
-    VerifyTests,
     /// Launch interactive diff reviewer TUI (default)
     Diff {
         /// Optional branch or revision to review (e.g. main, feat..HEAD)
@@ -242,4 +239,43 @@ pub enum Commands {
     /// Unrecognized git command passthrough
     #[command(external_subcommand)]
     External(Vec<String>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_is_opt_in_and_global() {
+        let cli = Cli::try_parse_from(["lgtm", "pr", "42"]).unwrap();
+        assert!(!cli.debug);
+        assert!(cli.debug_log.is_none());
+        for args in [
+            vec!["lgtm", "--debug", "pr", "42"],
+            vec!["lgtm", "pr", "42", "--debug"],
+        ] {
+            assert!(Cli::try_parse_from(args).unwrap().debug);
+        }
+        let cli = Cli::try_parse_from([
+            "lgtm",
+            "pr",
+            "42",
+            "--debug",
+            "--debug-log",
+            "/tmp/review.jsonl",
+        ])
+        .unwrap();
+        assert_eq!(cli.debug_log.unwrap(), PathBuf::from("/tmp/review.jsonl"));
+        assert!(Cli::try_parse_from(["lgtm", "--debug-log", "/tmp/review.jsonl"]).is_err());
+    }
+    #[test]
+    fn pr_listing_accepts_open_closed_and_all() {
+        for state in ["open", "closed", "all"] {
+            let cli = Cli::try_parse_from(["lgtm", "prs", "--state", state]).unwrap();
+            assert!(
+                matches!(cli.command, Some(Commands::Prs { state: actual }) if actual == state)
+            );
+        }
+        assert!(Cli::try_parse_from(["lgtm", "prs", "--state", "invalid"]).is_err());
+    }
 }

@@ -10,17 +10,7 @@ impl App {
 
         // Check for line jump like :42 or :123
         if let Ok(line_num) = trimmed.parse::<u32>() {
-            self.active_view = ActiveView::Diff;
-            if line_num > 0 {
-                self.status_message = Some(match self.jump_to_line(line_num) {
-                    Some(n) if n == line_num => format!("Jumped to line {}", line_num),
-                    Some(n) => format!(
-                        "Line {} not in diff; jumped to nearest line {}",
-                        line_num, n
-                    ),
-                    None => "No lines in the active file".to_string(),
-                });
-            }
+            self.handle_line_jump(line_num);
             return;
         }
 
@@ -29,9 +19,8 @@ impl App {
         let args: Vec<&str> = parts.collect();
 
         match cmd_name {
-            "q" | "quit" | "q!" | "quit!" => {
-                self.should_quit = true;
-            }
+            "q" | "quit" => self.request_quit(),
+            "q!" | "quit!" => self.should_quit = true,
             "w" | "write" => {
                 if self.active_view == ActiveView::AuditReport {
                     let target_path = args.first().map(std::path::Path::new);
@@ -47,7 +36,7 @@ impl App {
             }
             "wq" | "x" | "exit" => {
                 let _ = self.comment_store.save_comments(&self.comments);
-                self.should_quit = true;
+                self.request_quit();
             }
             "h" | "help" | "?" => {
                 self.active_view = ActiveView::Help;
@@ -71,7 +60,7 @@ impl App {
                 self.reject_gate();
             }
             "prompt" | "context" => {
-                self.active_view = ActiveView::AgentPrompt;
+                self.open_agent_prompt();
             }
             "c" | "comments" | "directives" | "todo" if args.first() == Some(&"recheck") => {
                 self.recheck_directives();
@@ -83,35 +72,15 @@ impl App {
                 self.open_comment_list();
             }
             "prs" => {
-                self.open_pr_picker();
+                match crate::pr::PullRequestState::parse(args.first().copied().unwrap_or("open")) {
+                    Ok(state) => self.open_pr_picker_state(state),
+                    Err(_) => self.status_message = Some("Usage: :prs [open|closed|all]".into()),
+                }
             }
             "diff" | "rev" | "range" => {
                 if let Some(spec) = args.first() {
-                    let expanded = self.git_engine.expand_branch_spec(spec);
-                    let rev_spec = &expanded.as_str();
-                    match self.git_engine.compute_revision_diff(rev_spec) {
-                        Ok(snap) => {
-                            self.active_revision = Some(rev_spec.to_string());
-                            self.pr.current_number = None;
-                            self.snapshot = snap;
-                            self.alerts = self.scan(&self.snapshot.files);
-                            self.selected_file_idx = 0;
-                            self.cursor_line_idx = 0;
-                            self.diff_scroll_offset = 0;
-                            self.status_message = Some(format!(
-                                "Loaded revision '{}' ({} files changed, {} alerts)",
-                                rev_spec,
-                                self.snapshot.files.len(),
-                                self.alerts.len()
-                            ));
-                            self.active_view = ActiveView::Diff;
-                        }
-                        Err(e) => {
-                            self.status_message =
-                                Some(format!("Failed to load revision '{}': {}", rev_spec, e));
-                            self.active_view = ActiveView::Diff;
-                        }
-                    }
+                    self.load_local_revision((*spec).to_string());
+                    self.active_view = ActiveView::Diff;
                 } else {
                     self.active_view = ActiveView::Diff;
                     self.status_message = Some("Returned to diff view".into());
@@ -120,38 +89,12 @@ impl App {
             "pr" => {
                 if args.first() == Some(&"post") {
                     let confirmed = args.contains(&"--yes");
-                    let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
-                    self.post_pr_comments(&*forge, confirmed);
+                    self.post_pr_comments_async(confirmed);
                     return;
                 }
                 if let Some(arg) = args.first() {
                     if let Ok(pr_num) = arg.parse::<u64>() {
-                        match crate::diff_source::DiffSource::snapshot(
-                            &crate::diff_source::PullRequestSource {
-                                pr: pr_num,
-                                repo: self.git_engine.repo_path.clone(),
-                            },
-                        ) {
-                            Ok(snap) => {
-                                self.pr.current_number = Some(pr_num);
-                                self.snapshot = snap;
-                                self.alerts = self.scan(&self.snapshot.files);
-                                self.selected_file_idx = 0;
-                                self.cursor_line_idx = 0;
-                                self.diff_scroll_offset = 0;
-                                self.status_message = Some(format!(
-                                    "Loaded PR #{} ({} files changed, {} alerts)",
-                                    pr_num,
-                                    self.snapshot.files.len(),
-                                    self.alerts.len()
-                                ));
-                                self.refresh_github_async(true);
-                            }
-                            Err(e) => {
-                                self.status_message =
-                                    Some(format!("Error loading PR #{}: {}", pr_num, e));
-                            }
-                        }
+                        self.load_pr_async(pr_num);
                         self.active_view = ActiveView::Diff;
                     } else {
                         self.status_message = Some("Usage: :pr <number>".to_string());
@@ -341,8 +284,7 @@ impl App {
                 if args.is_empty() || args.first() == Some(&"view") {
                     self.open_threads_modal();
                 } else {
-                    let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
-                    self.thread_action(&*forge, &args);
+                    self.thread_action_async(&args);
                 }
             }
             "threads" => {
@@ -389,13 +331,7 @@ impl App {
                 }
             }
             "risk" => {
-                self.alerts = self.scan(&self.snapshot.files);
-                self.status_message = Some(format!(
-                    "Scanned {} files — {} security & test alerts found",
-                    self.snapshot.files.len(),
-                    self.alerts.len()
-                ));
-                self.active_view = ActiveView::Diff;
+                self.trigger_risk_scan();
             }
             "editor" => {
                 if let Some(name) = args.first() {
@@ -410,27 +346,7 @@ impl App {
                 }
             }
             "reload" | "e" | "edit" => {
-                if let Some(pr_num) = self.pr.current_number {
-                    if let Ok(snap) = crate::diff_source::DiffSource::snapshot(
-                        &crate::diff_source::PullRequestSource {
-                            pr: pr_num,
-                            repo: self.git_engine.repo_path.clone(),
-                        },
-                    ) {
-                        self.snapshot = snap;
-                        self.alerts = self.scan(&self.snapshot.files);
-                        self.status_message = Some(format!("Reloaded PR #{}", pr_num));
-                    }
-                } else if self.git_engine.is_git_repo() {
-                    if let Ok(snap) = self.git_engine.compute_diff_snapshot() {
-                        self.snapshot = snap;
-                        self.alerts = self.scan(&self.snapshot.files);
-                        self.status_message = Some(format!(
-                            "Reloaded diff ({} files)",
-                            self.snapshot.files.len()
-                        ));
-                    }
-                }
+                self.reload_diff();
                 self.active_view = ActiveView::Diff;
             }
             "clear" => {
@@ -537,7 +453,7 @@ impl App {
     }
 
     /// Moves the cursor to the diff line closest to `target_line_no`; returns the line landed on.
-    pub fn jump_to_line(&mut self, target_line_no: u32) -> Option<u32> {
+    pub(crate) fn jump_to_line(&mut self, target_line_no: u32) -> Option<u32> {
         let f = self.snapshot.files.get(self.selected_file_idx)?;
         let mut best: Option<(u32, usize, u32)> = None;
         for (counter, line) in f.hunks.iter().flat_map(|h| &h.lines).enumerate() {
@@ -551,6 +467,21 @@ impl App {
         let (_, idx, n) = best?;
         self.cursor_line_idx = idx;
         Some(n)
+    }
+
+    fn handle_line_jump(&mut self, line_num: u32) {
+        self.active_view = ActiveView::Diff;
+        if line_num == 0 {
+            return;
+        }
+        self.status_message = Some(match self.jump_to_line(line_num) {
+            Some(n) if n == line_num => format!("Jumped to line {}", line_num),
+            Some(n) => format!(
+                "Line {} not in diff; jumped to nearest line {}",
+                line_num, n
+            ),
+            None => "No lines in the active file".to_string(),
+        });
     }
 }
 
@@ -820,6 +751,7 @@ mod tests {
                 .first()
                 .cloned()
                 .unwrap_or_else(|| lgtm_core::comment::CommentAnchor {
+                    id: lgtm_core::comment::new_id(),
                     file_path: "nowhere.rs".into(),
                     target_line_no: 1,
                     target_code: String::new(),
@@ -941,6 +873,7 @@ mod tests {
         app.execute_command("directives orphans");
         assert_eq!(app.status_message.as_deref(), Some("No orphaned comments"));
         let mk = |orphaned| lgtm_core::comment::CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "old.rs".into(),
             target_line_no: 9,
             target_code: "x".into(),
@@ -1013,6 +946,7 @@ mod tests {
             Some("Directives: 0 untouched, 0 changed, 0 gone, 0 orphaned")
         );
         app.comments.push(lgtm_core::comment::CommentAnchor {
+            id: lgtm_core::comment::new_id(),
             file_path: "gone.rs".into(),
             target_line_no: 1,
             target_code: String::new(),
@@ -1085,6 +1019,8 @@ mod tests {
         app.execute_command("audit");
         assert_eq!(app.active_view, ActiveView::AuditReport);
 
+        crate::app::test_util::wait_for_audit(&mut app);
+
         // :filter 1 filters to Critical
         app.execute_command("filter 1");
         assert_eq!(
@@ -1103,6 +1039,7 @@ mod tests {
         // Export report
         let report_file = tmp.join("custom-report.md");
         app.execute_command(&format!("w {}", report_file.display()));
+        crate::app::test_util::wait_for_audit(&mut app);
         assert!(report_file.exists());
         let _ = std::fs::remove_dir_all(&tmp);
     }
