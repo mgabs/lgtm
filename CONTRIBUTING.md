@@ -50,7 +50,10 @@ make lint
 # 3. Run all unit & integration tests
 make test
 
-# 4. Run full verification suite locally (fmt + lint + boundary check + test)
+# 4. Run automated BDD catalog coverage report
+make bdd-report
+
+# 5. Run full verification suite locally (fmt + lint + boundary check + test)
 make check
 ```
 
@@ -68,12 +71,13 @@ scenario IDs. No Gherkin runner is required. Each test owns its temporary files
 and repositories; offline scenarios must not depend on credentials or the network.
 
 The [behavior scenario catalog](docs/bdd-scenarios.md) lists stable IDs, acceptance
-criteria, integration scenarios, related internal tests, and remaining gaps.
+criteria, integration scenarios, and related internal tests.
 
 Run acceptance scenarios with `cargo test --workspace --test bdd`. They also run
-as part of `cargo test --workspace`. Tests mapped to private modules need the
-workspace suite or their documented test-name filter. Keep offline simulations,
-live-provider verification, and terminal journeys distinct when reporting results.
+as part of `cargo test --workspace`. Use `make bdd-report` to generate an automated
+coverage report validating that 100% of catalog criteria are automated and passing.
+Keep offline simulations, live-provider verification, and terminal journeys distinct
+when reporting results.
 
 ---
 

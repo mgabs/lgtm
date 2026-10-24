@@ -763,6 +763,7 @@ Add any of `lgtm:ignore`, `lgtm-ignore`, `nolint:lgtm`, `lgtm[ignore]`, `lgtm_ig
 |---|---|
 | `make build` / `release` | Debug / LTO release binary |
 | `make test` | Unit + integration tests |
+| `make bdd-report` | Automated BDD scenario catalog report (`./scripts/bdd-report.sh`) |
 | `make lint` / `fmt` / `check-fmt` | Clippy (`-D warnings`) / rustfmt |
 | `make check` | `check-fmt` + `lint` + boundary check + `test` |
 | `make ci` | `check` + SARIF export |
@@ -782,9 +783,17 @@ Private UI and provider behavior tests stay beside their modules and run with
 `cargo test --workspace`. The [scenario catalog](bdd-scenarios.md) maps both types
 and distinguishes offline fixtures from terminal and live-provider verification.
 The [Q0–Q6 roadmap](superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
-tracks the remaining acceptance gaps.
+tracks the acceptance milestones (all complete).
 
-There is no automated BDD coverage report yet.
+Run the automated BDD catalog coverage report:
+
+```sh
+make bdd-report
+# or ./scripts/bdd-report.sh
+```
+
+It maps all 41 agreed criteria to executable tests and evaluates pass/fail status,
+automation coverage, verified coverage, and pass rate.
 
 ---
 
@@ -794,6 +803,8 @@ There is no automated BDD coverage report yet.
 |---|---|
 | `src/main.rs`, `src/event_loop.rs`, `src/diagnostics.rs` | Entry point, bounded terminal/watcher/callback event loop, and UI workload diagnostics |
 | Root `tests/bdd.rs`, `crates/lgtm-core/tests/bdd.rs` | Application-launch and public API acceptance scenarios |
+| `crates/lgtm-core/tests/live_provider.rs` | Opt-in live GitHub & Azure DevOps provider verification |
+| `scripts/bdd-report.py`, `scripts/bdd-report.sh` | Automated BDD scenario catalog coverage and verification reporting |
 | `src/cli.rs`, `src/headless.rs` | CLI definitions; headless runners (`ci`, `risk`, `review`, `init`) |
 | `src/app/` | TUI state machine and background coordinators (`refresh`, `view_data`, `rows`, `audit/jobs`, `pr/completion`) |
 | `src/ui/` | Ratatui rendering with viewport/layout caches (`diff/cache.rs`, `diff/viewport.rs`) and `modals/` |

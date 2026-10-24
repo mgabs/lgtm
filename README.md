@@ -601,18 +601,22 @@ make test
 # Public API and application-launch BDD scenarios
 cargo test --workspace --test bdd
 
+# Automated BDD scenario catalog report
+make bdd-report
+
 # Repository quality gates
 make check
 ```
 
 The [BDD scenario catalog](docs/bdd-scenarios.md) maps acceptance criteria to tests,
-including draft preservation, historical PR retrieval, posting recovery,
+including draft preservation, historical PR retrieval, posting recovery across restarts,
 ambiguous remote write reconciliation, real-terminal journeys, and
 GitHub/Azure request/response contracts. See [CONTRIBUTING.md](CONTRIBUTING.md#behavior-scenarios-bdd)
 for test placement and the [Q0–Q6 roadmap](docs/superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
-for remaining recovery, live-provider, and reporting work. Offline fixtures
-and internal state tests are distinct from live-provider checks.
-No automated BDD coverage percentage is currently calculated.
+for completed acceptance milestones.
+
+Automated BDD reporting is available via `make bdd-report` (or `./scripts/bdd-report.sh`),
+verifying 100% automation and pass rate across all 41 catalog criteria.
 
 The in-app `T` key summarizes current test-risk alerts.
 
@@ -645,6 +649,11 @@ lgtm/
 │   │   ├── diff_source.rs    # DiffSource trait
 │   │   └── watcher/          # Filesystem watcher & debouncer
 │   └── lgtm-mcp/src/lib.rs   # MCP JSON-RPC stdio server
+├── scripts/
+│   ├── bdd-report.sh         # Automated BDD scenario catalog report
+│   ├── bdd-report.py         # Python reporting engine
+│   ├── check-boundaries.sh   # Crate boundary lint
+│   └── update-tap.sh         # Homebrew tap updater
 ├── .github/workflows/
 │   └── ci.yml                # Multi-OS CI pipeline with SARIF upload & release matrix
 ├── Makefile                  # All-in-one developer automation

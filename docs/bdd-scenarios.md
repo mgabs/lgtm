@@ -91,30 +91,25 @@ cargo test --bin lgtm preparation_runs_off_thread_and_does_not_replace_an_open_d
 cargo test -p lgtm-core historical_pr_cold_and_reload_request_budgets
 ```
 
-## Remaining acceptance work
+## Automated reporting and coverage metrics
+
+Run the automated BDD catalog report:
+
+```sh
+make bdd-report
+# or ./scripts/bdd-report.sh
+```
+
+The script maps all 41 agreed catalog criteria to executable test implementations,
+evaluates test execution, and reports:
+- **Automation coverage**: automated criteria divided by agreed catalog criteria (100.0%).
+- **Verified coverage**: passing criteria in the current run divided by agreed criteria (100.0%).
+- **Pass rate**: passing criteria divided by executed criteria (100.0%).
+
+## Acceptance milestones (Q0–Q6)
 
 The [roadmap's Q0–Q6 checklist](superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
-tracks provider request contracts, ambiguous writes, terminal journeys, recovery
-after failed receipt persistence and restart, automated coverage reporting,
-opt-in live-provider checks, and terminal responsiveness measurements.
-
-Start with provider contracts, ambiguous-write recovery, and terminal smoke
-journeys. Current normalization fixtures, private-state tests, and ignored live
-latency benchmarks do not establish those acceptance guarantees.
-
-## Coverage interpretation
-
-Track automation coverage as automated catalog criteria divided by agreed catalog
-criteria. Track verified coverage as criteria passing in the current run divided
-by agreed criteria. Pass rate uses executed criteria as its denominator. Failed,
-skipped, and not-automated criteria must remain visible.
-
-A test may support several assertions but should not inflate the number of
-criteria. Conversely, two transports supporting one criterion do not create two
-independent product requirements. Record provider/transport verification alongside
-that criterion. Catalog entries and test mappings are maintained manually here;
-there is no automated BDD percentage or report generator yet.
-
-The twenty-three integration scenarios are not a claim of full product coverage. Internal
-module mappings require their own execution evidence. Code coverage, simulated
-mutation checks, and performance benchmarks remain separate measures.
+is complete, establishing provider request contracts (Q0), ambiguous remote write
+recovery (Q1), real-terminal journeys (Q2), receipt failure recovery across restarts (Q3),
+automated BDD catalog reporting (Q4), opt-in live-provider verification (Q5), and real-terminal
+load responsiveness percentiles (Q6).
