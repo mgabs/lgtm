@@ -212,12 +212,19 @@ fn truncate_secret(s: &str) -> String {
 
 fn is_path_traversal(text: &str) -> bool {
     let t = text.to_lowercase();
+    let has_traversal_token = t.contains("../")
+        || t.contains("..\\")
+        || t.contains("\"..\"")
+        || t.contains("'..'")
+        || t.contains("\"../")
+        || t.contains("req.params")
+        || t.contains("req.query");
     (t.contains("path.join(")
         || t.contains("fs.read")
         || t.contains("open(")
         || t.contains("std::fs::")
         || t.contains("file.read"))
-        && (t.contains("..") || t.contains("req.params") || t.contains("req.query"))
+        && has_traversal_token
 }
 
 fn is_ssrf_sink(text: &str) -> bool {

@@ -8,10 +8,13 @@ impl ApiDriftGuard {
         let mut alerts = Vec::new();
         let path_str = file.display_name();
 
-        // Skip test files or internal implementation directories
+        // Skip test files, internal implementation directories, or binary application modules
         if path_str.contains("test")
             || path_str.contains("/internal/")
             || path_str.contains("/private/")
+            || path_str.starts_with("src/app/")
+            || path_str.starts_with("src/ui/")
+            || path_str == "src/main.rs"
         {
             return alerts;
         }

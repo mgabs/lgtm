@@ -1,6 +1,70 @@
 use crate::guard::{GuardAlert, Severity};
 use crate::model::{FileDiff, LineType};
 
+fn is_test_attr(text: &str) -> bool {
+    text.starts_with("#[test") || text.starts_with("#[tokio::test") || text.starts_with("#[rstest")
+}
+
+fn is_test_module_boundary(text: &str) -> bool {
+    text.starts_with("#[cfg(test)]") || text.starts_with("mod test")
+}
+
+fn is_test_or_entry_file(path_str: &str) -> bool {
+    path_str.contains("test")
+        || path_str.contains("benchmark")
+        || path_str.contains("regression")
+        || path_str.ends_with("lib.rs")
+        || path_str.ends_with("main.rs")
+}
+
+fn process_hunk_lines(
+    hunk: &crate::model::DiffHunk,
+    path_str: &str,
+    all_diff_text: &mut String,
+    added: &mut Vec<(String, String, Option<u32>)>,
+    in_test_module: &mut bool,
+) {
+    if hunk.header.contains("test") {
+        *in_test_module = true;
+    }
+    let mut prev_is_test_attr = false;
+    for line in &hunk.lines {
+        let text = line.content.trim();
+        if is_test_module_boundary(text) {
+            *in_test_module = true;
+        }
+        if text.is_empty() {
+            continue;
+        }
+        let is_test = is_test_attr(text);
+        if line.line_type == LineType::Addition && !crate::guard::is_line_ignored(text) {
+            all_diff_text.push_str(text);
+            all_diff_text.push('\n');
+            if let Some(fn_name) = extract_private_function_definition(text) {
+                if !*in_test_module && !prev_is_test_attr {
+                    added.push((fn_name, path_str.to_string(), line.new_line_num));
+                }
+            }
+        }
+        prev_is_test_attr = is_test;
+    }
+}
+
+fn collect_file_private_functions(
+    file: &FileDiff,
+    all_diff_text: &mut String,
+    added: &mut Vec<(String, String, Option<u32>)>,
+) {
+    let path_str = file.display_name();
+    if is_test_or_entry_file(&path_str) {
+        return;
+    }
+    let mut in_test_module = false;
+    for hunk in &file.hunks {
+        process_hunk_lines(hunk, &path_str, all_diff_text, added, &mut in_test_module);
+    }
+}
+
 pub struct DeadCodeGuard;
 
 impl DeadCodeGuard {
@@ -12,34 +76,7 @@ impl DeadCodeGuard {
         let mut all_diff_text = String::new();
 
         for file in files {
-            let path_str = file.display_name();
-            if path_str.contains("test")
-                || path_str.ends_with("lib.rs")
-                || path_str.ends_with("main.rs")
-            {
-                continue;
-            }
-
-            for hunk in &file.hunks {
-                for line in &hunk.lines {
-                    if line.line_type == LineType::Addition {
-                        let text = line.content.trim();
-                        if crate::guard::is_line_ignored(text) {
-                            continue;
-                        }
-                        all_diff_text.push_str(text);
-                        all_diff_text.push('\n');
-
-                        if let Some(fn_name) = extract_private_function_definition(text) {
-                            added_private_functions.push((
-                                fn_name,
-                                path_str.clone(),
-                                line.new_line_num,
-                            ));
-                        }
-                    }
-                }
-            }
+            collect_file_private_functions(file, &mut all_diff_text, &mut added_private_functions);
         }
 
         // 2. Count references across all added lines in the diff
@@ -88,6 +125,8 @@ fn extract_private_function_definition(text: &str) -> Option<String> {
         if let Some(&name) = tokens.last() {
             if !name.starts_with('_')
                 && !name.starts_with("test_")
+                && !name.starts_with("test")
+                && !name.starts_with("bdd_")
                 && name != "new"
                 && name != "main"
             {

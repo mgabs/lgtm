@@ -189,7 +189,7 @@ impl App {
 
     /// Per-line folded range for a hunk (first matching range wins), computed in
     /// O(n log n + total range length) instead of scanning every range per line.
-    pub fn fold_map(
+    pub(crate) fn fold_map(
         hunk: &lgtm_core::model::DiffHunk,
     ) -> Vec<Option<lgtm_core::model::BlockRange>> {
         let mut map = vec![None; hunk.lines.len()];
@@ -202,22 +202,31 @@ impl App {
             by_key.entry(key).or_default().push(idx);
         }
         for range in &hunk.folded_blocks {
-            if range.start_line > range.end_line {
-                continue;
-            }
-            for idxs in by_key
-                .range(range.start_line..=range.end_line)
-                .map(|(_, v)| v)
-            {
-                for &idx in idxs {
-                    map[idx].get_or_insert(*range);
-                }
+            if range.start_line <= range.end_line {
+                apply_range_to_map(&mut map, &by_key, *range);
             }
         }
         map
     }
+}
 
-    pub fn visible_line_indices(&self) -> std::rc::Rc<Vec<usize>> {
+fn apply_range_to_map(
+    map: &mut [Option<lgtm_core::model::BlockRange>],
+    by_key: &std::collections::BTreeMap<u32, Vec<usize>>,
+    range: lgtm_core::model::BlockRange,
+) {
+    for idxs in by_key
+        .range(range.start_line..=range.end_line)
+        .map(|(_, v)| v)
+    {
+        for &idx in idxs {
+            map[idx].get_or_insert(range);
+        }
+    }
+}
+
+impl App {
+    pub(crate) fn visible_line_indices(&self) -> std::rc::Rc<Vec<usize>> {
         self.cached_rows().visible.clone()
     }
 

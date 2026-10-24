@@ -304,7 +304,7 @@ impl App {
         app
     }
 
-    pub fn handle_background_events(&mut self) -> bool {
+    pub(crate) fn handle_background_events(&mut self) -> bool {
         if self.watcher_rx.is_empty()
             && self.jobs_rx.is_empty()
             && !(self.ready_pr.is_some()

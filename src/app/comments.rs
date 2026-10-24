@@ -1043,7 +1043,7 @@ impl App {
         self.save_marks();
     }
 
-    pub fn save_current_line_comment(&mut self) -> bool {
+    pub(crate) fn save_current_line_comment(&mut self) -> bool {
         if let Some(alert) = self.comment_target_alert.clone() {
             let target_line_no = alert.line_no.unwrap_or(1);
             let path_str = alert.file_path;

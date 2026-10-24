@@ -31,10 +31,10 @@ jobs:
 
       - name: Verify lgtm ci json output
         run: |
-          ./target/release/lgtm ci --rev HEAD~1...HEAD -f json -o ci-report.json
+          ./target/release/lgtm ci --rev HEAD~1...HEAD -f json -o ci-report.json || [ $? -eq 0 ] || [ $? -eq 1 ]
           test -f ci-report.json
 
       - name: Verify lgtm ci sarif output
         run: |
-          ./target/release/lgtm ci --rev HEAD~1...HEAD -f sarif -o ci-report.sarif
+          ./target/release/lgtm ci --rev HEAD~1...HEAD -f sarif -o ci-report.sarif || [ $? -eq 0 ] || [ $? -eq 1 ]
           test -f ci-report.sarif

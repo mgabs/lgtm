@@ -10,17 +10,7 @@ impl App {
 
         // Check for line jump like :42 or :123
         if let Ok(line_num) = trimmed.parse::<u32>() {
-            self.active_view = ActiveView::Diff;
-            if line_num > 0 {
-                self.status_message = Some(match self.jump_to_line(line_num) {
-                    Some(n) if n == line_num => format!("Jumped to line {}", line_num),
-                    Some(n) => format!(
-                        "Line {} not in diff; jumped to nearest line {}",
-                        line_num, n
-                    ),
-                    None => "No lines in the active file".to_string(),
-                });
-            }
+            self.handle_line_jump(line_num);
             return;
         }
 
@@ -463,7 +453,7 @@ impl App {
     }
 
     /// Moves the cursor to the diff line closest to `target_line_no`; returns the line landed on.
-    pub fn jump_to_line(&mut self, target_line_no: u32) -> Option<u32> {
+    pub(crate) fn jump_to_line(&mut self, target_line_no: u32) -> Option<u32> {
         let f = self.snapshot.files.get(self.selected_file_idx)?;
         let mut best: Option<(u32, usize, u32)> = None;
         for (counter, line) in f.hunks.iter().flat_map(|h| &h.lines).enumerate() {
@@ -477,6 +467,21 @@ impl App {
         let (_, idx, n) = best?;
         self.cursor_line_idx = idx;
         Some(n)
+    }
+
+    fn handle_line_jump(&mut self, line_num: u32) {
+        self.active_view = ActiveView::Diff;
+        if line_num == 0 {
+            return;
+        }
+        self.status_message = Some(match self.jump_to_line(line_num) {
+            Some(n) if n == line_num => format!("Jumped to line {}", line_num),
+            Some(n) => format!(
+                "Line {} not in diff; jumped to nearest line {}",
+                line_num, n
+            ),
+            None => "No lines in the active file".to_string(),
+        });
     }
 }
 

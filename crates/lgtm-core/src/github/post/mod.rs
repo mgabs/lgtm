@@ -78,6 +78,89 @@ fn general_body(comments: &[CommentAnchor], idx: &[usize]) -> String {
         .join("\n\n")
 }
 
+struct PostSession<'a> {
+    client: &'a dyn GithubClient,
+    pr: u64,
+    delay: Duration,
+    save: &'a mut dyn FnMut(&[CommentAnchor]) -> Result<()>,
+    posted: &'a mut usize,
+}
+
+fn post_inline_comments(
+    session: &mut PostSession<'_>,
+    sha: &str,
+    comments: &mut [CommentAnchor],
+    inline: &[usize],
+    has_general: bool,
+) -> Result<()> {
+    for (position, &i) in inline.iter().enumerate() {
+        let c = &comments[i];
+        let id = match session.client.post_inline(
+            session.pr,
+            sha,
+            &c.file_path,
+            c.target_line_no,
+            &c.comment_text,
+        ) {
+            Ok(id) => id,
+            Err(err) => {
+                if crate::forge::failure::is_ambiguous_write(&err) {
+                    comments[i].set_remote_uncertain(true);
+                    let _ = (session.save)(comments);
+                    return Err(err.context(
+                        "remote write outcome is uncertain; reconcile threads before retrying",
+                    ));
+                }
+                return Err(err);
+            }
+        };
+        comments[i].set_remote_uncertain(false);
+        comments[i].remote_id = Some(id);
+        *session.posted += 1;
+        (session.save)(comments)?;
+        if position + 1 < inline.len() || has_general {
+            let _timing = crate::debug::Span::new("pr.post_throttle");
+            std::thread::sleep(session.delay);
+        }
+    }
+    Ok(())
+}
+
+fn post_general_comments(
+    session: &mut PostSession<'_>,
+    comments: &mut [CommentAnchor],
+    general: &[usize],
+) -> Result<()> {
+    if general.is_empty() {
+        return Ok(());
+    }
+    let id = match session
+        .client
+        .post_general(session.pr, &general_body(comments, general))
+    {
+        Ok(id) => id,
+        Err(err) => {
+            if crate::forge::failure::is_ambiguous_write(&err) {
+                for &i in general {
+                    comments[i].set_remote_uncertain(true);
+                }
+                let _ = (session.save)(comments);
+                return Err(err.context(
+                    "remote write outcome is uncertain; reconcile threads before retrying",
+                ));
+            }
+            return Err(err);
+        }
+    };
+    for &i in general {
+        comments[i].set_remote_uncertain(false);
+        comments[i].remote_id = Some(id);
+    }
+    *session.posted += general.len();
+    (session.save)(comments)?;
+    Ok(())
+}
+
 fn run(
     client: &dyn GithubClient,
     pr: u64,
@@ -92,54 +175,21 @@ fn run(
     } else {
         client.head_sha(pr)?
     };
-    for (position, &i) in plan.inline.iter().enumerate() {
-        let c = &comments[i];
-        let id = match client.post_inline(pr, &sha, &c.file_path, c.target_line_no, &c.comment_text)
-        {
-            Ok(id) => id,
-            Err(err) => {
-                if crate::forge::failure::is_ambiguous_write(&err) {
-                    comments[i].set_remote_uncertain(true);
-                    let _ = save(comments);
-                    return Err(err.context(
-                        "remote write outcome is uncertain; reconcile threads before retrying",
-                    ));
-                }
-                return Err(err);
-            }
-        };
-        comments[i].set_remote_uncertain(false);
-        comments[i].remote_id = Some(id);
-        *posted += 1;
-        save(comments)?;
-        if position + 1 < plan.inline.len() || !plan.general.is_empty() {
-            let _timing = crate::debug::Span::new("pr.post_throttle");
-            std::thread::sleep(delay);
-        }
-    }
-    if !plan.general.is_empty() {
-        let id = match client.post_general(pr, &general_body(comments, &plan.general)) {
-            Ok(id) => id,
-            Err(err) => {
-                if crate::forge::failure::is_ambiguous_write(&err) {
-                    for &i in &plan.general {
-                        comments[i].set_remote_uncertain(true);
-                    }
-                    let _ = save(comments);
-                    return Err(err.context(
-                        "remote write outcome is uncertain; reconcile threads before retrying",
-                    ));
-                }
-                return Err(err);
-            }
-        };
-        for &i in &plan.general {
-            comments[i].set_remote_uncertain(false);
-            comments[i].remote_id = Some(id);
-        }
-        *posted += plan.general.len();
-        save(comments)?;
-    }
+    let mut session = PostSession {
+        client,
+        pr,
+        delay,
+        save,
+        posted,
+    };
+    post_inline_comments(
+        &mut session,
+        &sha,
+        comments,
+        &plan.inline,
+        !plan.general.is_empty(),
+    )?;
+    post_general_comments(&mut session, comments, &plan.general)?;
     Ok(())
 }
 

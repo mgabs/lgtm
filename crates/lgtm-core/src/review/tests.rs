@@ -197,6 +197,7 @@ fn open_preserves_comments_jsonl() {
     store.add_comment(&anchor("a.rs", 1, "p")).unwrap();
     let s = ReviewStore::open(d.path(), "main").unwrap();
     assert!(s.load().unwrap().comments.is_empty());
+    assert_eq!(store.load_comments().len(), 1);
     assert!(d.path().join(".lgtm/comments.jsonl").is_file());
     assert!(!d.path().join(".lgtm/comments.jsonl.bak").exists());
 }
