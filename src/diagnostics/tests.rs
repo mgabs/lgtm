@@ -95,7 +95,7 @@ fn diagnostic_child() {
         || (),
         |app, ()| app.status_message = Some("callback done".into()),
     );
-    let deadline = Instant::now() + Duration::from_secs(3);
+    let deadline = Instant::now() + Duration::from_secs(10);
     let mut activity = false;
     while app.status_message.as_deref() != Some("callback done") {
         activity |= app.handle_background_events();

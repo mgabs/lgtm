@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.2 (unreleased)
+## 1.1.0
 
 ### Added
 - Anonymous HTTPS fallback for public GitHub.com PR listings and stored patches when `gh` is missing or needs login and no API token is set; BDD scenarios verify request budgets and failure boundaries. Private reads and writes still require authentication.
