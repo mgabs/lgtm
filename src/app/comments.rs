@@ -511,7 +511,7 @@ impl App {
         }
     }
 
-    fn apply_threads(&mut self, res: anyhow::Result<Vec<lgtm_core::github::Thread>>) {
+    pub(crate) fn apply_threads(&mut self, res: anyhow::Result<Vec<lgtm_core::github::Thread>>) {
         self.status_message = Some(match res {
             Ok(t) => {
                 if let Some(pr) = self.pr.current_number {
@@ -617,6 +617,12 @@ impl App {
             self.status_message = Some("Comments for this PR are already being posted".into());
             return;
         }
+        if !self.threads.is_empty() {
+            let confirmed = post::reconcile(&mut self.comments, &self.threads, pr);
+            if confirmed > 0 {
+                let _ = self.comment_store.save_comments(&self.comments);
+            }
+        }
         let plan = post::plan(&self.comments, &self.snapshot.files, pr);
         if plan.total() == 0 {
             self.status_message = Some("No unposted comments for this PR".into());
@@ -646,14 +652,43 @@ impl App {
         let mut comments = self.comments.clone();
         let planned_ids: std::collections::HashSet<_> = ids.iter().cloned().collect();
         let progress = self.jobs_tx.clone();
+        let plan_files = self.snapshot.files.clone();
         self.spawn_job(
             "Posting PR comments",
             move || {
+                let cl = client();
+                let mut active_plan = plan;
+                if let Ok(threads) = cl.threads(pr) {
+                    let reconciled = post::reconcile(&mut comments, &threads, pr);
+                    if reconciled > 0 {
+                        let receipts: Vec<(String, u64)> = comments
+                            .iter()
+                            .filter(|c| planned_ids.contains(&c.id))
+                            .filter_map(|c| c.remote_id.map(|id| (c.id.clone(), id)))
+                            .collect();
+                        if !receipts.is_empty() {
+                            let (tx, rx) = crossbeam_channel::bounded(1);
+                            let _ = progress.send(Box::new(move |app| {
+                                let _ = app.save_post_receipts(&receipts, &[]);
+                                let _ = tx.send(());
+                            }));
+                            let _ = rx.recv();
+                        }
+                        active_plan = post::plan(&comments, &plan_files, pr);
+                    }
+                }
+                if active_plan.total() == 0 {
+                    return post::Report {
+                        total: 0,
+                        posted: 0,
+                        error: None,
+                    };
+                }
                 post::post(
-                    &*client(),
+                    &*cl,
                     pr,
                     &mut comments,
-                    &plan,
+                    &active_plan,
                     std::time::Duration::from_millis(500),
                     |posted| {
                         // Only the UI owns mutable local state. Merge receipts there and wait for the

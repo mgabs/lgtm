@@ -1011,3 +1011,81 @@ fn bdd_core_021_ambiguous_remote_write_is_marked_uncertain_and_reconciled_withou
     assert_eq!(retry_report.posted, 1);
     assert_eq!(healthy_client.posted.borrow().as_slice(), ["a.rs:1:second"]);
 }
+
+#[test]
+fn bdd_core_022_failed_receipt_save_recovers_after_restart_without_duplicate_post() {
+    use lgtm_core::{
+        comment::CommentStore,
+        github::{post, FakeClient, Thread, ThreadComment},
+    };
+    // Given two directives and a repository where the first remote write succeeds,
+    // but the local receipt save fails (e.g. disk failure or crash).
+    let repo = tempfile::tempdir().unwrap();
+    let _store = CommentStore::new(repo.path());
+    let mut comments = vec![directive("first"), directive("second")];
+    let files = patch(1, "code").files;
+    let client = FakeClient::default();
+    let plan = post::plan(&comments, &files, 42);
+
+    let report = post::post(
+        &client,
+        42,
+        &mut comments,
+        &plan,
+        std::time::Duration::ZERO,
+        |_current| anyhow::bail!("simulated receipt save failure on disk"),
+    );
+    assert_eq!(report.posted, 1);
+    assert!(report.error.is_some());
+    assert_eq!(client.posted.borrow().as_slice(), ["a.rs:1:first"]);
+
+    // When the application restarts with fresh process state, comments loaded from disk
+    // still have remote_id: None.
+    let restarted_store = CommentStore::new(repo.path());
+    let mut restarted_comments = vec![directive("first"), directive("second")];
+    assert!(restarted_comments.iter().all(|c| c.remote_id.is_none()));
+
+    // Remote provider now holds the thread created by the accepted first comment.
+    let remote_threads = vec![Thread {
+        id: "t-101".into(),
+        path: "a.rs".into(),
+        line: Some(1),
+        resolved: false,
+        comments: vec![ThreadComment {
+            id: 101,
+            author: "reviewer".into(),
+            body: "first".into(),
+        }],
+    }];
+
+    // Then thread reconciliation recovers the accepted remote id, persists it,
+    // and subsequent post planning excludes the already-delivered comment.
+    let reconciled = post::reconcile(&mut restarted_comments, &remote_threads, 42);
+    assert_eq!(reconciled, 1);
+    assert_eq!(restarted_comments[0].remote_id, Some(101));
+    assert_eq!(restarted_comments[1].remote_id, None);
+    restarted_store.save_comments(&restarted_comments).unwrap();
+
+    let retry_plan = post::plan(&restarted_comments, &files, 42);
+    assert_eq!(retry_plan.inline, vec![1]);
+    assert_eq!(retry_plan.general.len(), 0);
+
+    let retry_report = post::post(
+        &client,
+        42,
+        &mut restarted_comments,
+        &retry_plan,
+        std::time::Duration::ZERO,
+        |current| restarted_store.save_comments(current),
+    );
+    assert!(retry_report.error.is_none());
+    assert_eq!(retry_report.posted, 1);
+
+    // The remote provider received only one post for "first" and one for "second" (no duplicate).
+    assert_eq!(
+        client.posted.borrow().as_slice(),
+        ["a.rs:1:first", "a.rs:1:second"]
+    );
+    assert_eq!(restarted_comments[0].remote_id, Some(101));
+    assert_eq!(restarted_comments[1].remote_id, Some(102));
+}

@@ -787,4 +787,36 @@ mod tests {
         assert_eq!(app.threads[0].comments.len(), 1);
         assert_eq!(app.threads[0].comments[0].body, "maybe accepted");
     }
+
+    #[test]
+    fn bdd_ui_010_restart_after_failed_receipt_save_reconciles_against_remote_threads_without_duplicate_post(
+    ) {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(42);
+        let c1 = directive("persisted remote", 3);
+        let c2 = directive("new comment", 4);
+
+        app.comments = vec![c1, c2];
+        app.comment_store.save_comments(&app.comments).unwrap();
+
+        // Threads refreshed from remote provider contain the comment whose local receipt save had failed.
+        let mut remote_thread = thread("thread-1");
+        remote_thread.path = "a.rs".into();
+        remote_thread.line = Some(3);
+        remote_thread
+            .comments
+            .push(lgtm_core::github::ThreadComment {
+                id: 888,
+                author: "reviewer".into(),
+                body: "persisted remote".into(),
+            });
+        app.apply_threads(Ok(vec![remote_thread]));
+
+        // Comment is reconciled with its remote ID and persisted to the comment store.
+        assert_eq!(app.comments[0].remote_id, Some(888));
+        assert_eq!(app.comments[1].remote_id, None);
+        let on_disk = app.comment_store.load_comments();
+        assert_eq!(on_disk[0].remote_id, Some(888));
+        assert_eq!(on_disk[1].remote_id, None);
+    }
 }

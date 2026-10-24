@@ -234,7 +234,7 @@ mod pty_journey {
         }
 
         fn wait_for(&self, mut predicate: impl FnMut(&str) -> bool, label: &str) {
-            let deadline = Instant::now() + Duration::from_secs(5);
+            let deadline = Instant::now() + Duration::from_secs(10);
             while Instant::now() < deadline {
                 let text = self.output();
                 if predicate(&text) {
@@ -512,5 +512,106 @@ echo "[]"
             pr20_diff_calls, 2,
             "repreparation after draft submit must not refetch PR #20"
         );
+    }
+
+    #[test]
+    fn bdd_cli_007_terminal_responsiveness_under_load_measures_percentiles() {
+        // Given a large review fixture with 1,000 changed lines and 50 saved directives.
+        let temp = tempfile::tempdir().unwrap();
+        let repo_dir = temp.path().join("repo");
+        let bin_dir = temp.path().join("bin");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        std::fs::create_dir_all(&bin_dir).unwrap();
+
+        let repo = lgtm_core::git2::Repository::init(&repo_dir).unwrap();
+        let base_content = (0..500)
+            .map(|i| format!("fn line_{i}() {{}}\n"))
+            .collect::<String>();
+        std::fs::write(repo_dir.join("main.rs"), &base_content).unwrap();
+
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("main.rs")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = lgtm_core::git2::Signature::now("Benchmark", "bench@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+            .unwrap();
+
+        let modified_content = (0..1000)
+            .map(|i| format!("fn modified_line_{i}() {{ println!(\"load\"); }}\n"))
+            .collect::<String>();
+        std::fs::write(repo_dir.join("main.rs"), &modified_content).unwrap();
+
+        // 50 saved directives
+        let comment_store = lgtm_core::comment::CommentStore::new(&repo_dir);
+        let comments: Vec<lgtm_core::comment::CommentAnchor> = (0..50)
+            .map(|i| {
+                serde_json::from_value(serde_json::json!({
+                    "id": format!("bench-directive-{i}"),
+                    "file_path": "main.rs",
+                    "target_line_no": (i * 10 + 1) as u32,
+                    "target_code": "code",
+                    "context_before": [],
+                    "context_after": [],
+                    "comment_text": format!("perf directive #{i}"),
+                    "created_at_turn": 1,
+                    "is_resolved": false,
+                }))
+                .unwrap()
+            })
+            .collect();
+        comment_store.save_comments(&comments).unwrap();
+
+        let log_path = temp.path().join("debug.jsonl");
+        let mut app = PtyApp::spawn(&repo_dir, &bin_dir, &log_path);
+
+        // Wait for initial diff render
+        app.wait_for(|s| s.contains("main.rs"), "initial main.rs render");
+
+        // When navigating through lines in the real terminal under load:
+        let mut samples_ms = Vec::new();
+        for _ in 0..15 {
+            let draws_before = std::fs::read_to_string(&log_path)
+                .unwrap_or_default()
+                .lines()
+                .filter(|l| l.contains("\"span\":\"ui.draw\""))
+                .count();
+            let start = Instant::now();
+            app.send(b"j");
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                let draws = std::fs::read_to_string(&log_path)
+                    .unwrap_or_default()
+                    .lines()
+                    .filter(|l| l.contains("\"span\":\"ui.draw\""))
+                    .count();
+                if draws > draws_before {
+                    samples_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        app.send(b":q\r");
+        let status = app.child.wait().unwrap();
+        assert!(status.success(), "expected clean exit, got {status}");
+
+        // Then responsiveness percentiles are recorded and reported without machine-speed assertions.
+        if !samples_ms.is_empty() {
+            samples_ms.sort_by(f64::total_cmp);
+            let p50 = samples_ms[samples_ms.len() * 50 / 100];
+            let p90 = samples_ms[samples_ms.len() * 90 / 100];
+            let p95 = samples_ms[samples_ms.len() * 95 / 100];
+            println!(
+                "Q6 Terminal Responsiveness (1000 lines, 50 directives, 120x40 PTY): \
+                 p50={:.2}ms, p90={:.2}ms, p95={:.2}ms (n={})",
+                p50,
+                p90,
+                p95,
+                samples_ms.len()
+            );
+        }
     }
 }

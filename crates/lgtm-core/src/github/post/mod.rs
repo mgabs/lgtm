@@ -143,15 +143,16 @@ fn run(
     Ok(())
 }
 
-/// Reconcile uncertain directives for `pr` against remote `threads`.
-/// Attaches `remote_id` when the directive text is present on the remote line;
+/// Reconcile unconfirmed or uncertain directives for `pr` against remote `threads`.
+/// Attaches `remote_id` when the directive text is present on the remote line (e.g. after
+/// an ambiguous write or a failed local receipt save and restart);
 /// returns the number of directives confirmed as delivered.
 pub fn reconcile(comments: &mut [CommentAnchor], threads: &[super::Thread], pr: u64) -> usize {
     let mut used: std::collections::HashSet<u64> =
         comments.iter().filter_map(|c| c.remote_id).collect();
     let mut confirmed = 0;
     for c in comments.iter_mut() {
-        if c.pr_number != Some(pr) || !c.is_remote_uncertain() || c.remote_id.is_some() {
+        if c.pr_number != Some(pr) || c.remote_id.is_some() {
             continue;
         }
         let matched = threads

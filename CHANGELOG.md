@@ -18,7 +18,7 @@
 - Inline thread markers: after `:threads`, lines with remote discussion show `◆` (open) or `◇` (resolved) in the diff gutter, on GitHub and Azure DevOps.
 - Orphaned comments: comments are re-pinned after every diff reload and flagged `⚠ Orphaned` when their code is gone (never deleted).
 
-- Provider request contracts (`bdd_core_019`, `bdd_core_020`), ambiguous remote write recovery (`bdd_core_021`, `bdd_ui_009`), and real-terminal (PTY) acceptance journeys (`bdd_cli_006`).
+- Provider request contracts (`bdd_core_019`, `bdd_core_020`), ambiguous remote write recovery (`bdd_core_021`, `bdd_ui_009`), real-terminal acceptance journeys (`bdd_cli_006`), failed receipt save recovery across restart (`bdd_core_022`, `bdd_ui_010`), automated BDD catalog reporting (`scripts/bdd-report.sh`, `make bdd-report`), opt-in live provider checks (`live_provider.rs`), and terminal responsiveness measurements (`bdd_cli_007`).
 - Inline and modal `[↑]` posted badge for directives with remote receipts (`remote_id.is_some()`).
 
 ### Fixed

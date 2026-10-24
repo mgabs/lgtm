@@ -20,6 +20,10 @@ release:
 test:
 	cargo test --workspace -- --nocapture
 
+## Generate automated BDD scenario catalog report
+bdd-report:
+	./scripts/bdd-report.sh
+
 ## Run clippy linter and fail on warnings
 lint:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
