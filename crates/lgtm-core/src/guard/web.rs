@@ -95,10 +95,6 @@ const RULES: &[Rule] = &[
 pub struct WebGuard;
 
 impl Guard for WebGuard {
-    fn name(&self) -> &'static str {
-        "web"
-    }
-
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
         run(file, RULES, |l| matches!(l, Lang::Ts | Lang::Tsx))
     }

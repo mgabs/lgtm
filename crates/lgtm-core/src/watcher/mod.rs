@@ -6,7 +6,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum WatcherMessage {
-    FilesChanged(#[allow(dead_code)] Vec<PathBuf>),
+    FilesChanged(Vec<PathBuf>),
     Error(String),
 }
 

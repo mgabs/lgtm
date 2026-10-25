@@ -33,10 +33,6 @@ const RULES: &[Rule] = &[
 pub struct GoGuard;
 
 impl Guard for GoGuard {
-    fn name(&self) -> &'static str {
-        "go"
-    }
-
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
         run(file, RULES, |l| matches!(l, Lang::Go))
     }

@@ -40,21 +40,6 @@ fn grammar(lang: Lang) -> Language {
     }
 }
 
-/// 0-based rows where `query` captures `@hit`. Broken code still parses
-/// (tree-sitter recovers), so partial agent output is fine.
-pub fn hits(lang: Lang, src: &str, query: &str) -> Result<Vec<usize>> {
-    hits_within(lang, src, query, &[])
-}
-
-pub fn sexp(lang: Lang, src: &str) -> Result<String> {
-    let mut parser = Parser::new();
-    parser.set_language(&grammar(lang))?;
-    let tree = parser
-        .parse(src, None) // lgtm:ignore
-        .ok_or_else(|| anyhow!("parse failed"))?;
-    Ok(tree.root_node().to_sexp())
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AstBlock {
     pub start_row: usize,
@@ -272,18 +257,20 @@ mod tests {
     #[test]
     fn finds_jsx_attribute_rows() {
         let src = "const a = 1;\nconst x = <div\n  dangerouslySetInnerHTML={{ __html: h }} />;\n";
-        assert_eq!(hits(Lang::Tsx, src, Q).unwrap(), vec![2]);
-        assert!(hits(Lang::Tsx, "const x = <div className=\"a\" />;", Q)
-            .unwrap()
-            .is_empty());
+        assert_eq!(hits_within(Lang::Tsx, src, Q, &[]).unwrap(), vec![2]);
+        assert!(
+            hits_within(Lang::Tsx, "const x = <div className=\"a\" />;", Q, &[])
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
     fn broken_code_still_parses_and_bad_query_errors() {
         let src = "}\nconst x = <p dangerouslySetInnerHTML={x} />;\n";
-        assert_eq!(hits(Lang::Tsx, src, Q).unwrap(), vec![1]);
-        assert!(hits(Lang::Tsx, "x", "(nope) @hit").is_err());
-        assert!(hits(Lang::Tsx, "x", "(identifier) @other").is_err());
+        assert_eq!(hits_within(Lang::Tsx, src, Q, &[]).unwrap(), vec![1]);
+        assert!(hits_within(Lang::Tsx, "x", "(nope) @hit", &[]).is_err());
+        assert!(hits_within(Lang::Tsx, "x", "(identifier) @other", &[]).is_err());
     }
 
     #[test]
@@ -294,7 +281,7 @@ mod tests {
             hits_within(Lang::Tsx, src, q, &["if_statement"]).unwrap(),
             vec![2]
         );
-        assert_eq!(hits(Lang::Tsx, src, q).unwrap(), vec![2, 4, 6]);
+        assert_eq!(hits_within(Lang::Tsx, src, q, &[]).unwrap(), vec![2, 4, 6]);
     }
 
     #[test]

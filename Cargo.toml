@@ -32,7 +32,7 @@ lgtm-core.workspace = true
 lgtm-mcp.workspace = true
 lgtm-ast.workspace = true
 ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
-crossterm = { version = "0.28.1", features = ["event-stream"] }
+crossterm = "0.28.1"
 similar = { version = "2.6.0", features = ["inline"] }
 fuzzy-matcher.workspace = true
 crossbeam-channel.workspace = true

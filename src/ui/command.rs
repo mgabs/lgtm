@@ -128,12 +128,7 @@ pub(crate) fn render_command_completion_column(frame: &mut Frame, area: Rect, ap
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
     use super::*;
-    use crate::app::App;
-    use crossbeam_channel::unbounded;
-    use ratatui::backend::TestBackend;
-    use ratatui::Terminal;
 
     #[test]
     fn test_command_descriptions() {

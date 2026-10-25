@@ -73,10 +73,6 @@ const RULES: &[Rule] = &[
 pub struct SwiftGuard;
 
 impl Guard for SwiftGuard {
-    fn name(&self) -> &'static str {
-        "swift"
-    }
-
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
         run(file, RULES, |l| l == Lang::Swift)
     }
