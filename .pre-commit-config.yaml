@@ -16,16 +16,22 @@ repos:
         types: [rust]
         pass_filenames: false
 
+      - id: check-boundaries
+        name: check crate boundaries
+        entry: ./scripts/check-boundaries.sh
+        language: script
+        pass_filenames: false
+
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --all-targets --all-features -- -D warnings
+        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false
 
       - id: cargo-test
         name: cargo test
-        entry: cargo test --all-targets --all-features -- --nocapture
+        entry: cargo test --workspace --all-targets --all-features -- --nocapture
         language: system
         types: [rust]
         pass_filenames: false
