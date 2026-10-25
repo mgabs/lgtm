@@ -18,6 +18,7 @@ impl App {
             ActiveView::CommitModal => self.handle_commit_modal_key(key),
             ActiveView::AuditReport => self.handle_audit_report_key(key),
             ActiveView::AgentPrompt => self.handle_agent_prompt_key(key),
+            ActiveView::MarkdownPreview => self.handle_markdown_preview_key(key),
         }
     }
 
@@ -439,6 +440,9 @@ impl App {
             (_, KeyCode::Char(':')) => {
                 self.command.reset();
                 self.active_view = ActiveView::CommandLine;
+            }
+            (_, KeyCode::Char('m')) => {
+                self.toggle_markdown_preview();
             }
             (_, KeyCode::Char('t')) => {
                 self.open_threads_modal();
@@ -1395,6 +1399,42 @@ impl App {
             _ => {}
         }
     }
+
+    pub(crate) fn handle_markdown_preview_key(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::NONE, KeyCode::Char('m')) | (KeyModifiers::NONE, KeyCode::Esc) => {
+                self.active_view = ActiveView::Diff;
+            }
+            (KeyModifiers::NONE, KeyCode::Char('j')) | (KeyModifiers::NONE, KeyCode::Down) => {
+                self.markdown_preview.scroll_down(1, 30);
+            }
+            (KeyModifiers::NONE, KeyCode::Char('k')) | (KeyModifiers::NONE, KeyCode::Up) => {
+                self.markdown_preview.scroll_up(1);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::NONE, KeyCode::PageDown) => {
+                self.markdown_preview.scroll_down(15, 30);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u')) | (KeyModifiers::NONE, KeyCode::PageUp) => {
+                self.markdown_preview.scroll_up(15);
+            }
+            (KeyModifiers::NONE, KeyCode::Char('g')) | (KeyModifiers::NONE, KeyCode::Home) => {
+                self.markdown_preview.scroll_to_top();
+            }
+            (KeyModifiers::NONE, KeyCode::Char('G')) | (KeyModifiers::NONE, KeyCode::End) => {
+                self.markdown_preview.scroll_to_bottom(30);
+            }
+            (KeyModifiers::NONE, KeyCode::Char(':')) => {
+                self.command.input.clear();
+                self.command.history_idx = None;
+                self.active_view = ActiveView::CommandLine;
+            }
+            (KeyModifiers::NONE, KeyCode::Char('q')) => {
+                self.should_quit = true;
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1619,5 +1659,79 @@ mod tests {
         assert_eq!(app.active_view, ActiveView::Diff);
         assert_eq!(app.command.input, "");
         assert_eq!(app.command.cursor, 0);
+    }
+
+    #[test]
+    fn test_markdown_preview_toggle_and_guard() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        let make_key = |code: KeyCode| KeyEvent {
+            code,
+            modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+        let mut app = create_test_app();
+        app.snapshot.files = vec![
+            FileDiff {
+                old_path: None,
+                new_path: PathBuf::from("src/main.rs"),
+                change_type: ChangeType::Added,
+                additions: 10,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+            FileDiff {
+                old_path: None,
+                new_path: PathBuf::from("README.md"),
+                change_type: ChangeType::Added,
+                additions: 20,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+        ];
+
+        // On non-markdown file: toggle does not enter preview, sets warning
+        app.selected_file_idx = 0;
+        app.handle_key(make_key(KeyCode::Char('m')));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Markdown preview only available for .md files")
+        );
+
+        // On markdown file: toggle enters preview
+        app.selected_file_idx = 1;
+        app.handle_key(make_key(KeyCode::Char('m')));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+
+        // Navigation in preview
+        app.handle_key(make_key(KeyCode::Char('j')));
+        app.handle_key(make_key(KeyCode::Char('k')));
+        app.handle_key(make_key(KeyCode::Char('g')));
+        app.handle_key(make_key(KeyCode::Char('G')));
+
+        // Toggle back returns to Diff
+        app.handle_key(make_key(KeyCode::Char('m')));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // Esc returns from preview to Diff
+        app.selected_file_idx = 1;
+        app.handle_key(make_key(KeyCode::Char('m')));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+        app.handle_key(make_key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // Colon command :md toggles preview
+        app.execute_command("md");
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+
+        // Colon command :preview toggles back
+        app.execute_command("preview");
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
     }
 }

@@ -20,6 +20,7 @@ mod comments;
 mod commit;
 mod external;
 mod input;
+pub mod markdown;
 mod motion;
 mod pr;
 mod refresh;
@@ -33,6 +34,7 @@ pub(crate) mod view_data;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
     Diff,
+    MarkdownPreview,
     FilePicker,
     PanePicker,
     CommentInput,
@@ -129,6 +131,9 @@ pub struct App {
     // Editor configuration override
     pub editor_override: Option<String>,
     pub needs_terminal_clear: bool,
+
+    // Markdown preview state
+    pub markdown_preview: markdown::MarkdownPreviewState,
 
     // Alert navigation index
     pub selected_alert_idx: usize,
@@ -256,6 +261,7 @@ impl App {
             active_revision: explicit_rev,
             editor_override: None,
             needs_terminal_clear: false,
+            markdown_preview: Default::default(),
             file_picker: FilePicker::default(),
             pane_picker: PanePicker::default(),
             comment_input: String::new(),
@@ -557,6 +563,27 @@ impl App {
             }
         }
         self.status_message = Some("No active agent gate waiting.".to_string());
+    }
+
+    pub fn toggle_markdown_preview(&mut self) {
+        if self.active_view == ActiveView::MarkdownPreview {
+            self.active_view = ActiveView::Diff;
+            return;
+        }
+
+        if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
+            if markdown::is_markdown_file(&file.new_path) {
+                self.markdown_preview.scroll_offset = 0;
+                self.markdown_preview.rendered_rows.clear();
+                self.markdown_preview.cached_file_idx = None;
+                self.active_view = ActiveView::MarkdownPreview;
+            } else {
+                self.status_message =
+                    Some("Markdown preview only available for .md files".to_string());
+            }
+        } else {
+            self.status_message = Some("No file selected".to_string());
+        }
     }
 }
 
