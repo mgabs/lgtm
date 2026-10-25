@@ -1247,7 +1247,6 @@ impl App {
                         let sink = self.agent_sink();
                         let _ = sink.send(&directive);
                         let label = sink.label();
-                        drop(sink);
                         self.status_message = Some(format!("Sent directive to {}", label));
                     }
                 }
@@ -1321,7 +1320,6 @@ impl App {
                     let sink = self.agent_sink();
                     let _ = sink.send(&payload);
                     let label = sink.label();
-                    drop(sink);
                     self.status_message =
                         Some(format!("Sent {} issues to {}", filtered.len(), label));
                 }

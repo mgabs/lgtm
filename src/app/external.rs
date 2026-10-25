@@ -40,7 +40,6 @@ impl App {
             };
             let _ = sink.send(&text);
             let label = sink.label();
-            drop(sink);
             notes.push(format!("Delivered to {}", label));
 
             self.review_posting_prs.insert(pr_num);
@@ -99,7 +98,6 @@ impl App {
         };
         let _ = sink.send(&text);
         let label = sink.label();
-        drop(sink);
         self.status_message = Some(format!(
             "Exported {} and delivered to {}",
             file_path.display(),
@@ -147,11 +145,10 @@ impl App {
         let sink = self.agent_sink();
         let result = sink.send(&payload);
         let label = sink.label();
-        drop(sink);
         self.status_message = Some(match result {
             Ok(()) => format!("Sent to {}: {}", label, payload),
             Err(e) => {
-                let _ = crate::ipc::sink::ClipboardSink.send(&payload); // lgtm:ignore
+                let _ = crate::ipc::sink::AgentSinkKind::Osc52.send(&payload); // lgtm:ignore
                 format!("Send failed: {}", e)
             }
         });
@@ -212,15 +209,15 @@ impl App {
             .unwrap_or_else(crate::ipc::IpcBridge::detect_sink)
     }
 
-    pub fn agent_sink(&self) -> Box<dyn crate::ipc::sink::AgentSink + '_> {
-        use crate::ipc::sink::*;
+    pub fn agent_sink(&self) -> crate::ipc::sink::AgentSinkKind<'_> {
+        use crate::ipc::sink::AgentSinkKind;
         match (self.resolved_sink_kind(), self.agent_pane.as_deref()) {
-            (crate::ipc::SinkKind::Tmux, Some(pane)) => Box::new(TmuxSink(pane)),
-            (crate::ipc::SinkKind::Zellij, p) => Box::new(ZellijSink(p)),
-            (crate::ipc::SinkKind::WezTerm, p) => Box::new(WezTermSink(p)),
-            (crate::ipc::SinkKind::Kitty, p) => Box::new(KittySink(p)),
-            (crate::ipc::SinkKind::Dummy, _) => Box::new(DummySink),
-            _ => Box::new(ClipboardSink),
+            (crate::ipc::SinkKind::Tmux, Some(pane)) => AgentSinkKind::Tmux(pane),
+            (crate::ipc::SinkKind::Zellij, p) => AgentSinkKind::Zellij(p),
+            (crate::ipc::SinkKind::WezTerm, p) => AgentSinkKind::WezTerm(p),
+            (crate::ipc::SinkKind::Kitty, p) => AgentSinkKind::Kitty(p),
+            (crate::ipc::SinkKind::Dummy, _) => AgentSinkKind::Direct,
+            _ => AgentSinkKind::Osc52,
         }
     }
 
