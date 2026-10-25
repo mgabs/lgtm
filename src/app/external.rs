@@ -238,6 +238,7 @@ impl App {
             .unwrap_or(1);
         let display_name = file.display_name();
         let editor = self.resolved_editor();
+        let is_cli = !is_gui_editor(&editor.trim().to_lowercase());
         self.invalidate_view_data();
         self.status_message = Some(match launch_editor(&editor, &path, line_no) {
             Ok(_) => format!("Opened {}:{} in {}", display_name, line_no, editor),
@@ -246,11 +247,15 @@ impl App {
                 editor, err
             ),
         });
+        if is_cli {
+            self.needs_terminal_clear = true;
+        }
     }
 
     pub fn open_file_in_editor(&mut self, file_rel_path: &str, line_no: u32) {
         let path = self.git_engine.repo_path.join(file_rel_path);
         let editor = self.resolved_editor();
+        let is_cli = !is_gui_editor(&editor.trim().to_lowercase());
         self.invalidate_view_data();
         self.status_message = Some(match launch_editor(&editor, &path, line_no) {
             Ok(_) => format!("Opened {}:{} in {}", file_rel_path, line_no, editor),
@@ -259,6 +264,9 @@ impl App {
                 editor, err
             ),
         });
+        if is_cli {
+            self.needs_terminal_clear = true;
+        }
     }
 }
 
@@ -544,5 +552,25 @@ mod tests {
         // Dummy sink
         app.agent_sink_kind = Some(crate::ipc::SinkKind::Dummy);
         assert_eq!(app.agent_sink().label(), "dummy (/dev/null)");
+    }
+
+    #[test]
+    fn test_cli_editor_flags_terminal_clear() {
+        let mut app = setup_app_with_line(1);
+        app.editor_override = Some("true".to_string());
+        assert!(!app.needs_terminal_clear);
+
+        app.open_in_editor();
+        assert!(app.needs_terminal_clear);
+    }
+
+    #[test]
+    fn test_gui_editor_does_not_flag_terminal_clear() {
+        let mut app = setup_app_with_line(1);
+        app.editor_override = Some("code".to_string());
+        assert!(!app.needs_terminal_clear);
+
+        app.open_in_editor();
+        assert!(!app.needs_terminal_clear);
     }
 }
