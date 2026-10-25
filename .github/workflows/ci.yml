@@ -14,6 +14,14 @@ permissions:
   contents: write
   security-events: write
 
+# Runner & Environment Maintenance (Issue #28):
+# - Node.js 20 deprecation: forced onto Node 24 via ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION
+# - Ubuntu runner: tracking migration of ubuntu-latest label to Ubuntu 26 (actions/runner-images/issues/14748)
+# - macOS runner: macos-latest (arm64) subject to queue constraints
+env:
+  ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: "node24"
+  CARGO_TERM_COLOR: always
+
 jobs:
   quality-gate:
     name: Quality Gate & Test Coverage (${{ matrix.os }})
