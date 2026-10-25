@@ -128,6 +128,7 @@ pub struct App {
 
     // Editor configuration override
     pub editor_override: Option<String>,
+    pub needs_terminal_clear: bool,
 
     // Alert navigation index
     pub selected_alert_idx: usize,
@@ -254,6 +255,7 @@ impl App {
             pr: PrState::new(None),
             active_revision: explicit_rev,
             editor_override: None,
+            needs_terminal_clear: false,
             file_picker: FilePicker::default(),
             pane_picker: PanePicker::default(),
             comment_input: String::new(),

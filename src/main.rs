@@ -526,6 +526,10 @@ fn run_tui(
     let mut diagnostics = lgtm_core::debug::enabled().then(diagnostics::UiLoop::default);
     while !app.should_quit {
         event_loop.step(&mut app, &mut input, &mut diagnostics, |app| {
+            if app.needs_terminal_clear {
+                terminal.clear()?;
+                app.needs_terminal_clear = false;
+            }
             lgtm_core::debug::measure("ui.draw", || terminal.draw(|f| ui::render(f, app)))?;
             Ok(())
         })?;
