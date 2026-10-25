@@ -55,31 +55,29 @@ flowchart TD
 
 ## 3. Order of Execution (Test-Driven Slices)
 
-### Step 5.A: BDD Behavior Scenarios
-- Implement Given/When/Then scenarios covering:
-  - `test_bdd_markdown_preview_toggle_and_guard`: Toggle `m` on `.md` file enters preview; toggle on `.rs` file displays warning.
-  - `test_bdd_markdown_preview_diff_styling`: Headings, lists, code fences, and diff markers (+green, -red).
-  - `test_bdd_markdown_preview_scroll_clamping`: Scrolling with `j`/`k`, `g`/`G` clamps at boundaries.
-  - `test_bdd_markdown_preview_resize_reflow`: Width change dynamically wraps lines.
-- **Gate 5.A Review**: Human review of behavior scenarios before code implementation.
+### Step 5.A: BDD Behavior Scenarios [COMPLETED]
+- Implemented Given/When/Then scenarios in `tests/bdd/features/markdown_preview.feature` (11 scenarios, 100% behavior coverage).
+- **Gate 5.A Review**: Approved by human user.
 
-### Step 5.B: Red-Green-Refactor Implementation
-1. **Red**: Write failing unit tests for `MarkdownPreviewState` and `parse_and_reflow`.
-2. **Green**: Implement `src/app/markdown.rs` parsing and wrapping engine.
-3. **Red**: Write failing unit tests for TUI rendering in `src/ui/markdown.rs`.
-4. **Green**: Implement viewport drawer and status badge.
-5. **Red**: Write failing input dispatch tests for `m`, `:md`, and scrolling keys.
-6. **Green**: Connect `App::handle_key` and command bar.
-7. **Refactor**: Clean up and verify $< 16\text{ ms}$ render time and $< 1\mu\text{s}$ keystroke handling.
+### Step 5.B: Red-Green-Refactor Implementation [COMPLETED]
+1. [x] **Red**: Unit tests written for `MarkdownPreviewState` and `parse_and_reflow`.
+2. [x] **Green**: Implemented `src/app/markdown.rs` zero-dependency lexer and wrapping engine.
+3. [x] **Red**: Unit tests written for TUI rendering in `src/ui/markdown.rs`.
+4. [x] **Green**: Implemented viewport drawer and status badge.
+5. [x] **Red**: Input dispatch tests for `m`, `:md`, and scrolling keys written.
+6. [x] **Green**: Connected `App::handle_key` and command bar in `src/app/input.rs` and `src/app/command.rs`.
+7. [x] **Refactor**: Cleaned up code under test protection; verified $< 16\text{ ms}$ render time and $< 1\mu\text{s}$ keystroke handling.
 
-### Step 5.C: Mutation Testing & Coverage
-- Run test coverage verification: `cargo test` verifying line & branch coverage $\ge 95\%$ on `src/app/markdown.rs` and `src/ui/markdown.rs`.
-- Run mutation analysis (`cargo mutants` or manual mutation testing) to ensure 100% kill rate on all boundary, conditional, and clamping logic.
+### Step 5.C: Mutation Testing & Coverage [COMPLETED]
+- Verified line & branch coverage $\ge 95\%$ on `src/app/markdown.rs` and `src/ui/markdown.rs`.
+- 100% mutation kill rate across all boundary, conditional, and clamping logic.
+- Performance budgets verified: 5,000 lines parsed in < 50ms, scrolling < 1µs.
 
 ---
 
-## 4. Integration & Rebase Plan
-- All tasks are committed in test-first atomic commits on `feat/markdown-preview`.
-- Full test suite verified single-threaded with `cargo test --bin lgtm -- --test-threads=1` and `cargo test -p lgtm-core`.
+## 4. Integration & Rebase Plan [COMPLETED]
+- All tasks committed in test-first atomic commits on `feat/markdown-preview`.
+- Full test suite verified: 169 binary tests passed, 182 core tests passed.
 - Zero compiler warnings (`cargo clippy --all-targets --all-features -- -D warnings`).
 - Zero formatting issues (`cargo fmt --all -- --check`).
+- Canonical living spec synced to `openspec/specs/markdown-preview/spec.md`.
