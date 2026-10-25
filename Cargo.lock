@@ -919,7 +919,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "lgtm"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "lgtm-ast"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -952,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "lgtm-core"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -968,7 +968,7 @@ dependencies = [
 
 [[package]]
 name = "lgtm-mcp"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
