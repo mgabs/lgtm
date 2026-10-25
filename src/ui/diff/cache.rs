@@ -152,20 +152,20 @@ pub(super) struct Layout {
     pub title: String,
     pub rows: Rows,
 }
-type WordPair = (Vec<Span<'static>>, Vec<Span<'static>>);
 
 #[derive(Default)]
 pub(crate) struct RenderCache {
     index: Option<(u64, Rc<Index>)>,
     pub(super) layout: Option<Layout>,
     word_source: Option<Key>,
-    words: HashMap<(usize, usize, usize), Rc<WordPair>>,
+    words: HashMap<(usize, usize, usize), Rc<WordRanges>>,
     reviewed_source: Option<(Key, u64)>,
     reviewed: HashMap<usize, usize>,
     pub(crate) layouts_prepared: u64,
     pub(crate) words_prepared: u64,
     pub(crate) viewport_rows: usize,
     pub(crate) drawer_rows: usize,
+    pub(crate) header: Option<(u64, Line<'static>)>,
 }
 
 pub(super) fn annotation_signature(app: &App) -> u64 {
@@ -230,31 +230,37 @@ impl RenderCache {
         self.index = Some((signature, index.clone()));
         index
     }
-    pub(super) fn word_spans(
+    pub(super) fn word_spans<'a>(
         &mut self,
-        app: &App,
+        app: &'a App,
         hunk: usize,
         old: usize,
         new: usize,
         deletion: bool,
-    ) -> Vec<Span<'static>> {
+    ) -> Vec<Span<'a>> {
         let key = Key::of(app).content();
         self.prepare_content(key);
         let pair = self.words.entry((hunk, old, new)).or_insert_with(|| {
             let _timing = lgtm_core::debug::Span::new("ui.words_prepare");
             self.words_prepared += 1;
             let lines = &app.snapshot.files[app.selected_file_idx].hunks[hunk].lines;
-            Rc::new(prepare_inline_diff_pair(
+            Rc::new(prepare_inline_diff_ranges(
                 &lines[old].content,
                 &lines[new].content,
                 None,
             ))
         });
-        if deletion {
-            pair.0.clone()
+        let lines = &app.snapshot.files[app.selected_file_idx].hunks[hunk].lines;
+        let (line_idx, ranges) = if deletion {
+            (old, &pair.0)
         } else {
-            pair.1.clone()
-        }
+            (new, &pair.1)
+        };
+        let text = &lines[line_idx].content;
+        ranges
+            .iter()
+            .map(|(range, style)| Span::styled(&text[range.clone()], *style))
+            .collect()
     }
     pub(super) fn prepare_reviewed(&mut self, app: &App) {
         if app.marks.is_empty() {

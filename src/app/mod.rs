@@ -31,7 +31,7 @@ mod state;
 pub(crate) mod test_util;
 pub(crate) mod view_data;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActiveView {
     Diff,
     MarkdownPreview,

@@ -208,55 +208,71 @@ pub(crate) fn find_intra_line_pairs(
     pairs
 }
 
-pub(super) fn prepare_inline_diff_pair(
+pub(super) type WordRanges = (
+    Vec<(std::ops::Range<usize>, Style)>,
+    Vec<(std::ops::Range<usize>, Style)>,
+);
+
+pub(super) fn prepare_inline_diff_ranges(
     old_text: &str,
     new_text: &str,
     base_bg: Option<Color>,
-) -> (Vec<Span<'static>>, Vec<Span<'static>>) {
+) -> WordRanges {
     let diff = TextDiff::from_words(old_text, new_text);
     let mut old = Vec::new();
     let mut new = Vec::new();
+    let mut old_offset = 0;
+    let mut new_offset = 0;
     for change in diff.iter_all_changes() {
         let mut style = Style::default();
         if let Some(bg) = base_bg {
             style = style.bg(bg);
         }
+        let len = change.value().len();
         match change.tag() {
             ChangeTag::Equal => {
-                old.push(Span::styled(
-                    change.value().to_owned(),
-                    style.fg(Color::LightRed),
-                ));
-                new.push(Span::styled(
-                    change.value().to_owned(),
-                    style.fg(Color::LightGreen),
-                ));
+                let old_range = old_offset..old_offset + len;
+                let new_range = new_offset..new_offset + len;
+                old.push((old_range, style.fg(Color::LightRed)));
+                new.push((new_range, style.fg(Color::LightGreen)));
+                old_offset += len;
+                new_offset += len;
             }
-            ChangeTag::Delete => old.push(Span::styled(
-                change.value().to_owned(),
-                style
-                    .bg(Color::Red)
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            ChangeTag::Insert => new.push(Span::styled(
-                change.value().to_owned(),
-                style
-                    .bg(Color::Green)
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )),
+            ChangeTag::Delete => {
+                let range = old_offset..old_offset + len;
+                old.push((
+                    range,
+                    style
+                        .bg(Color::Red)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                old_offset += len;
+            }
+            ChangeTag::Insert => {
+                let range = new_offset..new_offset + len;
+                new.push((
+                    range,
+                    style
+                        .bg(Color::Green)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                new_offset += len;
+            }
         }
     }
     (old, new)
 }
 
-pub(crate) fn pad_or_truncate_spans(
-    spans: Vec<Span<'static>>,
+const SPACES: &str = "                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ";
+
+pub(crate) fn pad_or_truncate_spans<'a>(
+    spans: Vec<Span<'a>>,
     target_width: usize,
-) -> Vec<Span<'static>> {
+) -> Vec<Span<'a>> {
     let mut current_len = 0;
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(spans.len() + 1);
     for span in spans {
         let span_len = span.content.chars().count();
         if current_len + span_len <= target_width {
@@ -265,15 +281,35 @@ pub(crate) fn pad_or_truncate_spans(
         } else {
             let take = target_width.saturating_sub(current_len);
             if take > 0 {
-                let s: String = span.content.chars().take(take).collect();
-                out.push(Span::styled(s, span.style));
+                let byte_end = span
+                    .content
+                    .char_indices()
+                    .nth(take)
+                    .map(|(i, _)| i)
+                    .unwrap_or(span.content.len());
+                let sliced = match span.content {
+                    std::borrow::Cow::Borrowed(s) => std::borrow::Cow::Borrowed(&s[..byte_end]),
+                    std::borrow::Cow::Owned(mut s) => {
+                        s.truncate(byte_end);
+                        std::borrow::Cow::Owned(s)
+                    }
+                };
+                out.push(Span {
+                    content: sliced,
+                    style: span.style,
+                });
                 current_len += take;
             }
             break;
         }
     }
     if current_len < target_width {
-        out.push(Span::raw(" ".repeat(target_width - current_len)));
+        let pad = target_width - current_len;
+        if pad <= SPACES.len() {
+            out.push(Span::raw(&SPACES[..pad]));
+        } else {
+            out.push(Span::raw(" ".repeat(pad)));
+        }
     }
     out
 }
@@ -512,12 +548,12 @@ fn prepare_diff(
                                     let left_spans = vec![
                                         Span::styled(old_no, Style::default().fg(Color::DarkGray)),
                                         Span::styled("  ", Style::default()),
-                                        Span::styled(line.content.clone(), style),
+                                        Span::styled(&line.content, style),
                                     ];
                                     let right_spans = vec![
                                         Span::styled(new_no, right_no_style),
                                         Span::styled("  ", Style::default()),
-                                        Span::styled(line.content.clone(), style),
+                                        Span::styled(&line.content, style),
                                     ];
 
                                     let mut row_spans = pad_or_truncate_spans(left_spans, col_width);
@@ -576,14 +612,14 @@ fn prepare_diff(
                                                 Style::default().fg(Color::Red),
                                             ));
                                             if let Some((_, _add_line)) = add_opt {
-                                                left_spans.push(Span::styled(del_line.content.clone(),Style::default().fg(Color::LightRed)));
+                                                left_spans.push(Span::styled(&del_line.content,Style::default().fg(Color::LightRed)));
                                             } else {
                                                 let mut style = Style::default().fg(Color::Red);
                                                 if let Some(bg) = base_bg {
                                                     style = style.bg(bg);
                                                 }
                                                 left_spans.push(Span::styled(
-                                                    del_line.content.clone(),
+                                                    &del_line.content,
                                                     style,
                                                 ));
                                             }
@@ -623,14 +659,14 @@ fn prepare_diff(
                                                 Style::default().fg(Color::Green),
                                             ));
                                             if let Some((_, _del_line)) = del_opt {
-                                                right_spans.push(Span::styled(add_line.content.clone(),Style::default().fg(Color::LightGreen)));
+                                                right_spans.push(Span::styled(&add_line.content,Style::default().fg(Color::LightGreen)));
                                             } else {
                                                 let mut style = Style::default().fg(Color::Green);
                                                 if let Some(bg) = base_bg {
                                                     style = style.bg(bg);
                                                 }
                                                 right_spans.push(Span::styled(
-                                                    add_line.content.clone(),
+                                                    &add_line.content,
                                                     style,
                                                 ));
                                             }
@@ -826,7 +862,7 @@ fn prepare_diff(
                             ];
 
                             if let Some(&(_, is_del)) = pairs.get(&h_line_idx) {
-                                line_spans.push(Span::styled(dline.content.clone(), Style::default().fg(if is_del {Color::LightRed} else {Color::LightGreen})));
+                                line_spans.push(Span::styled(&dline.content, Style::default().fg(if is_del {Color::LightRed} else {Color::LightGreen})));
                             } else {
                                 let mut style = match dline.line_type {
                                     LineType::Addition => Style::default().fg(Color::Green),
@@ -1051,6 +1087,17 @@ mod tests {
         let truncated = pad_or_truncate_spans(long_spans, 8);
         let trunc_chars: usize = truncated.iter().map(|s| s.content.chars().count()).sum();
         assert_eq!(trunc_chars, 8);
+    }
+
+    #[test]
+    fn test_prepare_inline_diff_ranges() {
+        let old = "let x = 1;";
+        let new = "let x = 2;";
+        let (old_ranges, new_ranges) = prepare_inline_diff_ranges(old, new, None);
+        let old_reconstructed: String = old_ranges.iter().map(|(r, _)| &old[r.clone()]).collect();
+        let new_reconstructed: String = new_ranges.iter().map(|(r, _)| &new[r.clone()]).collect();
+        assert_eq!(old_reconstructed, old);
+        assert_eq!(new_reconstructed, new);
     }
 
     #[test]

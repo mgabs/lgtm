@@ -17,7 +17,7 @@ fn background(cursor: bool, visual: bool) -> Option<Color> {
     }
 }
 
-fn shade(spans: &mut [Span<'static>], bg: Option<Color>, bold: bool) {
+fn shade(spans: &mut [Span<'_>], bg: Option<Color>, bold: bool) {
     for span in spans {
         if span.style.bg.is_none() {
             if let Some(bg) = bg {
@@ -49,13 +49,13 @@ fn number(value: Option<u32>, cursor: bool) -> Span<'static> {
     )
 }
 
-fn split_row(
-    app: &App,
+fn split_row<'a>(
+    app: &'a App,
     cache: &mut RenderCache,
     anchor: Anchor,
     width: u16,
     canonical: usize,
-) -> Line<'static> {
+) -> Line<'a> {
     let Anchor::Split {
         hunk,
         old,
@@ -95,7 +95,7 @@ fn split_row(
         let mut body = match (context, new) {
             (false, Some(new)) => cache.word_spans(app, hunk, i, new, true),
             _ => vec![Span::styled(
-                line.content.clone(),
+                &line.content,
                 Style::default().fg(if context { Color::White } else { Color::Red }),
             )],
         };
@@ -112,7 +112,7 @@ fn split_row(
         let mut body = match (context, old) {
             (false, Some(old)) => cache.word_spans(app, hunk, old, i, false),
             _ => vec![Span::styled(
-                line.content.clone(),
+                &line.content,
                 Style::default().fg(if context { Color::White } else { Color::Green }),
             )],
         };
@@ -126,23 +126,28 @@ fn split_row(
     Line::from(spans)
 }
 
-pub(super) fn styled_row(
-    app: &App,
+pub(super) fn styled_row<'a>(
+    app: &'a App,
     cache: &mut RenderCache,
-    row: &Line<'static>,
+    row: &'a Line<'static>,
     anchor: Option<Anchor>,
     width: u16,
     canonical: usize,
-) -> Line<'static> {
+) -> Line<'a> {
     if let Some(anchor @ Anchor::Split { .. }) = anchor {
         return split_row(app, cache, anchor, width, canonical);
     }
-    let mut row = row.clone();
     match anchor {
         Some(Anchor::Fold { raw }) if raw == canonical => {
-            for span in &mut row.spans {
-                span.style = span.style.bg(Color::Indexed(237));
-            }
+            let spans: Vec<Span<'a>> = row
+                .spans
+                .iter()
+                .map(|s| Span::styled(s.content.as_ref(), s.style.bg(Color::Indexed(237))))
+                .collect();
+            let mut line = Line::from(spans);
+            line.alignment = row.alignment;
+            line.style = row.style;
+            line
         }
         Some(Anchor::Unified {
             raw,
@@ -152,22 +157,35 @@ pub(super) fn styled_row(
         }) => {
             let cursor = canonical == raw;
             let visual = app.is_in_visual_selection(raw);
-            if let Some((other, deletion)) = pair {
-                row.spans.truncate(4);
-                row.spans.extend(if deletion {
+            let mut spans: Vec<Span<'a>> = if let Some((other, deletion)) = pair {
+                let mut s: Vec<Span<'a>> = row.spans[..4]
+                    .iter()
+                    .map(|span| Span::styled(span.content.as_ref(), span.style))
+                    .collect();
+                s.extend(if deletion {
                     cache.word_spans(app, hunk, line, other, true)
                 } else {
                     cache.word_spans(app, hunk, other, line, false)
                 });
-            }
+                s
+            } else {
+                row.spans
+                    .iter()
+                    .map(|span| Span::styled(span.content.as_ref(), span.style))
+                    .collect()
+            };
             if cursor {
-                row.spans[0].content.to_mut().replace_range(0..1, "▶");
-                row.spans[0].style = Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD);
+                let mut s = spans[0].content.to_string();
+                s.replace_range(0..1, "▶");
+                spans[0] = Span::styled(
+                    s,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                );
             }
             if visual {
-                row.spans[1] = Span::styled(
+                spans[1] = Span::styled(
                     padded_gutter("▌ "),
                     Style::default()
                         .fg(Color::Cyan)
@@ -175,14 +193,27 @@ pub(super) fn styled_row(
                 );
             }
             shade(
-                &mut row.spans[4..],
+                &mut spans[4..],
                 background(cursor, visual),
                 cursor && pair.is_none(),
             );
+            let mut line = Line::from(spans);
+            line.alignment = row.alignment;
+            line.style = row.style;
+            line
         }
-        _ => {}
+        _ => {
+            let spans: Vec<Span<'a>> = row
+                .spans
+                .iter()
+                .map(|s| Span::styled(s.content.as_ref(), s.style))
+                .collect();
+            let mut line = Line::from(spans);
+            line.alignment = row.alignment;
+            line.style = row.style;
+            line
+        }
     }
-    row
 }
 
 pub(super) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
