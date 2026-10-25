@@ -297,7 +297,7 @@ impl App {
             .cloned()
             .unwrap_or_default();
         self.thread_selected_idx = index;
-        self.command.input = format!("thread reply {} {}", index + 1, draft);
+        self.command.set_text(format!("thread reply {} {}", index + 1, draft));
         self.command.history_idx = None;
         self.active_view = ActiveView::CommandLine;
     }

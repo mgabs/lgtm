@@ -2,21 +2,47 @@ use super::*;
 
 pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     if app.active_view == ActiveView::CommandLine {
-        let mut spans = vec![
-            Span::styled(
-                ":",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                &app.command.input,
+        let mut spans = vec![Span::styled(
+            ":",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )];
+
+        let chars: Vec<char> = app.command.input.chars().collect();
+        let cursor = app.command.cursor.min(chars.len());
+
+        let before: String = chars[..cursor].iter().collect();
+        if !before.is_empty() {
+            spans.push(Span::styled(
+                before,
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("█ ", Style::default().fg(Color::Yellow)),
-        ];
+            ));
+        }
+
+        if cursor < chars.len() {
+            let cursor_char = chars[cursor].to_string();
+            spans.push(Span::styled(
+                cursor_char,
+                Style::default()
+                    .bg(Color::Yellow)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            let after: String = chars[(cursor + 1)..].iter().collect();
+            if !after.is_empty() {
+                spans.push(Span::styled(
+                    after,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+        } else {
+            spans.push(Span::styled("█ ", Style::default().fg(Color::Yellow)));
+        }
 
         if !app.command.completions.is_empty() {
             spans.push(Span::styled(" ❮ ", Style::default().fg(Color::DarkGray)));
@@ -233,4 +259,60 @@ pub(crate) fn render_search_input(frame: &mut Frame, area: Rect, app: &App) {
             .border_style(Style::default().fg(Color::Yellow)),
     );
     frame.render_widget(input, popup_area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    #[test]
+    fn test_render_status_bar_command_line_cursor_at_end() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.active_view = ActiveView::CommandLine;
+        app.command.set_text("audit".into());
+        assert_eq!(app.command.cursor, 5);
+
+        let backend = TestBackend::new(80, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                render_status_bar(f, f.area(), &app);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer.get(0, 0).symbol(), ":");
+        assert_eq!(buffer.get(1, 0).symbol(), "a");
+        assert_eq!(buffer.get(5, 0).symbol(), "t");
+        assert_eq!(buffer.get(6, 0).symbol(), "█");
+    }
+
+    #[test]
+    fn test_render_status_bar_command_line_cursor_mid_string() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.active_view = ActiveView::CommandLine;
+        app.command.set_text("audit".into());
+        app.command.cursor = 2; // at 'd'
+
+        let backend = TestBackend::new(80, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                render_status_bar(f, f.area(), &app);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer.get(0, 0).symbol(), ":");
+        assert_eq!(buffer.get(1, 0).symbol(), "a");
+        assert_eq!(buffer.get(2, 0).symbol(), "u");
+        let cell = buffer.get(3, 0);
+        assert_eq!(cell.symbol(), "d");
+        assert_eq!(cell.bg, Color::Yellow);
+        assert_eq!(cell.fg, Color::Black);
+        assert_eq!(buffer.get(4, 0).symbol(), "i");
+        assert_eq!(buffer.get(5, 0).symbol(), "t");
+    }
 }
