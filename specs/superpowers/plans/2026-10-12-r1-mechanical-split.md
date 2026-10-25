@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 2021, Python 3 (one-off tool), cargo fmt/clippy/test.
 
-**Spec:** `docs/superpowers/specs/2026-10-12-modular-breakdown-design.md`; roadmap item R1 in `docs/superpowers/roadmap.md`.
+**Spec:** `specs/superpowers/specs/2026-10-12-modular-breakdown-design.md`; roadmap item R1 in `specs/superpowers/roadmap.md`.
 
 ## Global Constraints
 
@@ -108,7 +108,7 @@ Expected: both pass at ≥ 90%.
 
 ### Task 3: Docs and commit
 
-**Files:** Modify `docs/WIKI.md:521-523`, `docs/superpowers/specs/2026-10-12-modular-breakdown-design.md`.
+**Files:** Modify `docs/WIKI.md:521-523`, `specs/superpowers/specs/2026-10-12-modular-breakdown-design.md`.
 
 - [ ] **Step 1: Update module map**
 

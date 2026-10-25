@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 2021, perl (one-off renames), cargo fmt/clippy/test.
 
-**Spec:** `docs/superpowers/specs/2026-10-12-modular-breakdown-design.md` stage 2; roadmap item R2.
+**Spec:** `specs/superpowers/specs/2026-10-12-modular-breakdown-design.md` stage 2; roadmap item R2.
 
 ## Global Constraints
 
@@ -310,7 +310,7 @@ cargo fmt --all && cargo build
 
 ### Task 6: Gate, docs, cleanup
 
-**Files:** `docs/WIKI.md` (module map row for `src/app/`), `docs/superpowers/roadmap.md` (mark R2 done; note no `CommitForge`).
+**Files:** `docs/WIKI.md` (module map row for `src/app/`), `specs/superpowers/roadmap.md` (mark R2 done; note no `CommitForge`).
 
 - [ ] **Step 1:** Parity against a trunk build run in the same working tree:
 
