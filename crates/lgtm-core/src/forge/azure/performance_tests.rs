@@ -72,7 +72,7 @@ impl CacheGuard {
             _lock: SHARED_CACHE_TEST_LOCK.lock().unwrap(),
         };
         *TOKEN.lock().unwrap() = None;
-        CACHE.lock().unwrap().clear();
+        CACHE.write().unwrap().clear();
         guard
     }
 }
@@ -80,7 +80,7 @@ impl CacheGuard {
 impl Drop for CacheGuard {
     fn drop(&mut self) {
         *TOKEN.lock().unwrap() = None;
-        CACHE.lock().unwrap().clear();
+        CACHE.write().unwrap().clear();
     }
 }
 
