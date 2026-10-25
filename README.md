@@ -612,7 +612,7 @@ The [BDD scenario catalog](docs/bdd-scenarios.md) maps acceptance criteria to te
 including draft preservation, historical PR retrieval, posting recovery across restarts,
 ambiguous remote write reconciliation, real-terminal journeys, and
 GitHub/Azure request/response contracts. See [CONTRIBUTING.md](CONTRIBUTING.md#behavior-scenarios-bdd)
-for test placement and the [Q0–Q6 roadmap](specs/superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
+for test placement and the [scenario catalog](docs/bdd-scenarios.md)
 for completed acceptance milestones.
 
 Automated BDD reporting is available via `make bdd-report` (or `./scripts/bdd-report.sh`),

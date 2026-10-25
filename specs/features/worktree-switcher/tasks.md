@@ -7,7 +7,7 @@
 - Interactive picker modal in `src/ui/modals/pickers.rs` (`ActiveView::WorktreePicker`).
 - Command dispatch, tab completion, dirty state prompt, and engine re-initialization in `src/app/`.
 
-**Spec:** [`specs/superpowers/specs/2026-10-25-worktree-switcher-design.md`](specs/superpowers/specs/2026-10-25-worktree-switcher-design.md)
+**Spec:** [`specs/features/worktree-switcher/design.md`](design.md)
 
 ---
 
