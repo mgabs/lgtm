@@ -4,9 +4,9 @@
 
 ### Rule 1: Always Use a New Feature Branch
 - **NEVER** work directly on `main` / `master`.
-- Every OpenSpec change proposal MUST originate on a dedicated feature branch:
+- Every OpenSpec feature proposal MUST originate on a dedicated feature branch:
   ```bash
-  rtk git checkout -b feat/<change-id>-<change-name>
+  rtk git checkout -b feat/<feature-id>-<feature-name>
   ```
 - All proposal, specs, design, tasks, and vertical slice work commits to this feature branch.
 
@@ -15,7 +15,7 @@
   1. Ensure `.worktrees/` is present in `.gitignore`.
   2. For each independent task stream, spawn an isolated Git worktree:
      ```bash
-     rtk git worktree add .worktrees/<change-id>-<stream-name> -b feat/<change-id>/<stream-name>
+     rtk git worktree add .worktrees/<feature-id>-<stream-name> -b feat/<feature-id>/<stream-name>
      ```
   3. Dispatch a dedicated subagent (`invoke_subagent`) per stream, pointing its workspace to the worktree path (`Workspace: 'share'` or direct path).
   4. Each agent stream executes its vertical slice concurrently in isolation:
@@ -26,9 +26,9 @@
      - Mutation Testing (100% kill)
   5. Upon completion and gate approval, the lead orchestrator integrates the stream back into the feature branch:
      ```bash
-     rtk git checkout feat/<change-id>-<change-name>
-     rtk git merge --ff-only feat/<change-id>/<stream-name>
-     rtk git worktree remove .worktrees/<change-id>-<stream-name>
+     rtk git checkout feat/<feature-id>-<feature-name>
+     rtk git merge --ff-only feat/<feature-id>/<stream-name>
+     rtk git worktree remove .worktrees/<feature-id>-<stream-name>
      ```
   6. If a completed stream introduces changes that subsequent dependent streams need, the dependent stream worktrees rebase onto the updated feature branch.
 
@@ -101,18 +101,18 @@ flowchart TD
 ```
 
 ### Gate 1: Proposal Review
-- **Artifact**: `openspec/changes/<change>/proposal.md`
+- **Artifact**: `openspec/features/<feature>/proposal.md`
 - **Mandatory Sections**: Intent, Scope (In/Out-of-scope), Success Metrics, Assumptions (`ASM-GEN-*`).
 - **Gate**: Human approval required before drafting specs.
 
 ### Gate 2: Specifications Review
-- **Artifacts**: `openspec/changes/<change>/specs/<capability>/spec.md`
+- **Artifacts**: `openspec/features/<feature>/specs/<capability>/spec.md`
 - **Mandatory Sections**: Requirements (`REQ-*`), Non-Functional Requirements & Performance Budgets (`NFR-*`), Assumptions (`ASM-*`), Edge Cases & Errors.
 - **Traceability**: Every requirement MUST be uniquely keyed (`REQ-<DOMAIN>-<ID>`, `NFR-<DOMAIN>-<ID>`).
 - **Gate**: Human approval required before technical design.
 
 ### Gate 3: Architecture & Design Review
-- **Artifact**: `openspec/changes/<change>/design.md`
+- **Artifact**: `openspec/features/<feature>/design.md`
 - **Mandatory Sections**:
   - Architecture Diagrams, Domain Models & Protocols, Tech Stack, Boundary Rules, Assumptions.
   - **Performance, Concurrency & Main-Loop Invariants**:
@@ -124,10 +124,10 @@ flowchart TD
 - **Gate**: Human approval required before task breakdown.
 
 ### Gate 4: Tasks Breakdown Review
-- **Artifact**: `openspec/changes/<change>/tasks.md`
+- **Artifact**: `openspec/features/<feature>/tasks.md`
 - **Mandatory Sections**:
   - **Dependency DAG**: Clear mapping of task prerequisites.
-  - **Multi-Agent Streams**: Tasks with zero inter-dependencies partitioned into explicit streams (`Stream A`, `Stream B`, etc.) with designated Git worktrees (`.worktrees/<change>-<stream>`).
+  - **Multi-Agent Streams**: Tasks with zero inter-dependencies partitioned into explicit streams (`Stream A`, `Stream B`, etc.) with designated Git worktrees (`.worktrees/<feature>-<stream>`).
   - **Order of Execution**: Test-first implementation dependencies per stream.
   - **Integration & Rebase Plan**: Merge order and synchronization checkpoints across streams.
 - **Gate**: Human approval required before launching agent worktrees or writing test code.
@@ -227,6 +227,6 @@ For each functional component/slice:
 
 1. Run full test suite (`uv run pytest --cov`) and verify 100% pass + $\ge 95\%$ coverage.
 2. Run full mutation suite (`uv run mutmut run`) and verify 100% kill score.
-3. Merge worktrees into change feature branch.
-4. Sync change delta specs into canonical living directory (`openspec/specs/`).
-5. Update `openspec/changes/<change>/tasks.md` and archive completed change.
+3. Merge worktrees into feature branch.
+4. Sync feature delta specs into canonical living directory (`openspec/specs/`).
+5. Update `openspec/features/<feature>/tasks.md` and archive completed feature.
