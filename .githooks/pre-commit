@@ -1,18 +1,32 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
+# Unset git hook environment variables so sub-commands and tests don't leak into parent git context
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX
+
 echo "🔍 Running pre-commit checks..."
 
-# Check rust formatting
+# 1. Check rust formatting (auto-format on failure)
 echo "Checking formatting..."
-cargo fmt --all -- --check
+if ! cargo fmt --all -- --check; then
+    echo "❌ Formatting errors detected. Auto-formatting with 'cargo fmt --all'..."
+    cargo fmt --all
+    echo "💡 Files have been auto-formatted. Re-stage with 'git add' and commit again."
+    exit 1
+fi
 
-# Check clippy warnings & compiler errors
-echo "Running clippy..."
-cargo clippy --all-targets --all-features -- -D warnings
+# 2. Check crate boundaries
+if [ -f "./scripts/check-boundaries.sh" ]; then
+    echo "Checking crate boundaries..."
+    ./scripts/check-boundaries.sh
+fi
 
-# Run tests
+# 3. Check clippy warnings & compiler errors across entire workspace
+echo "Running clippy on workspace..."
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+# 4. Run tests across entire workspace
 echo "Running tests..."
-cargo test --all-targets --all-features -- --nocapture
+cargo test --workspace --all-targets --all-features -- --nocapture
 
 echo "✅ All pre-commit checks passed."

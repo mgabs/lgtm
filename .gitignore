@@ -4,6 +4,7 @@
 *.swp
 .DS_Store
 *.sarif
+/.worktrees/
 
 lgtm-report.md
 prd

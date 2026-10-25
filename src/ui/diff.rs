@@ -9,6 +9,22 @@ pub(crate) fn render_body(frame: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
 
+    if app.active_view == ActiveView::MarkdownPreview {
+        if app.show_file_drawer && area.width >= 50 {
+            let drawer_width = if area.width >= 100 { 35 } else { 28 };
+            let body_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Length(drawer_width), Constraint::Min(20)])
+                .split(area);
+
+            render_file_drawer(frame, body_chunks[0], app);
+            super::markdown::render_markdown_preview(frame, body_chunks[1], app);
+        } else {
+            super::markdown::render_markdown_preview(frame, area, app);
+        }
+        return;
+    }
+
     if app.show_file_drawer && area.width >= 50 {
         let drawer_width = if area.width >= 100 { 35 } else { 28 };
         let body_chunks = Layout::default()

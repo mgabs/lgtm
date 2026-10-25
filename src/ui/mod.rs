@@ -15,6 +15,7 @@ mod diff;
 pub(crate) use diff::cache::RenderCache;
 mod header;
 mod help;
+pub(crate) mod markdown;
 mod modals;
 mod status;
 use self::audit::render_audit_report_view;
@@ -87,7 +88,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             }
         }
         ActiveView::AgentPrompt => render_agent_prompt_modal(frame, size, app),
-        ActiveView::Diff | ActiveView::AuditReport => {}
+        ActiveView::Diff | ActiveView::AuditReport | ActiveView::MarkdownPreview => {}
     }
 }
 

@@ -32,3 +32,9 @@ When reviewing changes to architectural designs, RFCs, and documentation in `lgt
 - **Instant Toggle**: Switching between raw diff and rendered markdown preview takes < 50ms for documents up to 5,000 lines.
 - **Visual Clarity**: Headings, lists, code blocks, and emphasized text render formatted to the terminal width without line overflow or clipping.
 - **Diff Accuracy**: All changed hunks in the markdown document clearly display their additions in green (`+`) and deletions in red (`-`), matching git diff content exactly.
+
+## Assumptions
+- **ASM-GEN-01**: Markdown preview is toggled manually via hotkey (`m`) or command (`:md`, `:preview`) when viewing a Markdown file (`.md`, `.markdown`).
+- **ASM-GEN-02**: Diff information is derived from git hunks already tracked in `lgtm-core::diff::FileDiff`, mapping modified/added/deleted lines onto rendered markdown lines.
+- **ASM-GEN-03**: Terminal width is dynamically respected; reflowing markdown content updates when the terminal is resized.
+- **ASM-GEN-04**: Standard CommonMark/GFM syntax (headers, lists, code fences, blockquotes, emphasis) is parsed via a standard Rust crate (e.g. `pulldown-cmark`) and rendered to Ratatui text primitives (`Line`, `Span`, `Style`).

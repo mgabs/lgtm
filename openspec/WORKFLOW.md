@@ -18,19 +18,24 @@
      rtk git worktree add .worktrees/<feature-id>-<stream-name> -b feat/<feature-id>/<stream-name>
      ```
   3. Dispatch a dedicated subagent (`invoke_subagent`) per stream, pointing its workspace to the worktree path (`Workspace: 'share'` or direct path).
-  4. Each agent stream executes its vertical slice concurrently in isolation:
-     - BDD Scenarios (Gate 5.x)
+  4. **Human Gate Escalation via Main Loop**:
+     - Subagents **NEVER** self-approve human gates or proceed into subsequent lifecycle phases autonomously.
+     - Upon completing any gate artifact (Gate 1 Proposal, Gate 2 Specs, Gate 3 Design, Gate 4 Tasks, Gate 5.x BDD scenarios, Gate 6 Sync), the subagent MUST pause and message the Lead Orchestrator on the main loop.
+     - The Lead Orchestrator presents the review artifact directly to the human user in the main conversation.
+     - Only after explicit human approval in the main conversation does the Lead Orchestrator message the subagent with clearance to proceed.
+  5. Each agent stream executes its vertical slice concurrently in isolation:
+     - BDD Scenarios (Gate 5.x escalation)
      - Unit Tests (Red)
      - Implementation (Green)
      - Coverage (>= 95%)
      - Mutation Testing (100% kill)
-  5. Upon completion and gate approval, the lead orchestrator integrates the stream back into the feature branch:
+  6. Upon completion and gate approval, the lead orchestrator integrates the stream back into the feature branch:
      ```bash
      rtk git checkout feat/<feature-id>-<feature-name>
      rtk git merge --ff-only feat/<feature-id>/<stream-name>
      rtk git worktree remove .worktrees/<feature-id>-<stream-name>
      ```
-  6. If a completed stream introduces changes that subsequent dependent streams need, the dependent stream worktrees rebase onto the updated feature branch.
+  7. If a completed stream introduces changes that subsequent dependent streams need, the dependent stream worktrees rebase onto the updated feature branch.
 
 ### Rule 3: Fast-Track Bugfix Protocol (Zero-Contamination Bug Isolation)
 When a bug, regression, or runtime defect is discovered mid-development, during review, or via dogfooding:
@@ -225,8 +230,8 @@ For each functional component/slice:
 
 ## 6. Gate 6: Living Spec Sync & Archive
 
-1. Run full test suite (`uv run pytest --cov`) and verify 100% pass + $\ge 95\%$ coverage.
-2. Run full mutation suite (`uv run mutmut run`) and verify 100% kill score.
-3. Merge worktrees into feature branch.
-4. Sync feature delta specs into canonical living directory (`openspec/specs/`).
-5. Update `openspec/features/<feature>/tasks.md` and archive completed feature.
+1. Run full test suite and verify 100% pass + $\ge 95\%$ coverage.
+2. Run full mutation suite and verify 100% kill score.
+3. Merge worktree into release or feature branch (`--ff-only`).
+4. Sync feature delta specs into canonical living directory (`openspec/specs/features/<feature>/spec.md`).
+5. Move completed feature artifacts to `openspec/specs/archive/<feature>/`.

@@ -18,6 +18,7 @@ impl App {
             ActiveView::CommitModal => self.handle_commit_modal_key(key),
             ActiveView::AuditReport => self.handle_audit_report_key(key),
             ActiveView::AgentPrompt => self.handle_agent_prompt_key(key),
+            ActiveView::MarkdownPreview => self.handle_markdown_preview_key(key),
         }
     }
 
@@ -437,9 +438,11 @@ impl App {
                 self.prev_paragraph();
             }
             (_, KeyCode::Char(':')) => {
-                self.command.input.clear();
-                self.command.history_idx = None;
+                self.command.reset();
                 self.active_view = ActiveView::CommandLine;
+            }
+            (_, KeyCode::Char('m')) => {
+                self.toggle_markdown_preview();
             }
             (_, KeyCode::Char('t')) => {
                 self.open_threads_modal();
@@ -476,21 +479,52 @@ impl App {
     pub(crate) fn handle_command_line_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
-                self.command.input.clear();
-                self.command.history_idx = None;
+                self.command.reset();
+                self.active_view = ActiveView::Diff;
+            }
+            (_, KeyCode::Left) => {
+                self.command.move_left();
+            }
+            (_, KeyCode::Right) => {
+                self.command.move_right();
+            }
+            (_, KeyCode::Home) | (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+                self.command.move_home();
+            }
+            (_, KeyCode::End) | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
+                self.command.move_end();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace) => {
                 self.command.completions.clear();
                 self.command.completion_idx = None;
                 self.command.prefix.clear();
-                self.active_view = ActiveView::Diff;
+                self.command.delete_word_backward();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
+                self.command.delete_to_start();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
+                self.command.delete_to_end();
+            }
+            (_, KeyCode::Delete) | (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
+                self.command.delete_forward();
             }
             (_, KeyCode::Backspace) => {
                 self.command.completions.clear();
                 self.command.completion_idx = None;
                 self.command.prefix.clear();
-                if self.command.input.is_empty() {
+                if !self.command.delete_backward() {
                     self.active_view = ActiveView::Diff;
-                } else {
-                    self.command.input.pop();
                 }
             }
             (_, KeyCode::Up) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
@@ -501,7 +535,8 @@ impl App {
                         None => self.command.history.len() - 1,
                     };
                     self.command.history_idx = Some(next_idx);
-                    self.command.input = self.command.history[next_idx].clone();
+                    self.command
+                        .set_text(self.command.history[next_idx].clone());
                     self.command.completions.clear();
                     self.command.completion_idx = None;
                 }
@@ -511,10 +546,11 @@ impl App {
                     if i + 1 < self.command.history.len() {
                         let next_idx = i + 1;
                         self.command.history_idx = Some(next_idx);
-                        self.command.input = self.command.history[next_idx].clone();
+                        self.command
+                            .set_text(self.command.history[next_idx].clone());
                     } else {
                         self.command.history_idx = None;
-                        self.command.input.clear();
+                        self.command.set_text(String::new());
                     }
                     self.command.completions.clear();
                     self.command.completion_idx = None;
@@ -544,7 +580,7 @@ impl App {
                 self.command.completions.clear();
                 self.command.completion_idx = None;
                 self.command.prefix.clear();
-                self.command.input.push(c);
+                self.command.insert_char(c);
             }
             _ => {}
         }
@@ -1365,6 +1401,42 @@ impl App {
             _ => {}
         }
     }
+
+    pub(crate) fn handle_markdown_preview_key(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::NONE, KeyCode::Char('m')) | (KeyModifiers::NONE, KeyCode::Esc) => {
+                self.active_view = ActiveView::Diff;
+            }
+            (KeyModifiers::NONE, KeyCode::Char('j')) | (KeyModifiers::NONE, KeyCode::Down) => {
+                self.markdown_preview.scroll_down(1, 30);
+            }
+            (KeyModifiers::NONE, KeyCode::Char('k')) | (KeyModifiers::NONE, KeyCode::Up) => {
+                self.markdown_preview.scroll_up(1);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::NONE, KeyCode::PageDown) => {
+                self.markdown_preview.scroll_down(15, 30);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u')) | (KeyModifiers::NONE, KeyCode::PageUp) => {
+                self.markdown_preview.scroll_up(15);
+            }
+            (KeyModifiers::NONE, KeyCode::Char('g')) | (KeyModifiers::NONE, KeyCode::Home) => {
+                self.markdown_preview.scroll_to_top();
+            }
+            (KeyModifiers::NONE, KeyCode::Char('G')) | (KeyModifiers::NONE, KeyCode::End) => {
+                self.markdown_preview.scroll_to_bottom(30);
+            }
+            (KeyModifiers::NONE, KeyCode::Char(':')) => {
+                self.command.input.clear();
+                self.command.history_idx = None;
+                self.active_view = ActiveView::CommandLine;
+            }
+            (KeyModifiers::NONE, KeyCode::Char('q')) => {
+                self.should_quit = true;
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1472,6 +1544,195 @@ mod tests {
         // Esc closes modal
         app.active_view = ActiveView::ThreadView;
         app.handle_key(make_key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_command_line_key_dispatch() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        let mut app = create_test_app();
+        let make_key = |code: KeyCode, modifiers: KeyModifiers| KeyEvent {
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+
+        // Open command line via ':'
+        app.active_view = ActiveView::Diff;
+        app.handle_key(make_key(KeyCode::Char(':'), KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::CommandLine);
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+
+        // Typing "diff main"
+        for c in "diff main".chars() {
+            app.handle_key(make_key(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        assert_eq!(app.command.input, "diff main");
+        assert_eq!(app.command.cursor, 9);
+
+        // Cursor movement
+        app.handle_key(make_key(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(app.command.cursor, 8);
+        app.handle_key(make_key(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 0);
+        app.handle_key(make_key(KeyCode::Char('e'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 9);
+
+        // Ctrl-w word deletion
+        app.handle_key(make_key(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "diff ");
+        assert_eq!(app.command.cursor, 5);
+
+        // Alt-Backspace word deletion
+        app.handle_key(make_key(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+
+        // Type "help"
+        for c in "help".chars() {
+            app.handle_key(make_key(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        assert_eq!(app.command.input, "help");
+        assert_eq!(app.command.cursor, 4);
+
+        // Move to index 2 (between e and l)
+        app.handle_key(make_key(KeyCode::Left, KeyModifiers::NONE));
+        app.handle_key(make_key(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(app.command.cursor, 2);
+
+        // Backspace deletes 'e'
+        app.handle_key(make_key(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.command.input, "hlp");
+        assert_eq!(app.command.cursor, 1);
+
+        // Delete forward with Ctrl-d deletes 'l'
+        app.handle_key(make_key(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "hp");
+        assert_eq!(app.command.cursor, 1);
+
+        // Delete with Delete key deletes 'p'
+        app.handle_key(make_key(KeyCode::Delete, KeyModifiers::NONE));
+        assert_eq!(app.command.input, "h");
+        assert_eq!(app.command.cursor, 1);
+
+        // Backspace deletes 'h'
+        app.handle_key(make_key(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+
+        // Backspace on empty string exits to Diff
+        app.handle_key(make_key(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // Re-enter command line, test Ctrl-u and Ctrl-k
+        app.handle_key(make_key(KeyCode::Char(':'), KeyModifiers::NONE));
+        for c in "foo bar".chars() {
+            app.handle_key(make_key(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        app.command.cursor = 3;
+        app.handle_key(make_key(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "foo");
+        assert_eq!(app.command.cursor, 3);
+
+        app.handle_key(make_key(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+
+        // History navigation
+        app.command.history = vec!["audit".into(), "export patch".into()];
+        app.handle_key(make_key(KeyCode::Up, KeyModifiers::NONE));
+        assert_eq!(app.command.input, "export patch");
+        assert_eq!(app.command.cursor, 12);
+        app.handle_key(make_key(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "audit");
+        assert_eq!(app.command.cursor, 5);
+        app.handle_key(make_key(KeyCode::Char('n'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "export patch");
+        assert_eq!(app.command.cursor, 12);
+        app.handle_key(make_key(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+
+        // Ctrl-c clears and exits
+        app.command.set_text("cancelled".into());
+        app.handle_key(make_key(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+    }
+
+    #[test]
+    fn test_markdown_preview_toggle_and_guard() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        let make_key = |code: KeyCode| KeyEvent {
+            code,
+            modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+        let mut app = create_test_app();
+        app.snapshot.files = vec![
+            FileDiff {
+                old_path: None,
+                new_path: PathBuf::from("src/main.rs"),
+                change_type: ChangeType::Added,
+                additions: 10,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+            FileDiff {
+                old_path: None,
+                new_path: PathBuf::from("README.md"),
+                change_type: ChangeType::Added,
+                additions: 20,
+                deletions: 0,
+                hunks: Vec::new(),
+                is_folded: false,
+                is_reviewed: false,
+            },
+        ];
+
+        // On non-markdown file: toggle does not enter preview, sets warning
+        app.selected_file_idx = 0;
+        app.handle_key(make_key(KeyCode::Char('m')));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Markdown preview only available for .md files")
+        );
+
+        // On markdown file: toggle enters preview
+        app.selected_file_idx = 1;
+        app.handle_key(make_key(KeyCode::Char('m')));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+
+        // Navigation in preview
+        app.handle_key(make_key(KeyCode::Char('j')));
+        app.handle_key(make_key(KeyCode::Char('k')));
+        app.handle_key(make_key(KeyCode::Char('g')));
+        app.handle_key(make_key(KeyCode::Char('G')));
+
+        // Toggle back returns to Diff
+        app.handle_key(make_key(KeyCode::Char('m')));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // Esc returns from preview to Diff
+        app.selected_file_idx = 1;
+        app.handle_key(make_key(KeyCode::Char('m')));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+        app.handle_key(make_key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // Colon command :md toggles preview
+        app.execute_command("md");
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+
+        // Colon command :preview toggles back
+        app.execute_command("preview");
         assert_eq!(app.active_view, ActiveView::Diff);
     }
 }

@@ -6,6 +6,10 @@ use std::time::Duration;
 fn git(app: &App, args: &[&str]) {
     let result = std::process::Command::new("git")
         .current_dir(&app.git_engine.repo_path)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_PREFIX")
         .args(args)
         .output()
         .unwrap();

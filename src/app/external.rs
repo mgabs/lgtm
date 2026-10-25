@@ -278,6 +278,7 @@ fn is_gui_editor(lower: &str) -> bool {
         || lower.starts_with("cursor ")
 }
 
+#[cfg(not(test))]
 fn launch_editor(editor: &str, path: &std::path::Path, line_no: u32) -> Result<(), std::io::Error> {
     use crossterm::terminal::{
         disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -313,6 +314,16 @@ fn launch_editor(editor: &str, path: &std::path::Path, line_no: u32) -> Result<(
     status.map(|_| ())
 }
 
+#[cfg(test)]
+fn launch_editor(
+    _editor: &str,
+    _path: &std::path::Path,
+    _line_no: u32,
+) -> Result<(), std::io::Error> {
+    Ok(())
+}
+
+#[cfg(not(test))]
 fn spawn_cli_editor(
     editor: &str,
     path: &std::path::Path,

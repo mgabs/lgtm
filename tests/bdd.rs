@@ -614,4 +614,68 @@ echo "[]"
             );
         }
     }
+
+    #[test]
+    fn bdd_cli_008_command_line_vim_readline_editing_shortcuts() {
+        // Given an active LGTM TUI session in a git repository.
+        let temp = tempfile::tempdir().unwrap();
+        let repo_dir = temp.path().join("repo");
+        let bin_dir = temp.path().join("bin");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        std::fs::create_dir_all(&bin_dir).unwrap();
+
+        let repo = lgtm_core::git2::Repository::init(&repo_dir).unwrap();
+        let base_content = "fn main() {}\n";
+        std::fs::write(repo_dir.join("main.rs"), base_content).unwrap();
+
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("main.rs")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = lgtm_core::git2::Signature::now("Tester", "test@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+            .unwrap();
+
+        std::fs::write(
+            repo_dir.join("main.rs"),
+            "fn main() { println!(\"edit\"); }\n",
+        )
+        .unwrap();
+
+        let log_path = temp.path().join("debug.jsonl");
+        let mut app = PtyApp::spawn(&repo_dir, &bin_dir, &log_path);
+        app.wait_for(|s| s.contains("main.rs"), "initial main.rs render");
+
+        // When entering command line mode, typing garbage, then clearing with Ctrl-u:
+        app.send(b":garbage\x15");
+
+        // And typing a command with extra argument, then deleting the argument with Ctrl-w:
+        app.send(b"help 123\x17\r");
+
+        // Then the Help modal successfully opens:
+        app.wait_for(
+            |s| s.contains("COMMAND / EX Mode") || s.contains("LGTM Documentation"),
+            "Help modal opened via line-edited command",
+        );
+
+        // Close help modal with Esc:
+        app.send(b"\x1b");
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Clean exit with :q
+        app.send(b":q\r");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = app.child.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                let _ = app.child.kill();
+                panic!("timed out waiting for child process to exit");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!(status.success(), "expected clean exit, got {status}");
+    }
 }
