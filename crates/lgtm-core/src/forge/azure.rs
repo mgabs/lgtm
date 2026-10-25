@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 #[cfg(test)]
 use std::process::Command;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 pub trait Runner {
@@ -95,10 +95,11 @@ pub fn parse_remote(url: &str) -> Option<Remote> {
 /// Bearer token shared by every forge instance in this process (a new forge is opened per command).
 static TOKEN: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
 const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+type CacheEntry = (Instant, Arc<Value>);
+type RestCache = RwLock<HashMap<String, CacheEntry>>;
 /// REST read results by URL; cleared by any write so replies and resolves show up at once.
-static CACHE: std::sync::Mutex<Vec<(String, std::time::Instant, Value)>> =
-    std::sync::Mutex::new(Vec::new());
-const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+static CACHE: LazyLock<RestCache> = LazyLock::new(|| RwLock::new(HashMap::new()));
+const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const DEVOPS_RESOURCE: &str = "499b84ac-1321-427f-aa17-267ca6975798";
 
 type MergeKey = (PathBuf, Option<Remote>, u64);
@@ -181,11 +182,11 @@ impl AzureForge {
     /// GET against the Azure DevOps REST API with `curl` (about 100x faster than starting `az`).
     /// `scope` is `repo` (under the repository) or `project` (under the project). The bearer token
     /// goes through a private temp file so it never appears in the process list.
-    fn rest(&self, scope: &str, path: &str) -> Result<Value> {
+    fn rest(&self, scope: &str, path: &str) -> Result<Arc<Value>> {
         self.rest_read(scope, path, true)
     }
 
-    fn rest_read(&self, scope: &str, path: &str, cached: bool) -> Result<Value> {
+    fn rest_read(&self, scope: &str, path: &str, cached: bool) -> Result<Arc<Value>> {
         let Some(r) = &self.remote else {
             bail!("origin is not a recognized Azure DevOps URL");
         };
@@ -199,12 +200,18 @@ impl AzureForge {
             _ => format!("{root}/{path}"),
         };
         if self.shared && cached {
-            let cache = CACHE.lock().unwrap();
-            if let Some((_, _, v)) = cache
-                .iter()
-                .find(|(u, at, _)| *u == url && at.elapsed() < CACHE_TTL)
-            {
-                return Ok(v.clone());
+            let hit = {
+                let cache = CACHE.read().unwrap();
+                cache.get(&url).and_then(|(at, v)| {
+                    if at.elapsed() < CACHE_TTL {
+                        Some(Arc::clone(v))
+                    } else {
+                        None
+                    }
+                })
+            };
+            if let Some(v) = hit {
+                return Ok(v);
             }
         }
         let token = self.token()?;
@@ -219,15 +226,16 @@ impl AzureForge {
         drop(file);
         let v: Value =
             serde_json::from_str(&out?).context("unexpected Azure DevOps REST response")?;
+        let v = Arc::new(v);
         if self.shared {
-            let mut cache = CACHE.lock().unwrap();
-            cache.retain(|(u, at, _)| *u != url && at.elapsed() < CACHE_TTL);
-            cache.push((url, std::time::Instant::now(), v.clone()));
+            let mut cache = CACHE.write().unwrap();
+            cache.retain(|_, (at, _)| at.elapsed() < CACHE_TTL);
+            cache.insert(url, (Instant::now(), Arc::clone(&v)));
         }
         Ok(v)
     }
 
-    fn pr_metadata(&self, pr: u64) -> Result<Value> {
+    fn pr_metadata(&self, pr: u64) -> Result<Arc<Value>> {
         crate::debug::measure("pr.fetch_metadata", || {
             self.rest_read("repo", &format!("pullRequests/{pr}?api-version=7.1"), false)
                 .or_else(|_| {
@@ -240,7 +248,7 @@ impl AzureForge {
                     if let Some(org) = &org {
                         args.extend(["--organization", org]);
                     }
-                    self.az_json(&args)
+                    self.az_json(&args).map(Arc::new)
                 })
         })
     }
@@ -263,7 +271,7 @@ impl AzureForge {
 
     fn invalidate(&self) {
         if self.shared {
-            CACHE.lock().unwrap().clear();
+            CACHE.write().unwrap().clear();
         }
     }
 
@@ -619,7 +627,7 @@ impl GithubClient for AzureForge {
             "repo",
             &format!("pullRequests/{pr}/threads/{id}?api-version=7.1"),
         ) {
-            Ok(value) => value,
+            Ok(value) => Arc::unwrap_or_clone(value),
             Err(_) => self.call("get", "pullRequestThreads", pr, Some(id), None)?,
         };
         Ok(parse_threads(&serde_json::json!({"value":[value]}))
@@ -1251,13 +1259,15 @@ mod tests {
         provider.runner = Box::new(Fresh);
         provider.shared = true;
         let url = "https://dev.azure.com/org/Fresh%20Proj/_apis/git/repositories/r%C3%A9po/pullRequests/987654?api-version=7.1";
-        CACHE.lock().unwrap().push((
+        CACHE.write().unwrap().insert(
             url.into(),
-            Instant::now(),
-            serde_json::json!({"status":"active"}),
-        ));
+            (
+                Instant::now(),
+                Arc::new(serde_json::json!({"status":"active"})),
+            ),
+        );
         assert_eq!(provider.pr_metadata(987654).unwrap()["status"], "completed");
-        CACHE.lock().unwrap().retain(|(u, _, _)| u != url);
+        CACHE.write().unwrap().remove(url);
     }
 
     #[test]
