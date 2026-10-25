@@ -1,6 +1,6 @@
 //! GitHub forge: native Git diffs, authenticated API/CLI access, and anonymous public reads.
-use super::Forge;
-use crate::github::{parse_threads, Bucket, Check, GhClient, GithubClient, Thread, THREADS_QUERY};
+use super::{Forge, PrDiscussion};
+use crate::github::{parse_threads, Bucket, Check, GhClient, Thread, THREADS_QUERY};
 use crate::model::DiffSnapshot;
 use crate::pr::{PrAuthor, PrEngine, PullRequestSummary};
 use anyhow::{bail, Context, Result};
@@ -418,7 +418,7 @@ impl Forge for GitHubForge {
     }
 }
 
-impl GithubClient for GitHubForge {
+impl PrDiscussion for GitHubForge {
     fn checks(&self, pr: u64) -> Result<Vec<Check>> {
         if let Some(r) = &self.remote {
             if let Ok(sha) = self.head_sha(pr) {

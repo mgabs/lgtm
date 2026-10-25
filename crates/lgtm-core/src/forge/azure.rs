@@ -1,7 +1,7 @@
 //! Azure DevOps REST with cached CLI authentication and an `az` CLI fallback.
-use super::Forge;
+use super::{Forge, PrDiscussion};
 
-use crate::github::{Bucket, Check, GithubClient, Thread, ThreadComment};
+use crate::github::{Bucket, Check, Thread, ThreadComment};
 use crate::model::DiffSnapshot;
 use crate::pr::{PrAuthor, PullRequestSummary};
 use anyhow::{bail, Context, Result};
@@ -597,7 +597,7 @@ impl Forge for AzureForge {
     }
 }
 
-impl GithubClient for AzureForge {
+impl PrDiscussion for AzureForge {
     fn checks(&self, pr: u64) -> Result<Vec<Check>> {
         if let Ok(v) = self.policies_rest(pr) {
             return Ok(parse_policies(&v));

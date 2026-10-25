@@ -51,22 +51,8 @@ pub struct Thread {
     pub comments: Vec<ThreadComment>,
 }
 
-pub trait GithubClient {
-    fn checks(&self, pr: u64) -> Result<Vec<Check>>;
-    fn threads(&self, pr: u64) -> Result<Vec<Thread>>;
-    /// Reconcile just one changed discussion when the provider supports it.
-    fn thread(&self, pr: u64, id: &str) -> Result<Option<Thread>> {
-        Ok(self.threads(pr)?.into_iter().find(|t| t.id == id))
-    }
-    fn head_sha(&self, pr: u64) -> Result<String>;
-    /// Inline review comment on the new side of `path:line`; returns the comment id.
-    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64>;
-    /// General PR conversation comment; returns the comment id.
-    fn post_general(&self, pr: u64, body: &str) -> Result<u64>;
-    /// Reply to a comment (its numeric id) in a thread; returns the new comment id.
-    fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64>;
-    fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()>;
-}
+pub use crate::forge::PrDiscussion;
+pub use crate::forge::PrDiscussion as GithubClient;
 
 /// Remote threads on `path:line`: `Some(true)` if any is open, `Some(false)` if all are resolved.
 pub fn thread_marker(threads: &[Thread], path: &str, line: u32) -> Option<bool> {
