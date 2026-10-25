@@ -590,16 +590,13 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
     use super::*;
     use crate::app::test_util::create_test_app;
     use crate::model::*;
-    use crossbeam_channel::unbounded;
     use std::path::PathBuf;
 
     #[test]
     fn test_current_hunk_info_and_staging() {
-        use crate::model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType};
         let mut app = create_test_app();
         let hunk1 = DiffHunk {
             header: "@@ -1,2 +1,3 @@".into(),

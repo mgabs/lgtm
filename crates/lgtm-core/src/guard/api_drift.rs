@@ -84,9 +84,6 @@ fn extract_function_name(sig: &str) -> Option<&str> {
 }
 
 impl super::Guard for ApiDriftGuard {
-    fn name(&self) -> &'static str {
-        "api_drift"
-    }
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
         Self::scan_file(file)
     }

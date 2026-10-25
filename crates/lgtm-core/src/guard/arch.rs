@@ -231,9 +231,6 @@ fn is_scope_inflation(line_text: &str, file_path: &str) -> bool {
 }
 
 impl super::Guard for ArchitectureGuard {
-    fn name(&self) -> &'static str {
-        "arch"
-    }
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
         Self::scan_file(file)
     }

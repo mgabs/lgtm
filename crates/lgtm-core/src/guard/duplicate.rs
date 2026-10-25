@@ -69,9 +69,6 @@ fn is_duplicate_helper_name(text: &str) -> bool {
 }
 
 impl super::Guard for DuplicateHelperGuard {
-    fn name(&self) -> &'static str {
-        "duplicate"
-    }
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
         Self::scan_file(file)
     }

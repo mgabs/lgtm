@@ -297,7 +297,6 @@ checksum = "829d955a0bb380ef178a640b91779e3987da38c9aea133b20614cfed8cdea9c6"
 dependencies = [
  "bitflags 2.13.2",
  "crossterm_winapi",
- "futures-core",
  "mio 1.2.4",
  "parking_lot",
  "rustix 0.38.44",
@@ -957,7 +956,6 @@ version = "2.2.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
- "fuzzy-matcher",
  "git2",
  "lgtm-ast",
  "notify",
@@ -975,7 +973,6 @@ dependencies = [
  "anyhow",
  "crossbeam-channel",
  "lgtm-core",
- "serde",
  "serde_json",
  "tempfile",
 ]

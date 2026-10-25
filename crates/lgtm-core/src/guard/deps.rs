@@ -91,9 +91,6 @@ fn is_suspicious_package(text: &str) -> bool {
 }
 
 impl super::Guard for DependencyGuard {
-    fn name(&self) -> &'static str {
-        "deps"
-    }
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
         Self::scan_file(file)
     }

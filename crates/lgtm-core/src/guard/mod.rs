@@ -31,15 +31,6 @@ impl Severity {
             Severity::Warn => "🟡 WARN",
         }
     }
-
-    #[allow(dead_code)]
-    pub fn short_badge(&self) -> &'static str {
-        match self {
-            Severity::Critical => "🔴",
-            Severity::High => "🟠",
-            Severity::Warn => "🟡",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,8 +45,6 @@ pub struct GuardAlert {
 }
 
 pub trait Guard {
-    #[allow(dead_code)] // consumed by B1 config (rule enable/disable)
-    fn name(&self) -> &'static str;
     fn scan_file(&self, _file: &FileDiff) -> Vec<GuardAlert> {
         Vec::new()
     }
@@ -616,30 +605,6 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn registry_order_is_stable() {
-        let names: Vec<&str> = registry().iter().map(|g| g.name()).collect();
-        assert_eq!(
-            names,
-            [
-                "deps",
-                "duplicate",
-                "security",
-                "arch",
-                "complexity",
-                "fragility",
-                "symbols",
-                "api_drift",
-                "dead_code",
-                "web",
-                "swift",
-                "python",
-                "go",
-                "java",
-            ]
-        );
-    }
-
-    #[test]
     fn test_security_alert_detection() {
         let file = FileDiff {
             old_path: None,
@@ -898,9 +863,5 @@ mod tests {
         assert_eq!(Severity::Critical.badge(), "🔴 CRITICAL");
         assert_eq!(Severity::High.badge(), "🟠 HIGH");
         assert_eq!(Severity::Warn.badge(), "🟡 WARN");
-
-        assert_eq!(Severity::Critical.short_badge(), "🔴");
-        assert_eq!(Severity::High.short_badge(), "🟠");
-        assert_eq!(Severity::Warn.short_badge(), "🟡");
     }
 }

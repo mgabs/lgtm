@@ -1,8 +1,5 @@
-#![allow(unused_imports)]
 use super::*;
-use crate::model::*;
 use crossbeam_channel::unbounded;
-use std::path::PathBuf;
 
 pub(crate) fn create_test_app() -> App {
     static CNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

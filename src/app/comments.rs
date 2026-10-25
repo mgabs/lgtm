@@ -1150,16 +1150,13 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
     use super::*;
     use crate::app::test_util::create_test_app;
     use crate::model::*;
-    use crossbeam_channel::unbounded;
     use std::path::PathBuf;
 
     #[test]
     fn test_comment_add_and_remove_and_pr_review() {
-        use crate::model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType};
         let mut app = create_test_app();
         let lines = vec![DiffLine {
             line_type: LineType::Addition,

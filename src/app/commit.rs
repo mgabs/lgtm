@@ -37,12 +37,8 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
     use super::*;
     use crate::app::test_util::create_test_app;
-    use crate::model::*;
-    use crossbeam_channel::unbounded;
-    use std::path::PathBuf;
 
     #[test]
     fn test_commit_modal_interactions() {

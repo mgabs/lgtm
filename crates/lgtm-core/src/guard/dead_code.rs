@@ -139,9 +139,6 @@ fn extract_private_function_definition(text: &str) -> Option<String> {
 }
 
 impl super::Guard for DeadCodeGuard {
-    fn name(&self) -> &'static str {
-        "dead_code"
-    }
     fn scan_snapshot(&self, files: &[FileDiff]) -> Vec<GuardAlert> {
         Self::scan_snapshot(files)
     }

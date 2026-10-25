@@ -41,10 +41,6 @@ const RULES: &[Rule] = &[
 pub struct PythonGuard;
 
 impl Guard for PythonGuard {
-    fn name(&self) -> &'static str {
-        "python"
-    }
-
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
         run(file, RULES, |l| matches!(l, Lang::Python))
     }

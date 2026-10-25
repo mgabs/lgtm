@@ -208,10 +208,6 @@ fn is_sync_io_hazard(text: &str) -> bool {
 }
 
 impl super::Guard for FragilityGuard {
-    fn name(&self) -> &'static str {
-        "fragility"
-    }
-
     fn scan_file(&self, file: &FileDiff) -> Vec<GuardAlert> {
         Self::scan_file(file)
     }
