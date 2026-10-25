@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 2021, `anyhow`, cargo fmt/clippy/test.
 
-**Spec:** `docs/superpowers/specs/2026-10-12-modular-breakdown-design.md` stage 3; roadmap item R3.
+**Spec:** `specs/superpowers/specs/2026-10-12-modular-breakdown-design.md` stage 3; roadmap item R3.
 
 ## Global Constraints
 
@@ -349,7 +349,7 @@ Rules: keep each site's existing payload and verb (`Injected`, `Copied`, `Export
 
 ### Task 5: Gate, docs, cleanup
 
-**Files:** `docs/WIKI.md` (module map: add `src/diff_source.rs`; mention `Guard` registry in the `src/guard/` row and sinks in `src/ipc/`), `docs/superpowers/roadmap.md` (R3 -> ✅).
+**Files:** `docs/WIKI.md` (module map: add `src/diff_source.rs`; mention `Guard` registry in the `src/guard/` row and sinks in `src/ipc/`), `specs/superpowers/roadmap.md` (R3 -> ✅).
 
 - [ ] **Step 1:** `cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warnings && scripts/coverage.sh && scripts/mutate.sh` -> all pass.
 - [ ] **Step 2:** Final golden parity loop (Task 2 Step 7).

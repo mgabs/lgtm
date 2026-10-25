@@ -8,7 +8,7 @@
 
 **Tech Stack:** Cargo workspaces, `[workspace.package]` and `[workspace.dependencies]`.
 
-**Spec:** `docs/superpowers/specs/2026-10-12-modular-breakdown-design.md` stage 4; roadmap item R4.
+**Spec:** `specs/superpowers/specs/2026-10-12-modular-breakdown-design.md` stage 4; roadmap item R4.
 
 ## Global Constraints
 
@@ -159,5 +159,5 @@ done
 ### Task 4: Docs and cleanup
 
 - [ ] `docs/WIKI.md` module map and `README.md` project tree: show `crates/lgtm-core`, `crates/lgtm-mcp`, root `src/` (app, ui, cli, headless).
-- [ ] Mark R4 ✅ in `docs/superpowers/roadmap.md`; note the tap flow (`scripts/update-tap.sh` reads the root version) was checked locally, the remote tap run remains a manual step.
+- [ ] Mark R4 ✅ in `specs/superpowers/roadmap.md`; note the tap flow (`scripts/update-tap.sh` reads the root version) was checked locally, the remote tap run remains a manual step.
 - [ ] Commit `docs: record R4 completion`; `rm -rf /tmp/lgtm-r3 /tmp/lgtm-install`.
