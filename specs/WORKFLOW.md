@@ -1,5 +1,19 @@
 # Spec Driven, Testing Railed Development Workflow
 
+## Specification Directory Layout
+
+All specifications, proposals, active feature streams, bug reports, and archived feature history live strictly under `specs/`:
+
+```
+specs/
+├── archive/        # Completed & historical feature artifacts, designs & legacy plans
+├── bug-reports/    # Isolated triage reports for defects and runtime regressions
+├── features/       # Active features in flight (proposal, specs, design, tasks)
+└── WORKFLOW.md     # Canonical lifecycle & human gate definitions
+```
+
+---
+
 ## 1. Branching & Worktree Strategy
 
 ### Rule 1: Always Use a New Feature Branch
@@ -222,7 +236,7 @@ For each functional component/slice:
   - NEVER use vacuous assertions (`assert True`) or silent mock overrides.
   - NEVER add `@pytest.mark.skip` / `xit` without explicit user sign-off.
 - **Architecture Boundaries & Cleanliness**:
-  - Domain core (`sentiments.core`) must have zero dependencies on I/O, network, or external APIs.
+  - Domain core (`lgtm_core`) must have zero dependencies on I/O, network, or external APIs.
   - Blast radius: Keep file touches strictly localized to the active vertical slice.
   - Zero scratch pollution: No debug dumps, `.env` leaks, or untracked scratch scripts in repo.
 
