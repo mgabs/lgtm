@@ -1,5 +1,5 @@
 //! Which code host a repository lives on, and the PR operations lgtm needs from it.
-use crate::github::{Check, GithubClient, Thread};
+use crate::github::{Check, Thread};
 use crate::model::DiffSnapshot;
 use crate::pr::PullRequestSummary;
 use anyhow::{bail, Result};
@@ -70,7 +70,75 @@ impl Drop for PrivateTempFile {
     }
 }
 
-pub trait Forge: GithubClient {
+/// Provider-agnostic PR discussion and review capabilities (comments, threads, checks).
+pub trait PrDiscussion {
+    fn checks(&self, _pr: u64) -> Result<Vec<Check>> {
+        bail!("CI checks are not supported by this provider")
+    }
+    fn threads(&self, _pr: u64) -> Result<Vec<Thread>> {
+        bail!("Review threads are not supported by this provider")
+    }
+    /// Reconcile just one changed discussion when the provider supports it.
+    fn thread(&self, pr: u64, id: &str) -> Result<Option<Thread>> {
+        Ok(self.threads(pr)?.into_iter().find(|t| t.id == id))
+    }
+    fn head_sha(&self, _pr: u64) -> Result<String> {
+        bail!("Source head commit is not supported by this provider")
+    }
+    /// Inline review comment on the new side of `path:line`; returns the comment id.
+    fn post_inline(
+        &self,
+        _pr: u64,
+        _sha: &str,
+        _path: &str,
+        _line: u32,
+        _body: &str,
+    ) -> Result<u64> {
+        bail!("Inline comments are not supported by this provider")
+    }
+    /// General PR conversation comment; returns the comment id.
+    fn post_general(&self, _pr: u64, _body: &str) -> Result<u64> {
+        bail!("General comments are not supported by this provider")
+    }
+    /// Reply to a comment (its numeric id) in a thread; returns the new comment id.
+    fn reply(&self, _pr: u64, _thread_id: &str, _comment_id: u64, _body: &str) -> Result<u64> {
+        bail!("Reply comments are not supported by this provider")
+    }
+    fn set_resolved(&self, _pr: u64, _thread_id: &str, _resolved: bool) -> Result<()> {
+        bail!("Thread resolution is not supported by this provider")
+    }
+}
+
+pub use PrDiscussion as DiscussionProvider;
+
+impl<T: ?Sized + PrDiscussion> PrDiscussion for Box<T> {
+    fn checks(&self, pr: u64) -> Result<Vec<Check>> {
+        (**self).checks(pr)
+    }
+    fn threads(&self, pr: u64) -> Result<Vec<Thread>> {
+        (**self).threads(pr)
+    }
+    fn thread(&self, pr: u64, id: &str) -> Result<Option<Thread>> {
+        (**self).thread(pr, id)
+    }
+    fn head_sha(&self, pr: u64) -> Result<String> {
+        (**self).head_sha(pr)
+    }
+    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+        (**self).post_inline(pr, sha, path, line, body)
+    }
+    fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
+        (**self).post_general(pr, body)
+    }
+    fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
+        (**self).reply(pr, thread_id, comment_id, body)
+    }
+    fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
+        (**self).set_resolved(pr, thread_id, resolved)
+    }
+}
+
+pub trait Forge: PrDiscussion {
     fn available(&self) -> bool {
         true
     }
@@ -89,6 +157,134 @@ pub trait Forge: GithubClient {
     fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()>;
 }
 
+impl<T: ?Sized + Forge> Forge for Box<T> {
+    fn available(&self) -> bool {
+        (**self).available()
+    }
+    fn list_prs(&self) -> Result<Vec<PullRequestSummary>> {
+        (**self).list_prs()
+    }
+    fn list_prs_state(
+        &self,
+        state: crate::pr::PullRequestState,
+    ) -> Result<Vec<PullRequestSummary>> {
+        (**self).list_prs_state(state)
+    }
+    fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
+        (**self).pr_diff(pr)
+    }
+    fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()> {
+        (**self).post_review(pr, event, body)
+    }
+}
+
+/// Concrete forge backend implementation with zero heap boxing.
+pub enum ForgeImpl {
+    GitHub(GitHubForge),
+    Azure(AzureForge),
+    Unsupported(Unsupported),
+}
+
+impl PrDiscussion for ForgeImpl {
+    fn checks(&self, pr: u64) -> Result<Vec<Check>> {
+        match self {
+            Self::GitHub(f) => f.checks(pr),
+            Self::Azure(f) => f.checks(pr),
+            Self::Unsupported(f) => f.checks(pr),
+        }
+    }
+    fn threads(&self, pr: u64) -> Result<Vec<Thread>> {
+        match self {
+            Self::GitHub(f) => f.threads(pr),
+            Self::Azure(f) => f.threads(pr),
+            Self::Unsupported(f) => f.threads(pr),
+        }
+    }
+    fn thread(&self, pr: u64, id: &str) -> Result<Option<Thread>> {
+        match self {
+            Self::GitHub(f) => f.thread(pr, id),
+            Self::Azure(f) => f.thread(pr, id),
+            Self::Unsupported(f) => f.thread(pr, id),
+        }
+    }
+    fn head_sha(&self, pr: u64) -> Result<String> {
+        match self {
+            Self::GitHub(f) => f.head_sha(pr),
+            Self::Azure(f) => f.head_sha(pr),
+            Self::Unsupported(f) => f.head_sha(pr),
+        }
+    }
+    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+        match self {
+            Self::GitHub(f) => f.post_inline(pr, sha, path, line, body),
+            Self::Azure(f) => f.post_inline(pr, sha, path, line, body),
+            Self::Unsupported(f) => f.post_inline(pr, sha, path, line, body),
+        }
+    }
+    fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
+        match self {
+            Self::GitHub(f) => f.post_general(pr, body),
+            Self::Azure(f) => f.post_general(pr, body),
+            Self::Unsupported(f) => f.post_general(pr, body),
+        }
+    }
+    fn reply(&self, pr: u64, thread: &str, comment: u64, body: &str) -> Result<u64> {
+        match self {
+            Self::GitHub(f) => f.reply(pr, thread, comment, body),
+            Self::Azure(f) => f.reply(pr, thread, comment, body),
+            Self::Unsupported(f) => f.reply(pr, thread, comment, body),
+        }
+    }
+    fn set_resolved(&self, pr: u64, thread: &str, resolved: bool) -> Result<()> {
+        match self {
+            Self::GitHub(f) => f.set_resolved(pr, thread, resolved),
+            Self::Azure(f) => f.set_resolved(pr, thread, resolved),
+            Self::Unsupported(f) => f.set_resolved(pr, thread, resolved),
+        }
+    }
+}
+
+impl Forge for ForgeImpl {
+    fn available(&self) -> bool {
+        match self {
+            Self::GitHub(f) => f.available(),
+            Self::Azure(f) => f.available(),
+            Self::Unsupported(f) => f.available(),
+        }
+    }
+    fn list_prs(&self) -> Result<Vec<PullRequestSummary>> {
+        match self {
+            Self::GitHub(f) => f.list_prs(),
+            Self::Azure(f) => f.list_prs(),
+            Self::Unsupported(f) => f.list_prs(),
+        }
+    }
+    fn list_prs_state(
+        &self,
+        state: crate::pr::PullRequestState,
+    ) -> Result<Vec<PullRequestSummary>> {
+        match self {
+            Self::GitHub(f) => f.list_prs_state(state),
+            Self::Azure(f) => f.list_prs_state(state),
+            Self::Unsupported(f) => f.list_prs_state(state),
+        }
+    }
+    fn pr_diff(&self, pr: u64) -> Result<DiffSnapshot> {
+        match self {
+            Self::GitHub(f) => f.pr_diff(pr),
+            Self::Azure(f) => f.pr_diff(pr),
+            Self::Unsupported(f) => f.pr_diff(pr),
+        }
+    }
+    fn post_review(&self, pr: u64, event: &str, body: &str) -> Result<()> {
+        match self {
+            Self::GitHub(f) => f.post_review(pr, event, body),
+            Self::Azure(f) => f.post_review(pr, event, body),
+            Self::Unsupported(f) => f.post_review(pr, event, body),
+        }
+    }
+}
+
 /// Placeholder for operations a provider has not implemented yet; every call explains why.
 pub struct Unsupported(pub &'static str);
 
@@ -98,7 +294,7 @@ impl Unsupported {
     }
 }
 
-impl GithubClient for Unsupported {
+impl PrDiscussion for Unsupported {
     fn checks(&self, _: u64) -> Result<Vec<Check>> {
         self.no()
     }
@@ -141,15 +337,19 @@ impl Forge for Unsupported {
 pub fn open(repo: &Path) -> Box<dyn Forge> {
     let url = origin_url(repo);
     let kind = url.as_deref().map_or(ForgeKind::Unknown, detect);
-    Box::new(TimedForge(match kind {
-        ForgeKind::Azure => Box::new(azure::AzureForge::with_origin(repo.to_path_buf(), url)),
-        _ => Box::new(GitHubForge::with_origin(repo.to_path_buf(), url)),
-    }))
+    let backend = match kind {
+        ForgeKind::Azure => {
+            ForgeImpl::Azure(azure::AzureForge::with_origin(repo.to_path_buf(), url))
+        }
+        _ => ForgeImpl::GitHub(GitHubForge::with_origin(repo.to_path_buf(), url)),
+    };
+    Box::new(TimedForge(backend))
 }
 
 /// Observe provider selection and fallbacks as one end-to-end operation.
-struct TimedForge(Box<dyn Forge>);
-impl GithubClient for TimedForge {
+pub struct TimedForge<F>(pub F);
+
+impl<F: PrDiscussion> PrDiscussion for TimedForge<F> {
     fn checks(&self, pr: u64) -> Result<Vec<Check>> {
         crate::debug::measure("pr.checks", || self.0.checks(pr))
     }
@@ -184,7 +384,8 @@ impl GithubClient for TimedForge {
         )
     }
 }
-impl Forge for TimedForge {
+
+impl<F: Forge> Forge for TimedForge<F> {
     fn available(&self) -> bool {
         self.0.available()
     }
@@ -264,5 +465,44 @@ mod tests {
     #[test]
     fn repo_without_remote_is_unknown() {
         assert_eq!(kind_of(Path::new("/nonexistent")), ForgeKind::Unknown);
+    }
+
+    struct DummyProvider;
+    impl PrDiscussion for DummyProvider {}
+    impl Forge for DummyProvider {
+        fn list_prs(&self) -> Result<Vec<PullRequestSummary>> {
+            Ok(vec![])
+        }
+        fn pr_diff(&self, _pr: u64) -> Result<DiffSnapshot> {
+            bail!("not implemented")
+        }
+        fn post_review(&self, _pr: u64, _event: &str, _body: &str) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn pr_discussion_defaults_provide_clean_fallback() {
+        let dummy = DummyProvider;
+        assert!(dummy.checks(1).is_err());
+        assert!(dummy.threads(1).is_err());
+        assert!(dummy.head_sha(1).is_err());
+        assert!(dummy.post_inline(1, "sha", "p", 1, "body").is_err());
+        assert!(dummy.post_general(1, "body").is_err());
+        assert!(dummy.reply(1, "t", 1, "body").is_err());
+        assert!(dummy.set_resolved(1, "t", true).is_err());
+    }
+
+    #[test]
+    fn forge_impl_and_timed_forge_wrap_without_double_boxing() {
+        let unsupp = Unsupported("TestHost");
+        let impl_unsupp = ForgeImpl::Unsupported(unsupp);
+        assert!(!impl_unsupp.available());
+        assert!(impl_unsupp.list_prs().is_err());
+
+        let timed = TimedForge(impl_unsupp);
+        assert!(!timed.available());
+        assert!(timed.list_prs().is_err());
+        assert!(timed.checks(1).is_err());
     }
 }
