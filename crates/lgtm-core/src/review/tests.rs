@@ -72,6 +72,59 @@ fn hash_distinguishes_sign() {
 }
 
 #[test]
+fn hash_streaming_matches_reference() {
+    fn reference_hunk_hash(h: &DiffHunk) -> String {
+        let body: Vec<String> = h
+            .lines
+            .iter()
+            .filter_map(|l| {
+                let sign = match l.line_type {
+                    LineType::Addition => '+',
+                    LineType::Deletion => '-',
+                    _ => return None,
+                };
+                let text = l.content.split_whitespace().collect::<Vec<_>>().join(" ");
+                Some(format!("{sign}{text}"))
+            })
+            .collect();
+        format!("{:016x}", crate::guard::fnv1a(&body.join("\n")))
+    }
+
+    let cases = vec![
+        DiffHunk::default(),
+        DiffHunk {
+            lines: vec![
+                line(LineType::Context, "ctx line 1", None),
+                line(LineType::HunkHeader, "@@ -1,3 +1,4 @@", None),
+            ],
+            ..Default::default()
+        },
+        DiffHunk {
+            lines: vec![
+                line(LineType::Context, "before", None),
+                line(LineType::Addition, "  let   x = 1;  ", Some(1)),
+                line(LineType::Deletion, "let x = 0;", Some(1)),
+                line(LineType::Addition, "   ", Some(2)),
+                line(LineType::Addition, "", Some(3)),
+                line(LineType::Context, "after", None),
+            ],
+            ..Default::default()
+        },
+        DiffHunk {
+            lines: vec![
+                line(LineType::Addition, "multi line\nwith\ttabs", Some(1)),
+                line(LineType::Deletion, "old\r\nvalue", Some(2)),
+            ],
+            ..Default::default()
+        },
+    ];
+
+    for c in cases {
+        assert_eq!(hunk_hash(&c), reference_hunk_hash(&c));
+    }
+}
+
+#[test]
 fn mark_survives_insert_above() {
     let f = file("a.rs", vec![hunk(10, &["x"])]);
     let mut marks = vec![];
