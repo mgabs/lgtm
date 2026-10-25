@@ -25,7 +25,10 @@ use self::header::render_header;
 use self::help::render_help_modal;
 use self::modals::comments::{render_comment_input, render_comment_list, render_comment_reply};
 use self::modals::commit::render_commit_modal;
-use self::modals::pickers::{render_file_picker, render_pane_picker, render_pr_picker};
+use self::modals::pickers::{
+    render_file_picker, render_pane_picker, render_pr_picker, render_worktree_confirm_guard,
+    render_worktree_picker,
+};
 use self::modals::threads::render_threads_modal;
 use self::status::{render_search_input, render_status_bar};
 
@@ -79,6 +82,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         ActiveView::CommentList => render_comment_list(frame, size, app),
         ActiveView::ThreadView => render_threads_modal(frame, size, app),
         ActiveView::PrPicker => render_pr_picker(frame, size, app),
+        ActiveView::WorktreePicker => render_worktree_picker(frame, size, app),
+        ActiveView::WorktreeConfirmGuard => render_worktree_confirm_guard(frame, size, app),
         ActiveView::Help => render_help_modal(frame, size, app),
         ActiveView::Search => render_search_input(frame, size, app),
         ActiveView::CommitModal => render_commit_modal(frame, size, app),

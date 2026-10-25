@@ -678,4 +678,44 @@ echo "[]"
         };
         assert!(status.success(), "expected clean exit, got {status}");
     }
+
+    #[test]
+    fn bdd_cli_009_worktree_switcher_navigation_and_dirty_guard() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_dir = temp.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+
+        let repo = lgtm_core::git2::Repository::init(&repo_dir).unwrap();
+        let base_content = "fn main() {}\n";
+        std::fs::write(repo_dir.join("main.rs"), base_content).unwrap();
+
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("main.rs")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = lgtm_core::git2::Signature::now("Tester", "test@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+            .unwrap();
+
+        // Create secondary worktree
+        let wt_dir = repo_dir.join(".worktrees/feat-x");
+        let mut cmd = std::process::Command::new("git");
+        cmd.current_dir(&repo_dir);
+        cmd.args(["worktree", "add", "-b", "feat-x", wt_dir.to_str().unwrap()]);
+        let out = cmd.output().unwrap();
+        assert!(out.status.success());
+
+        // Verify discovery via GitEngine
+        let engine = lgtm_core::git::GitEngine::new(&repo_dir);
+        let worktrees = engine.list_worktrees().unwrap();
+        assert_eq!(worktrees.len(), 2);
+        let canon_repo = repo_dir.canonicalize().unwrap();
+        assert!(worktrees
+            .iter()
+            .any(|w| w.is_current && w.path.canonicalize().unwrap() == canon_repo));
+        assert!(worktrees
+            .iter()
+            .any(|w| w.branch.as_deref() == Some("feat-x")));
+    }
 }

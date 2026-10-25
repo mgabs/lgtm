@@ -35,6 +35,13 @@ pub struct PanePicker {
 }
 
 #[derive(Debug, Default, Clone)]
+pub struct WorktreePickerState {
+    pub list: Vec<lgtm_core::git::WorktreeInfo>,
+    pub selected_idx: usize,
+    pub pending_target: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Default, Clone)]
 pub struct CommandLine {
     pub input: String,
     pub cursor: usize,
@@ -243,8 +250,10 @@ impl CommandLine {
             "vsp",
             "vsplit",
             "w",
+            "worktrees",
             "write",
             "wq",
+            "wt",
             "x",
             "yank",
             "yr",

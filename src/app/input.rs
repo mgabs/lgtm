@@ -12,6 +12,8 @@ impl App {
             ActiveView::CommentList => self.handle_comment_list_key(key),
             ActiveView::ThreadView => self.handle_thread_view_key(key),
             ActiveView::PrPicker => self.handle_pr_picker_key(key),
+            ActiveView::WorktreePicker => self.handle_worktree_picker_key(key),
+            ActiveView::WorktreeConfirmGuard => self.handle_worktree_confirm_guard_key(key),
             ActiveView::Help => self.handle_help_key(key),
             ActiveView::Search => self.handle_search_key(key),
             ActiveView::CommandLine => self.handle_command_line_key(key),
@@ -764,6 +766,97 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    pub(crate) fn handle_worktree_picker_key(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+                self.active_view = ActiveView::Diff;
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if self.worktree_picker.selected_idx > 0 {
+                    self.worktree_picker.selected_idx -= 1;
+                }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if !self.worktree_picker.list.is_empty()
+                    && self.worktree_picker.selected_idx < self.worktree_picker.list.len() - 1
+                {
+                    self.worktree_picker.selected_idx += 1;
+                }
+            }
+            (_, KeyCode::Enter) => {
+                if let Some(target) = self
+                    .worktree_picker
+                    .list
+                    .get(self.worktree_picker.selected_idx)
+                    .cloned()
+                {
+                    if target.is_bare {
+                        self.status_message = Some("Cannot switch to bare worktree".to_string());
+                    } else {
+                        self.initiate_worktree_switch(target.path);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn handle_worktree_confirm_guard_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                let _ = self.comment_store.save_comments(&self.comments);
+                if let Some(target) = self.worktree_picker.pending_target.take() {
+                    self.apply_worktree_switch(target);
+                } else {
+                    self.active_view = ActiveView::Diff;
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                self.comments.clear();
+                if let Some(target) = self.worktree_picker.pending_target.take() {
+                    self.apply_worktree_switch(target);
+                } else {
+                    self.active_view = ActiveView::Diff;
+                }
+            }
+            KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Char('q') => {
+                self.worktree_picker.pending_target = None;
+                self.active_view = ActiveView::Diff;
+                self.status_message = Some("Worktree switch aborted".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    pub fn initiate_worktree_switch(&mut self, target_path: std::path::PathBuf) {
+        let has_pending = self.comments.iter().any(|c| c.track.outcome.is_none());
+        if has_pending {
+            self.worktree_picker.pending_target = Some(target_path);
+            self.active_view = ActiveView::WorktreeConfirmGuard;
+        } else {
+            self.apply_worktree_switch(target_path);
+        }
+    }
+
+    pub fn apply_worktree_switch(&mut self, target_path: std::path::PathBuf) {
+        self.pr.current_number = None;
+        self.active_revision = None;
+        self.git_engine = crate::git::GitEngine::new(&target_path);
+        self.comment_store = lgtm_core::comment::CommentStore::new(&target_path);
+        self.comments = self.comment_store.load_comments();
+        self.marks.clear();
+        self.reload_diff();
+        self.cursor_to_top();
+        self.active_view = ActiveView::Diff;
+        self.status_message = Some(format!(
+            "Switched to worktree: {}",
+            target_path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| target_path.display().to_string())
+        ));
     }
 
     pub(crate) fn handle_comment_reply_key(&mut self, key: KeyEvent) {
