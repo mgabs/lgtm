@@ -4,7 +4,7 @@
 
 ### Rule 1: Always Use a New Feature Branch
 - **NEVER** work directly on `main` / `master`.
-- Every OpenSpec feature proposal MUST originate on a dedicated feature branch:
+- Every feature proposal MUST originate on a dedicated feature branch:
   ```bash
   rtk git checkout -b feat/<feature-id>-<feature-name>
   ```
@@ -41,7 +41,7 @@
 When a bug, regression, or runtime defect is discovered mid-development, during review, or via dogfooding:
 - **HARD PROHIBITION**: NEVER modify production code on `main` or within a dirty feature working directory.
 - **Protocol Steps**:
-  1. **Log Defect**: File a minimal bug report in `openspec/bug-reports/<date>-<slug>.md` detailing root cause, reproduction, and expected behavior.
+  1. **Log Defect**: File a minimal bug report in `specs/bug-reports/<date>-<slug>.md` detailing root cause, reproduction, and expected behavior.
   2. **Spawn Worktree**: Create an isolated bugfix worktree branching off target base (e.g. `main`):
      ```bash
      rtk git worktree add .worktrees/fix-<bug-slug> -b fix/<bug-slug> main
@@ -106,18 +106,18 @@ flowchart TD
 ```
 
 ### Gate 1: Proposal Review
-- **Artifact**: `openspec/features/<feature>/proposal.md`
+- **Artifact**: `specs/features/<feature>/proposal.md`
 - **Mandatory Sections**: Intent, Scope (In/Out-of-scope), Success Metrics, Assumptions (`ASM-GEN-*`).
 - **Gate**: Human approval required before drafting specs.
 
 ### Gate 2: Specifications Review
-- **Artifacts**: `openspec/features/<feature>/specs/<capability>/spec.md`
+- **Artifacts**: `specs/features/<feature>/specs/<capability>/spec.md`
 - **Mandatory Sections**: Requirements (`REQ-*`), Non-Functional Requirements & Performance Budgets (`NFR-*`), Assumptions (`ASM-*`), Edge Cases & Errors.
 - **Traceability**: Every requirement MUST be uniquely keyed (`REQ-<DOMAIN>-<ID>`, `NFR-<DOMAIN>-<ID>`).
 - **Gate**: Human approval required before technical design.
 
 ### Gate 3: Architecture & Design Review
-- **Artifact**: `openspec/features/<feature>/design.md`
+- **Artifact**: `specs/features/<feature>/design.md`
 - **Mandatory Sections**:
   - Architecture Diagrams, Domain Models & Protocols, Tech Stack, Boundary Rules, Assumptions.
   - **Performance, Concurrency & Main-Loop Invariants**:
@@ -129,7 +129,7 @@ flowchart TD
 - **Gate**: Human approval required before task breakdown.
 
 ### Gate 4: Tasks Breakdown Review
-- **Artifact**: `openspec/features/<feature>/tasks.md`
+- **Artifact**: `specs/features/<feature>/tasks.md`
 - **Mandatory Sections**:
   - **Dependency DAG**: Clear mapping of task prerequisites.
   - **Multi-Agent Streams**: Tasks with zero inter-dependencies partitioned into explicit streams (`Stream A`, `Stream B`, etc.) with designated Git worktrees (`.worktrees/<feature>-<stream>`).
@@ -155,7 +155,7 @@ flowchart TD
 ```
 
 ### Gate B1: Bug Report & Triage
-- **Artifact**: `openspec/bug-reports/<date>-<slug>.md`
+- **Artifact**: `specs/bug-reports/<date>-<slug>.md`
 - **Mandatory Sections**: Summary, Steps to Reproduce, Expected vs Actual, Root Cause Analysis, Proposed Remediation.
 - **Gate**: Human approval required before code execution.
 
@@ -233,5 +233,5 @@ For each functional component/slice:
 1. Run full test suite and verify 100% pass + $\ge 95\%$ coverage.
 2. Run full mutation suite and verify 100% kill score.
 3. Merge worktree into release or feature branch (`--ff-only`).
-4. Sync feature delta specs into canonical living directory (`openspec/specs/features/<feature>/spec.md`).
-5. Move completed feature artifacts to `openspec/specs/archive/<feature>/`.
+4. Sync feature delta specs into canonical living directory (`specs/features/<feature>/spec.md`).
+5. Move completed feature artifacts to `specs/archive/<feature>/`.

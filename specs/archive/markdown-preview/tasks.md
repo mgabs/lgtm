@@ -80,4 +80,4 @@ flowchart TD
 - Full test suite verified: 169 binary tests passed, 182 core tests passed.
 - Zero compiler warnings (`cargo clippy --all-targets --all-features -- -D warnings`).
 - Zero formatting issues (`cargo fmt --all -- --check`).
-- Canonical living spec synced to `openspec/specs/markdown-preview/spec.md`.
+- Canonical living spec synced to `specs/features/markdown-preview/spec.md`.
