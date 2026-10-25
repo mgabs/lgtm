@@ -230,8 +230,8 @@ For each functional component/slice:
 
 ## 6. Gate 6: Living Spec Sync & Archive
 
-1. Run full test suite (`uv run pytest --cov`) and verify 100% pass + $\ge 95\%$ coverage.
-2. Run full mutation suite (`uv run mutmut run`) and verify 100% kill score.
-3. Merge worktrees into feature branch.
-4. Sync feature delta specs into canonical living directory (`openspec/specs/`).
-5. Update `openspec/features/<feature>/tasks.md` and archive completed feature.
+1. Run full test suite and verify 100% pass + $\ge 95\%$ coverage.
+2. Run full mutation suite and verify 100% kill score.
+3. Merge worktree into release or feature branch (`--ff-only`).
+4. Sync feature delta specs into canonical living directory (`openspec/specs/features/<feature>/spec.md`).
+5. Move completed feature artifacts to `openspec/specs/archive/<feature>/`.
