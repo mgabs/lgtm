@@ -209,3 +209,146 @@ pub(crate) fn render_pr_picker(frame: &mut Frame, area: Rect, app: &App) {
 
     frame.render_widget(list, popup_area);
 }
+
+pub(crate) fn render_worktree_picker(frame: &mut Frame, area: Rect, app: &App) {
+    let popup_area = centered_rect(70, 50, area);
+    frame.render_widget(Clear, popup_area);
+
+    if app.worktree_picker.list.is_empty() {
+        let p = Paragraph::new("No active worktrees discovered. Press Esc to close.").block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Git Worktrees ")
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+        frame.render_widget(p, popup_area);
+        return;
+    }
+
+    let items: Vec<ListItem> = app
+        .worktree_picker
+        .list
+        .iter()
+        .enumerate()
+        .map(|(idx, wt)| {
+            let is_selected = idx == app.worktree_picker.selected_idx;
+            let current_badge = if wt.is_current { "* " } else { "  " };
+            let branch_label = wt.branch.as_deref().unwrap_or("(detached HEAD)");
+            let short_head = if wt.head.len() >= 7 {
+                &wt.head[..7]
+            } else {
+                &wt.head
+            };
+            let name = wt.path.file_name().and_then(|f| f.to_str()).unwrap_or(".");
+
+            let line = Line::from(vec![
+                Span::styled(
+                    current_badge,
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("[{}] ", name),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:<20} ", branch_label),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(
+                    format!("@{} ", short_head),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw(wt.path.display().to_string()),
+            ]);
+
+            let style = if is_selected {
+                Style::default()
+                    .bg(Color::Blue)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            ListItem::new(line).style(style)
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(format!(
+                " Git Worktrees [{}] (j/k: navigate, Enter: switch, Esc: close) ",
+                app.worktree_picker.list.len()
+            ))
+            .border_style(Style::default().fg(Color::Green)),
+    );
+
+    frame.render_widget(list, popup_area);
+}
+
+pub(crate) fn render_worktree_confirm_guard(frame: &mut Frame, area: Rect, app: &App) {
+    let popup_area = centered_rect(60, 25, area);
+    frame.render_widget(Clear, popup_area);
+
+    let target_name = app
+        .worktree_picker
+        .pending_target
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .and_then(|f| f.to_str())
+        .unwrap_or("target worktree");
+
+    let text = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Switching to: {}", target_name),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "You have pending unexported review directives in this worktree.",
+            Style::default().fg(Color::Red),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "[s] ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Save directives to disk and switch    "),
+            Span::styled(
+                "[d] ",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Discard directives and switch"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "[Esc / c] ",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Cancel switch and remain in current worktree"),
+        ]),
+    ];
+
+    let p = Paragraph::new(text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" ⚠ Pending Review Directives ")
+            .border_style(Style::default().fg(Color::Red)),
+    );
+
+    frame.render_widget(p, popup_area);
+}
