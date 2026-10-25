@@ -782,7 +782,7 @@ cargo test --workspace --test bdd
 Private UI and provider behavior tests stay beside their modules and run with
 `cargo test --workspace`. The [scenario catalog](bdd-scenarios.md) maps both types
 and distinguishes offline fixtures from terminal and live-provider verification.
-The [Q0–Q6 roadmap](superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
+The [Q0–Q6 roadmap](../specs/superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
 tracks the acceptance milestones (all complete).
 
 Run the automated BDD catalog coverage report:
