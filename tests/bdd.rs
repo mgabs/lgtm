@@ -718,4 +718,104 @@ echo "[]"
             .iter()
             .any(|w| w.branch.as_deref() == Some("feat-x")));
     }
+
+    #[test]
+    fn bdd_wts_001_worktree_picker_switch_and_header_badge() {
+        // Given a Git repository with root working tree and a linked worktree
+        let temp = tempfile::tempdir().unwrap();
+        let repo_dir = temp.path().join("repo");
+        let bin_dir = temp.path().join("bin");
+        let wt_dir = repo_dir.join(".worktrees/feat-agent-one");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        std::fs::create_dir_all(&bin_dir).unwrap();
+
+        let repo = lgtm_core::git2::Repository::init(&repo_dir).unwrap();
+        let base_content = "fn main() {}\n";
+        std::fs::write(repo_dir.join("main.rs"), base_content).unwrap();
+
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("main.rs")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = lgtm_core::git2::Signature::now("Tester", "test@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+            .unwrap();
+
+        let status = Command::new("git")
+            .current_dir(&repo_dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_PREFIX")
+            .args([
+                "-c",
+                "user.name=Tester",
+                "-c",
+                "user.email=test@example.com",
+            ])
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "feat/agent-one",
+                wt_dir.to_str().unwrap(),
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success(), "git worktree add failed");
+
+        // Worktree has an uncommitted file
+        std::fs::write(
+            wt_dir.join("agent.rs"),
+            "fn agent() { println!(\"agent one\"); }\n",
+        )
+        .unwrap();
+
+        // Also create an uncommitted modification in root so it has a diff
+        std::fs::write(
+            repo_dir.join("main.rs"),
+            "fn main() { println!(\"root edit\"); }\n",
+        )
+        .unwrap();
+
+        let log_path = temp.path().join("debug.jsonl");
+        let mut app = PtyApp::spawn(&repo_dir, &bin_dir, &log_path);
+        app.wait_for(|s| s.contains("main.rs"), "initial main.rs render");
+
+        // When opening worktree picker via :wt
+        app.send(b":wt\r");
+        app.wait_for(
+            |s| s.contains("Worktrees") || s.contains("feat-agent-one"),
+            "worktree picker open",
+        );
+
+        // And selecting the linked worktree and pressing Enter
+        app.send(b"j\r");
+
+        // Then active worktree switches and shows target worktree files & badge
+        app.wait_for(
+            |s| {
+                s.contains("agent.rs")
+                    || s.contains("feat/agent-one")
+                    || s.contains("feat-agent-one")
+            },
+            "switched to target worktree",
+        );
+
+        // Clean exit with :q
+        app.send(b":q\r");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = app.child.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                let _ = app.child.kill();
+                panic!("timed out waiting for child process to exit");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!(status.success(), "expected clean exit, got {status}");
+    }
 }

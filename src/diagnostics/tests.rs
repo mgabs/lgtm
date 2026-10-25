@@ -167,7 +167,14 @@ fn child(path: &Path, enabled: bool) {
 }
 
 fn log_path(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("lgtm-ui-{label}-{}.jsonl", std::process::id()))
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "lgtm-ui-{label}-{}-{now}.jsonl",
+        std::process::id()
+    ))
 }
 
 #[test]
