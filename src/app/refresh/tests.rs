@@ -33,6 +33,10 @@ fn text(app: &App) -> &str {
 fn git(app: &App, args: &[&str]) {
     let output = std::process::Command::new("git")
         .current_dir(&app.git_engine.repo_path)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_PREFIX")
         .args([
             "-c",
             "user.name=test",

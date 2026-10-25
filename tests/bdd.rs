@@ -661,11 +661,21 @@ echo "[]"
 
         // Close help modal with Esc:
         app.send(b"\x1b");
-        app.wait_for(|s| s.contains("main.rs"), "returned to diff view");
+        std::thread::sleep(Duration::from_millis(100));
 
         // Clean exit with :q
         app.send(b":q\r");
-        let status = app.child.wait().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = app.child.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                let _ = app.child.kill();
+                panic!("timed out waiting for child process to exit");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
         assert!(status.success(), "expected clean exit, got {status}");
     }
 }

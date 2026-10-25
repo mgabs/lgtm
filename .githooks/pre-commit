@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
+# Unset git hook environment variables so sub-commands and tests don't leak into parent git context
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX
+
 echo "🔍 Running pre-commit checks..."
 
 # 1. Check rust formatting (auto-format on failure)
