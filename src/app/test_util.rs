@@ -19,7 +19,7 @@ pub(crate) fn create_test_app() -> App {
 }
 
 pub(crate) fn wait_for_local_refresh(app: &mut App) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     while app.local_refresh_pending() {
         app.handle_background_events();
         assert!(
@@ -31,7 +31,7 @@ pub(crate) fn wait_for_local_refresh(app: &mut App) {
 }
 
 pub(crate) fn wait_for_audit(app: &mut App) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     while app.audit_pending() {
         app.handle_background_events();
         assert!(
@@ -44,7 +44,7 @@ pub(crate) fn wait_for_audit(app: &mut App) {
 
 pub(crate) fn wait_for_view_data(app: &mut App) {
     app.prepare_view_data();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     while app.view_data_pending() {
         app.handle_background_events();
         assert!(

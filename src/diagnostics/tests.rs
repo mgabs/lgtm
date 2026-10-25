@@ -161,7 +161,8 @@ fn child(path: &Path, enabled: bool) {
     let output = command.output().unwrap();
     assert!(
         output.status.success(),
-        "{}",
+        "diagnostic_child failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 }
