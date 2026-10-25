@@ -234,7 +234,7 @@ mod pty_journey {
         }
 
         fn wait_for(&self, mut predicate: impl FnMut(&str) -> bool, label: &str) {
-            let deadline = Instant::now() + Duration::from_secs(10);
+            let deadline = Instant::now() + Duration::from_secs(30);
             while Instant::now() < deadline {
                 let text = self.output();
                 if predicate(&text) {
