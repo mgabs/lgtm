@@ -535,7 +535,8 @@ impl App {
                         None => self.command.history.len() - 1,
                     };
                     self.command.history_idx = Some(next_idx);
-                    self.command.set_text(self.command.history[next_idx].clone());
+                    self.command
+                        .set_text(self.command.history[next_idx].clone());
                     self.command.completions.clear();
                     self.command.completion_idx = None;
                 }
@@ -545,7 +546,8 @@ impl App {
                     if i + 1 < self.command.history.len() {
                         let next_idx = i + 1;
                         self.command.history_idx = Some(next_idx);
-                        self.command.set_text(self.command.history[next_idx].clone());
+                        self.command
+                            .set_text(self.command.history[next_idx].clone());
                     } else {
                         self.command.history_idx = None;
                         self.command.set_text(String::new());

@@ -308,10 +308,10 @@ mod tests {
             .unwrap();
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer.get(0, 0).symbol(), ":");
-        assert_eq!(buffer.get(1, 0).symbol(), "a");
-        assert_eq!(buffer.get(5, 0).symbol(), "t");
-        assert_eq!(buffer.get(6, 0).symbol(), "█");
+        assert_eq!(buffer[(0, 0)].symbol(), ":");
+        assert_eq!(buffer[(1, 0)].symbol(), "a");
+        assert_eq!(buffer[(5, 0)].symbol(), "t");
+        assert_eq!(buffer[(6, 0)].symbol(), "█");
     }
 
     #[test]
@@ -330,14 +330,14 @@ mod tests {
             .unwrap();
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer.get(0, 0).symbol(), ":");
-        assert_eq!(buffer.get(1, 0).symbol(), "a");
-        assert_eq!(buffer.get(2, 0).symbol(), "u");
-        let cell = buffer.get(3, 0);
+        assert_eq!(buffer[(0, 0)].symbol(), ":");
+        assert_eq!(buffer[(1, 0)].symbol(), "a");
+        assert_eq!(buffer[(2, 0)].symbol(), "u");
+        let cell = &buffer[(3, 0)];
         assert_eq!(cell.symbol(), "d");
         assert_eq!(cell.bg, Color::Yellow);
         assert_eq!(cell.fg, Color::Black);
-        assert_eq!(buffer.get(4, 0).symbol(), "i");
-        assert_eq!(buffer.get(5, 0).symbol(), "t");
+        assert_eq!(buffer[(4, 0)].symbol(), "i");
+        assert_eq!(buffer[(5, 0)].symbol(), "t");
     }
 }
