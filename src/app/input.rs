@@ -1733,5 +1733,4 @@ mod tests {
         app.execute_command("preview");
         assert_eq!(app.active_view, ActiveView::Diff);
     }
-    }
 }
