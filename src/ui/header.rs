@@ -1,6 +1,45 @@
 use super::*;
+use std::hash::{Hash, Hasher};
 
-pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
+fn header_signature(app: &App) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    app.active_view.hash(&mut hasher);
+    if app.active_view == ActiveView::AuditReport {
+        app.audit.alerts.len().hash(&mut hasher);
+        for a in &app.audit.alerts {
+            (a.severity as u8).hash(&mut hasher);
+        }
+        app.audit.filter_severity.map(|s| s as u8).hash(&mut hasher);
+        app.audit.progress.as_deref().hash(&mut hasher);
+        app.audit.files.len().hash(&mut hasher);
+    } else if !app.view_data.is_git && app.pr.current_number.is_none() {
+        app.git_engine.repo_path.hash(&mut hasher);
+    } else {
+        app.agent_sink().label().hash(&mut hasher);
+        app.snapshot.total_additions.hash(&mut hasher);
+        app.snapshot.total_deletions.hash(&mut hasher);
+        app.pr.current_number.hash(&mut hasher);
+        if let Some(ci) = &app.ci {
+            (ci.passed, ci.failed, ci.pending).hash(&mut hasher);
+        }
+        app.view_data.turn.hash(&mut hasher);
+        app.snapshot.files.len().hash(&mut hasher);
+        {
+            let h = app.hidden.borrow();
+            (h.suppressed.len(), h.existing.len()).hash(&mut hasher);
+        }
+        app.alerts.len().hash(&mut hasher);
+        app.comments.len().hash(&mut hasher);
+        let orphans = app.comments.iter().filter(|c| c.orphaned).count();
+        orphans.hash(&mut hasher);
+        if let Some((status, _)) = &app.view_data.gate {
+            status.hash(&mut hasher);
+        }
+    }
+    hasher.finish()
+}
+
+fn build_header_line(app: &App) -> Line<'static> {
     if app.active_view == ActiveView::AuditReport {
         let crit = app
             .audit
@@ -25,7 +64,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             Some(crate::guard::Severity::High) => "🟠 High+ [2]",
             _ => "All [3]",
         };
-        let header_line = Line::from(vec![
+        return Line::from(vec![
             Span::styled(
                 " lgtm audit ",
                 Style::default()
@@ -67,12 +106,10 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
             ),
         ]);
-        frame.render_widget(Paragraph::new(header_line), area);
-        return;
     }
 
     if !app.view_data.is_git && app.pr.current_number.is_none() {
-        let header_line = Line::from(vec![
+        return Line::from(vec![
             Span::styled(
                 " lgtm ",
                 Style::default()
@@ -93,8 +130,6 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             )),
             Span::styled("[q] Quit", Style::default().fg(Color::White)),
         ]);
-        frame.render_widget(Paragraph::new(header_line), area);
-        return;
     }
 
     let agent_str = format!(" Target: {} ", app.agent_sink());
@@ -202,5 +237,35 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             .add_modifier(Modifier::BOLD),
     ));
 
-    frame.render_widget(Paragraph::new(Line::from(header_spans)), area);
+    Line::from(header_spans)
+}
+
+pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
+    let sig = header_signature(app);
+    let mut cache = app.render_cache.borrow_mut();
+    if let Some((cached_sig, cached_line)) = &cache.header {
+        if *cached_sig == sig {
+            let line = Line::from(
+                cached_line
+                    .spans
+                    .iter()
+                    .map(|s| Span::styled(s.content.as_ref(), s.style))
+                    .collect::<Vec<_>>(),
+            );
+            frame.render_widget(Paragraph::new(line), area);
+            return;
+        }
+    }
+    let header_line = build_header_line(app);
+    cache.header = Some((sig, header_line));
+    if let Some((_, cached_line)) = &cache.header {
+        let line = Line::from(
+            cached_line
+                .spans
+                .iter()
+                .map(|s| Span::styled(s.content.as_ref(), s.style))
+                .collect::<Vec<_>>(),
+        );
+        frame.render_widget(Paragraph::new(line), area);
+    }
 }
