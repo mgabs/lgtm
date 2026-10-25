@@ -87,6 +87,31 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    if app.active_view == ActiveView::MarkdownPreview {
+        let status_line = Line::from(vec![
+            Span::styled(
+                " [MARKDOWN PREVIEW] ",
+                Style::default()
+                    .bg(Color::Cyan)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" | "),
+            Span::styled("[m/Esc]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Raw Diff | "),
+            Span::styled("[j/k]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Scroll | "),
+            Span::styled("[g/G]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Top/End | "),
+            Span::styled("[:]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Cmd | "),
+            Span::styled("[q]", Style::default().fg(Color::Red)),
+            Span::raw(" Quit"),
+        ]);
+        frame.render_widget(Paragraph::new(status_line), area);
+        return;
+    }
+
     if app.active_view == ActiveView::AuditReport {
         let msg = app.status_message.as_deref().unwrap_or("Audit Mode");
         let focus_tag = match app.audit.focus {

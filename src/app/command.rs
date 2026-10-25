@@ -56,6 +56,9 @@ impl App {
             "approve" | "lgtm" => {
                 self.approve_gate();
             }
+            "md" | "preview" => {
+                self.toggle_markdown_preview();
+            }
             "reject-all" | "reject-gate" => {
                 self.reject_gate();
             }
