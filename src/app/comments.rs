@@ -448,14 +448,13 @@ impl App {
             let sink = self.agent_sink();
             let result = sink.send(&payload);
             let label = sink.label();
-            drop(sink);
             self.status_message = Some(match result {
                 Ok(()) => format!(
                     "Sent to {}: {}:{}",
                     label, comment.file_path, comment.target_line_no
                 ),
                 Err(e) => {
-                    let _ = crate::ipc::sink::ClipboardSink.send(&payload);
+                    let _ = crate::ipc::sink::AgentSinkKind::Osc52.send(&payload);
                     format!("Send failed: {}", e)
                 }
             });

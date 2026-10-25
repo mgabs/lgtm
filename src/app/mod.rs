@@ -1,7 +1,6 @@
 use crate::comment::{CommentAnchor, CommentStore};
 use crate::git::GitEngine;
 use crate::guard::GuardAlert;
-use crate::ipc::sink::AgentSink;
 use crate::ipc::IpcBridge;
 use crate::model::{DiffHunk, DiffSnapshot, FileDiff};
 use crate::turn::TurnManager;
@@ -555,7 +554,6 @@ impl App {
                     };
                     let _ = sink.send(&msg);
                     let label = sink.label();
-                    drop(sink);
                     self.status_message =
                         Some(format!("❌ Rejected agent gate! Delivered to {}", label));
                     return;

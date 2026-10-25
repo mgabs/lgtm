@@ -195,7 +195,6 @@ impl App {
                     let sink = self.agent_sink();
                     let _ = sink.send(&prompt);
                     let label = sink.label();
-                    drop(sink);
                     self.status_message = Some(format!(
                         "❌ Reverted hunk & re-prompted {}: {}",
                         label, prompt

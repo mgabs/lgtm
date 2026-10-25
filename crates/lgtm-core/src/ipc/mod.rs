@@ -1,5 +1,7 @@
 pub mod sink;
 
+pub use sink::{AgentSink, AgentSinkKind};
+
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 

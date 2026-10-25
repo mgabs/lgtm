@@ -97,7 +97,7 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    let agent_str = format!(" Target: {} ", app.agent_sink().label());
+    let agent_str = format!(" Target: {} ", app.agent_sink());
 
     let total_add = app.snapshot.total_additions;
     let total_del = app.snapshot.total_deletions;
