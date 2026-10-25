@@ -815,7 +815,7 @@ automation coverage, verified coverage, and pass rate.
 | `guard/` | Static analysis guards behind the `Guard` trait and `registry()` (see sections 4, 11) |
 | `config/`, `findings/`, `baseline/` | `.lgtm.toml` loader, suppression/severity pipeline, and baseline partitioning |
 | `comment/`, `turn/`, `review/`, `outcome/` | Directives, reviewed-file state, durable hunk/fold marks, and directive outcome tracking |
-| `ipc/` | Multiplexer sinks (`tmux`, `zellij`, `wezterm`, `kitty`), OSC 52 clipboard; `AgentSink` trait (`sink.rs`) |
+| `ipc/` | Multiplexer sinks (`tmux`, `zellij`, `wezterm`, `kitty`), OSC 52 clipboard; `AgentSink` enum (`sink.rs`) |
 | `watcher/` | Debounced filesystem watcher |
 | `crates/lgtm-mcp/src/lib.rs` (crate root) | MCP server and live resource watcher notifications |
 
