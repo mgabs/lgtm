@@ -64,20 +64,39 @@ pub struct ReviewState {
 
 /// Hash of the whitespace-normalized changed lines; ignores context, headers and line numbers.
 pub fn hunk_hash(h: &DiffHunk) -> String {
-    let body: Vec<String> = h
-        .lines
-        .iter()
-        .filter_map(|l| {
-            let sign = match l.line_type {
-                LineType::Addition => '+',
-                LineType::Deletion => '-',
-                _ => return None,
-            };
-            let text = l.content.split_whitespace().collect::<Vec<_>>().join(" ");
-            Some(format!("{sign}{text}"))
-        })
-        .collect();
-    format!("{:016x}", crate::guard::fnv1a(&body.join("\n")))
+    let mut hash = 0xcbf29ce484222325u64;
+    let mut feed_byte = |b: u8| {
+        hash = (hash ^ b as u64).wrapping_mul(0x100000001b3);
+    };
+
+    let mut first_line = true;
+    for l in &h.lines {
+        let sign = match l.line_type {
+            LineType::Addition => b'+',
+            LineType::Deletion => b'-',
+            _ => continue,
+        };
+
+        if !first_line {
+            feed_byte(b'\n');
+        }
+        first_line = false;
+
+        feed_byte(sign);
+
+        let mut first_word = true;
+        for word in l.content.split_whitespace() {
+            if !first_word {
+                feed_byte(b' ');
+            }
+            first_word = false;
+            for &b in word.as_bytes() {
+                feed_byte(b);
+            }
+        }
+    }
+
+    format!("{:016x}", hash)
 }
 
 /// Hash of the hunk holding new-side line `line` of `path`, if that line is in the diff.
