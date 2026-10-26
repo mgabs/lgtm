@@ -596,6 +596,14 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::styled("  :hook [action]       ", Style::default().fg(Color::Cyan)),
                     Span::raw("Install, uninstall, or inspect Git pre-commit hook"),
                 ]),
+                Line::from(vec![
+                    Span::styled("  :wt, :worktrees      ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open interactive Git worktree picker modal (or :wt <name|path>)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :md, :preview        ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Toggle rendered Markdown preview for .md files"),
+                ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
                     "AUDIT MODE CONTROLS (Active in Codebase Audit view)",
