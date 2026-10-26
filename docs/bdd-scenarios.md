@@ -108,8 +108,7 @@ evaluates test execution, and reports:
 
 ## Acceptance milestones (Q0–Q6)
 
-The [roadmap's Q0–Q6 checklist](superpowers/roadmap.md#q--bdd-acceptance-gaps-added-2026-10-23)
-is complete, establishing provider request contracts (Q0), ambiguous remote write
+The acceptance checklist is complete, establishing provider request contracts (Q0), ambiguous remote write
 recovery (Q1), real-terminal journeys (Q2), receipt failure recovery across restarts (Q3),
 automated BDD catalog reporting (Q4), opt-in live-provider verification (Q5), and real-terminal
 load responsiveness percentiles (Q6).

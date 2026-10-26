@@ -24,6 +24,8 @@ pub fn command_description(cmd: &str) -> &'static str {
         "threads" => "List remote review threads for the open PR",
         "hidden" => "List suppressed and baselined findings",
         "hook" => "Manage Git pre-commit hook (:hook [install|uninstall|status])",
+        "wt" | "worktrees" => "Open interactive Git worktree picker modal (:wt [name|path])",
+        "md" | "preview" => "Toggle rendered Markdown preview for .md files",
         "audit" | "issues" => {
             "Audit the whole codebase (not just the diff) for security & architecture issues"
         }
@@ -146,6 +148,9 @@ mod tests {
             "Re-scan diff for security & test risks"
         );
         assert!(command_description("audit").contains("whole codebase"));
+        assert!(command_description("wt").contains("worktree picker"));
+        assert!(command_description("worktrees").contains("worktree picker"));
+        assert!(command_description("md").contains("Markdown"));
         assert_eq!(command_description("unknown_command"), "");
     }
 }

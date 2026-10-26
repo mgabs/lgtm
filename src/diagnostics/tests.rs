@@ -161,13 +161,21 @@ fn child(path: &Path, enabled: bool) {
     let output = command.output().unwrap();
     assert!(
         output.status.success(),
-        "{}",
+        "diagnostic_child failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 }
 
 fn log_path(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("lgtm-ui-{label}-{}.jsonl", std::process::id()))
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "lgtm-ui-{label}-{}-{now}.jsonl",
+        std::process::id()
+    ))
 }
 
 #[test]

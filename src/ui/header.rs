@@ -168,6 +168,13 @@ fn build_header_line(app: &App) -> Line<'static> {
         header_spans.push(Span::raw(format!(" Turn #{} | ", turn)));
     }
 
+    header_spans.push(Span::styled(
+        format_worktree_badge(app),
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD),
+    ));
+
     header_spans.extend(vec![
         Span::styled(
             format!("+{}", total_add),
@@ -267,5 +274,44 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, app: &App) {
                 .collect::<Vec<_>>(),
         );
         frame.render_widget(Paragraph::new(line), area);
+    }
+}
+
+pub(crate) fn format_worktree_badge(app: &App) -> String {
+    let repo_path = &app.git_engine.repo_path;
+    let name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("root");
+
+    if let Ok(repo) = app.git_engine.open_repo() {
+        if let Ok(head) = repo.head() {
+            if head.is_branch() {
+                if let Some(branch) = head.shorthand() {
+                    return format!(" [wt: {} ({})] |", name, branch);
+                }
+            } else if let Ok(commit) = head.peel_to_commit() {
+                let sha = commit.id().to_string();
+                let short_sha = if sha.len() >= 7 { &sha[..7] } else { &sha };
+                return format!(" [wt: {} (detached@{})] |", name, short_sha);
+            }
+        }
+    }
+    format!(" [wt: {}] |", name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_format_worktree_badge() {
+        let dir = tempdir().unwrap();
+        let (_tx, rx) = crossbeam_channel::unbounded();
+        let app = App::new(dir.path().to_path_buf(), rx, None, None, None);
+
+        let badge = format_worktree_badge(&app);
+        assert!(badge.contains("[wt: "));
     }
 }

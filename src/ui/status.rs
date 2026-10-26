@@ -220,10 +220,10 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     let left_spans = vec![
         Span::styled(
-            format!(" 📁 {} ", cwd_display),
+            format!(" [wt: {}] ", cwd_display),
             Style::default()
-                .bg(Color::Blue)
-                .fg(Color::White)
+                .bg(Color::Cyan)
+                .fg(Color::Black)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(

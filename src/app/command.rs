@@ -80,6 +80,13 @@ impl App {
                     Err(_) => self.status_message = Some("Usage: :prs [open|closed|all]".into()),
                 }
             }
+            "wt" | "worktrees" => {
+                if let Some(target) = args.first() {
+                    self.jump_to_worktree(target);
+                } else {
+                    self.open_worktree_picker();
+                }
+            }
             "diff" | "rev" | "range" => {
                 if let Some(spec) = args.first() {
                     self.load_local_revision((*spec).to_string());
@@ -579,13 +586,19 @@ mod tests {
         assert_eq!(app.command.input, "w");
 
         app.command.autocomplete_next();
+        assert_eq!(app.command.input, "worktrees");
+
+        app.command.autocomplete_next();
         assert_eq!(app.command.input, "write");
 
         app.command.autocomplete_next();
         assert_eq!(app.command.input, "wq");
 
+        app.command.autocomplete_next();
+        assert_eq!(app.command.input, "wt");
+
         app.command.autocomplete_prev();
-        assert_eq!(app.command.input, "write");
+        assert_eq!(app.command.input, "wq");
 
         // Test :e<tab>
         let mut app_e = create_test_app();

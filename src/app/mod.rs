@@ -29,6 +29,7 @@ mod state;
 #[cfg(test)]
 pub(crate) mod test_util;
 pub(crate) mod view_data;
+pub(crate) mod worktree;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActiveView {
@@ -41,6 +42,8 @@ pub enum ActiveView {
     CommentList,
     ThreadView,
     PrPicker,
+    WorktreePicker,
+    WorktreeConfirmGuard,
     Help,
     Search,
     CommandLine,
@@ -102,6 +105,9 @@ pub struct App {
 
     // Pane picker state
     pub pane_picker: PanePicker,
+
+    // Worktree picker state
+    pub worktree_picker: WorktreePickerState,
 
     // Comment input and reply state
     pub comment_input: String,
@@ -263,6 +269,7 @@ impl App {
             markdown_preview: Default::default(),
             file_picker: FilePicker::default(),
             pane_picker: PanePicker::default(),
+            worktree_picker: WorktreePickerState::default(),
             comment_input: String::new(),
             comment_reply_input: String::new(),
             comment_reply_target_idx: None,

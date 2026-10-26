@@ -3,6 +3,15 @@ use anyhow::{Context, Result};
 use git2::{Delta, Diff, DiffFormat, DiffOptions, Repository};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeInfo {
+    pub path: PathBuf,
+    pub head: String,
+    pub branch: Option<String>,
+    pub is_bare: bool,
+    pub is_current: bool,
+}
+
 pub struct GitEngine {
     pub repo_path: PathBuf,
 }
@@ -405,6 +414,23 @@ impl GitEngine {
         let existing = std::fs::read_to_string(&hook_file)?;
         Ok(existing.contains("lgtm check"))
     }
+
+    pub fn list_worktrees(&self) -> Result<Vec<WorktreeInfo>> {
+        let mut cmd = std::process::Command::new("git");
+        cmd.current_dir(&self.repo_path);
+        cmd.args(["worktree", "list", "--porcelain"]);
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        let output = cmd.output()?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("git worktree list failed: {}", err.trim());
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        Ok(parse_worktrees_porcelain(&text, &self.repo_path))
+    }
 }
 
 pub fn generate_line_selection_patch(
@@ -523,6 +549,78 @@ pub fn apply_patch(repo_path: &Path, patch: &str, cached: bool, reverse: bool) -
     }
 
     Ok(())
+}
+
+pub fn parse_worktrees_porcelain(output: &str, current_repo_path: &Path) -> Vec<WorktreeInfo> {
+    let mut worktrees = Vec::new();
+    let norm_current = current_repo_path
+        .canonicalize()
+        .unwrap_or_else(|_| current_repo_path.to_path_buf());
+
+    let mut cur_path: Option<PathBuf> = None;
+    let mut cur_head = String::new();
+    let mut cur_branch: Option<String> = None;
+    let mut cur_bare = false;
+
+    let flush = |path: Option<PathBuf>,
+                 head: String,
+                 branch: Option<String>,
+                 bare: bool,
+                 worktrees: &mut Vec<WorktreeInfo>| {
+        if let Some(p) = path {
+            let is_current = p.canonicalize().unwrap_or_else(|_| p.clone()) == norm_current
+                || p == current_repo_path;
+            worktrees.push(WorktreeInfo {
+                path: p,
+                head,
+                branch,
+                is_bare: bare,
+                is_current,
+            });
+        }
+    };
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            flush(
+                cur_path.take(),
+                std::mem::take(&mut cur_head),
+                cur_branch.take(),
+                cur_bare,
+                &mut worktrees,
+            );
+            cur_bare = false;
+        } else if let Some(p) = trimmed.strip_prefix("worktree ") {
+            if cur_path.is_some() {
+                flush(
+                    cur_path.take(),
+                    std::mem::take(&mut cur_head),
+                    cur_branch.take(),
+                    cur_bare,
+                    &mut worktrees,
+                );
+                cur_bare = false;
+            }
+            cur_path = Some(PathBuf::from(p.trim()));
+        } else if let Some(h) = trimmed.strip_prefix("HEAD ") {
+            cur_head = h.trim().to_string();
+        } else if let Some(b) = trimmed.strip_prefix("branch ") {
+            let b_trim = b.trim();
+            let branch_name = b_trim.strip_prefix("refs/heads/").unwrap_or(b_trim);
+            cur_branch = Some(branch_name.to_string());
+        } else if trimmed == "bare" {
+            cur_bare = true;
+        } else if trimmed == "detached" {
+            cur_branch = None;
+        }
+    }
+
+    if cur_path.is_some() {
+        flush(cur_path, cur_head, cur_branch, cur_bare, &mut worktrees);
+    }
+
+    worktrees
 }
 
 #[cfg(test)]
@@ -796,5 +894,94 @@ mod tests {
         assert!(patch.contains("-    let b = 2;"));
         assert!(patch.contains("     let a = 1;"));
         assert!(!patch.contains("-    let a = 1;"));
+    }
+
+    #[test]
+    fn test_parse_worktrees_porcelain() {
+        let sample = "\
+worktree /Users/dev/repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+
+worktree /Users/dev/repo/.worktrees/feat-x
+HEAD 2222222222222222222222222222222222222222
+branch refs/heads/feat-x
+
+worktree /Users/dev/repo/.worktrees/detached
+HEAD 3333333333333333333333333333333333333333
+detached
+
+worktree /Users/dev/repo/.worktrees/bare
+bare
+";
+        let list = parse_worktrees_porcelain(sample, Path::new("/Users/dev/repo"));
+        assert_eq!(list.len(), 4);
+
+        assert_eq!(list[0].path, PathBuf::from("/Users/dev/repo"));
+        assert_eq!(list[0].head, "1111111111111111111111111111111111111111");
+        assert_eq!(list[0].branch.as_deref(), Some("main"));
+        assert!(!list[0].is_bare);
+        assert!(list[0].is_current);
+
+        assert_eq!(
+            list[1].path,
+            PathBuf::from("/Users/dev/repo/.worktrees/feat-x")
+        );
+        assert_eq!(list[1].branch.as_deref(), Some("feat-x"));
+        assert!(!list[1].is_current);
+
+        assert_eq!(
+            list[2].path,
+            PathBuf::from("/Users/dev/repo/.worktrees/detached")
+        );
+        assert_eq!(list[2].branch, None);
+
+        assert_eq!(
+            list[3].path,
+            PathBuf::from("/Users/dev/repo/.worktrees/bare")
+        );
+        assert!(list[3].is_bare);
+    }
+
+    #[test]
+    fn test_git_engine_list_worktrees_real_repo() {
+        let root = test_dir("wt-real-root");
+        let _ = Repository::init(&root).unwrap();
+
+        // Need at least one commit to create a worktree
+        let test_file = root.join("file.txt");
+        std::fs::write(&test_file, "hello").unwrap();
+
+        let engine = GitEngine::new(&root);
+        // Stage and commit via git cli
+        let mut cmd = std::process::Command::new("git");
+        cmd.current_dir(&root);
+        cmd.args(["add", "file.txt"]);
+        let _ = cmd.output().unwrap();
+
+        let mut cmd2 = std::process::Command::new("git");
+        cmd2.current_dir(&root);
+        cmd2.args(["commit", "-m", "initial commit", "--no-gpg-sign"]);
+        let _ = cmd2.output().unwrap();
+
+        let wt_path = test_dir("wt-real-child");
+        let mut cmd3 = std::process::Command::new("git");
+        cmd3.current_dir(&root);
+        cmd3.args([
+            "worktree",
+            "add",
+            "-b",
+            "branch-wt",
+            wt_path.to_str().unwrap(),
+        ]);
+        let out3 = cmd3.output().unwrap();
+        if out3.status.success() {
+            let worktrees = engine.list_worktrees().unwrap();
+            assert!(worktrees.len() >= 2);
+            assert!(worktrees.iter().any(|w| w.is_current));
+            assert!(worktrees
+                .iter()
+                .any(|w| w.branch.as_deref() == Some("branch-wt")));
+        }
     }
 }
