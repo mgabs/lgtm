@@ -1,4 +1,5 @@
 //! Read-only GitHub access behind a trait. The real client shells out to `gh`; lgtm never touches tokens.
+use crate::comment::CommentSide;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::process::Command;
@@ -140,6 +141,10 @@ fn explain(stderr: &str) -> String {
         "gh is not authenticated; run `gh auth login`".to_string()
     } else if e.contains("HTTP 403") {
         format!("GitHub denied access (403): {e}")
+    } else if e.contains("HTTP 422") || e.contains("could not be resolved") {
+        format!(
+            "GitHub rejected comment location (422: line not part of diff or invalid side): {e}"
+        )
     } else {
         format!("gh failed: {e}")
     }
@@ -267,14 +272,22 @@ impl GithubClient for GhClient {
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
 
-    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+    fn post_inline(
+        &self,
+        pr: u64,
+        sha: &str,
+        path: &str,
+        line: u32,
+        side: CommentSide,
+        body: &str,
+    ) -> Result<u64> {
         let ep = format!("repos/{{owner}}/{{repo}}/pulls/{pr}/comments");
         let payload = serde_json::json!({
             "body": body,
             "commit_id": sha,
             "path": path,
             "line": line,
-            "side": "RIGHT"
+            "side": side.as_github_str()
         });
         post_id(gh_input(&["api", &ep, "--input", "-"], &payload)?)
     }
@@ -367,7 +380,15 @@ impl GithubClient for FakeClient {
             None => Ok("sha1".to_string()),
         }
     }
-    fn post_inline(&self, _pr: u64, _sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+    fn post_inline(
+        &self,
+        _pr: u64,
+        _sha: &str,
+        path: &str,
+        line: u32,
+        _side: CommentSide,
+        body: &str,
+    ) -> Result<u64> {
         self.record(format!("{path}:{line}:{body}"))
     }
     fn post_general(&self, _pr: u64, body: &str) -> Result<u64> {

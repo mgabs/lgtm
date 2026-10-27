@@ -148,6 +148,7 @@ mod tests {
             pr_number: None,
             remote_id: None,
             orphaned: false,
+            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         app.comments.push(anchor);

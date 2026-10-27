@@ -1,5 +1,6 @@
 //! GitHub forge: native Git diffs, authenticated API/CLI access, and anonymous public reads.
 use super::{Forge, PrDiscussion};
+use crate::comment::CommentSide;
 use crate::github::{parse_threads, Bucket, Check, GhClient, Thread, THREADS_QUERY};
 use crate::model::DiffSnapshot;
 use crate::pr::{PrAuthor, PrEngine, PullRequestSummary};
@@ -481,7 +482,15 @@ impl PrDiscussion for GitHubForge {
         GhClient.head_sha(pr)
     }
 
-    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+    fn post_inline(
+        &self,
+        pr: u64,
+        sha: &str,
+        path: &str,
+        line: u32,
+        side: CommentSide,
+        body: &str,
+    ) -> Result<u64> {
         if let Some(r) = self.remote.as_ref().filter(|_| self.token().is_some()) {
             let url = format!(
                 "https://api.github.com/repos/{}/{}/pulls/{pr}/comments",
@@ -492,14 +501,14 @@ impl PrDiscussion for GitHubForge {
                 "commit_id": sha,
                 "path": path,
                 "line": line,
-                "side": "RIGHT"
+                "side": side.as_github_str()
             });
             let receipt = self.curl(&url, "POST", Some(&payload))?;
             return receipt["id"]
                 .as_u64()
                 .context("Comment response has no receipt; check the thread before retrying");
         }
-        GhClient.post_inline(pr, sha, path, line, body)
+        GhClient.post_inline(pr, sha, path, line, side, body)
     }
 
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
@@ -796,7 +805,7 @@ mod tests {
         provider.runner = Box::new(TimedOut);
         let failures = [
             provider
-                .post_inline(1, "sha", "a.rs", 1, "text")
+                .post_inline(1, "sha", "a.rs", 1, CommentSide::Right, "text")
                 .map(|_| ()),
             provider.post_general(1, "text").map(|_| ()),
             provider.reply(1, "RT1", 1, "reply").map(|_| ()),

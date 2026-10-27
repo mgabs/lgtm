@@ -1,4 +1,5 @@
 //! Which code host a repository lives on, and the PR operations lgtm needs from it.
+use crate::comment::CommentSide;
 use crate::github::{Check, Thread};
 use crate::model::DiffSnapshot;
 use crate::pr::PullRequestSummary;
@@ -85,13 +86,14 @@ pub trait PrDiscussion {
     fn head_sha(&self, _pr: u64) -> Result<String> {
         bail!("Source head commit is not supported by this provider")
     }
-    /// Inline review comment on the new side of `path:line`; returns the comment id.
+    /// Inline review comment on the specified side of `path:line`; returns the comment id.
     fn post_inline(
         &self,
         _pr: u64,
         _sha: &str,
         _path: &str,
         _line: u32,
+        _side: CommentSide,
         _body: &str,
     ) -> Result<u64> {
         bail!("Inline comments are not supported by this provider")
@@ -124,8 +126,16 @@ impl<T: ?Sized + PrDiscussion> PrDiscussion for Box<T> {
     fn head_sha(&self, pr: u64) -> Result<String> {
         (**self).head_sha(pr)
     }
-    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
-        (**self).post_inline(pr, sha, path, line, body)
+    fn post_inline(
+        &self,
+        pr: u64,
+        sha: &str,
+        path: &str,
+        line: u32,
+        side: CommentSide,
+        body: &str,
+    ) -> Result<u64> {
+        (**self).post_inline(pr, sha, path, line, side, body)
     }
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
         (**self).post_general(pr, body)
@@ -214,11 +224,19 @@ impl PrDiscussion for ForgeImpl {
             Self::Unsupported(f) => f.head_sha(pr),
         }
     }
-    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+    fn post_inline(
+        &self,
+        pr: u64,
+        sha: &str,
+        path: &str,
+        line: u32,
+        side: CommentSide,
+        body: &str,
+    ) -> Result<u64> {
         match self {
-            Self::GitHub(f) => f.post_inline(pr, sha, path, line, body),
-            Self::Azure(f) => f.post_inline(pr, sha, path, line, body),
-            Self::Unsupported(f) => f.post_inline(pr, sha, path, line, body),
+            Self::GitHub(f) => f.post_inline(pr, sha, path, line, side, body),
+            Self::Azure(f) => f.post_inline(pr, sha, path, line, side, body),
+            Self::Unsupported(f) => f.post_inline(pr, sha, path, line, side, body),
         }
     }
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
@@ -304,7 +322,15 @@ impl PrDiscussion for Unsupported {
     fn head_sha(&self, _: u64) -> Result<String> {
         self.no()
     }
-    fn post_inline(&self, _: u64, _: &str, _: &str, _: u32, _: &str) -> Result<u64> {
+    fn post_inline(
+        &self,
+        _: u64,
+        _: &str,
+        _: &str,
+        _: u32,
+        _: CommentSide,
+        _: &str,
+    ) -> Result<u64> {
         self.no()
     }
     fn post_general(&self, _: u64, _: &str) -> Result<u64> {
@@ -362,9 +388,17 @@ impl<F: PrDiscussion> PrDiscussion for TimedForge<F> {
     fn head_sha(&self, pr: u64) -> Result<String> {
         crate::debug::measure("pr.head_sha", || self.0.head_sha(pr))
     }
-    fn post_inline(&self, pr: u64, sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+    fn post_inline(
+        &self,
+        pr: u64,
+        sha: &str,
+        path: &str,
+        line: u32,
+        side: CommentSide,
+        body: &str,
+    ) -> Result<u64> {
         crate::debug::measure("pr.post_inline", || {
-            self.0.post_inline(pr, sha, path, line, body)
+            self.0.post_inline(pr, sha, path, line, side, body)
         })
     }
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
@@ -487,7 +521,9 @@ mod tests {
         assert!(dummy.checks(1).is_err());
         assert!(dummy.threads(1).is_err());
         assert!(dummy.head_sha(1).is_err());
-        assert!(dummy.post_inline(1, "sha", "p", 1, "body").is_err());
+        assert!(dummy
+            .post_inline(1, "sha", "p", 1, CommentSide::Right, "body")
+            .is_err());
         assert!(dummy.post_general(1, "body").is_err());
         assert!(dummy.reply(1, "t", 1, "body").is_err());
         assert!(dummy.set_resolved(1, "t", true).is_err());

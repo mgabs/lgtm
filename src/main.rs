@@ -223,21 +223,60 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Pr { number }) => {
+        Some(Commands::Pr { action, number }) => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
-            if let Err(e) = run_tui(
-                repo_path,
-                cli.agent_pane,
-                cli.agent_sink,
-                cli.debounce,
-                Some(number),
-                None,
-                None,
-            ) {
-                eprintln!("Error reviewing PR #{}: {}", number, e);
-                return ExitCode::from(1);
+            match action {
+                Some(cli::PrSubcommand::Post { pr, yes }) => {
+                    match headless::run_pr_post(&repo_path, pr.or(number), yes) {
+                        Ok(code) => ExitCode::from(code as u8),
+                        Err(e) => {
+                            eprintln!("Error posting to PR: {}", e);
+                            ExitCode::from(1)
+                        }
+                    }
+                }
+                Some(cli::PrSubcommand::Reply { pr, thread, body }) => {
+                    match headless::run_pr_reply(&repo_path, pr, &thread, &body) {
+                        Ok(code) => ExitCode::from(code as u8),
+                        Err(e) => {
+                            eprintln!("Error replying to thread: {}", e);
+                            ExitCode::from(1)
+                        }
+                    }
+                }
+                Some(cli::PrSubcommand::Resolve {
+                    pr,
+                    thread,
+                    unresolve,
+                }) => match headless::run_pr_resolve(&repo_path, pr, &thread, unresolve) {
+                    Ok(code) => ExitCode::from(code as u8),
+                    Err(e) => {
+                        eprintln!("Error resolving thread: {}", e);
+                        ExitCode::from(1)
+                    }
+                },
+                None => match number {
+                    Some(num) => {
+                        if let Err(e) = run_tui(
+                            repo_path,
+                            cli.agent_pane,
+                            cli.agent_sink,
+                            cli.debounce,
+                            Some(num),
+                            None,
+                            None,
+                        ) {
+                            eprintln!("Error reviewing PR #{}: {}", num, e);
+                            return ExitCode::from(1);
+                        }
+                        ExitCode::SUCCESS
+                    }
+                    None => {
+                        eprintln!("PR number or subcommand required (e.g. `lgtm pr <NUMBER>` or `lgtm pr post`)");
+                        ExitCode::from(1)
+                    }
+                },
             }
-            ExitCode::SUCCESS
         }
         Some(Commands::Prs { state }) => match lgtm_core::forge::open(
             &std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo.clone()),
