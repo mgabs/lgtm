@@ -14,7 +14,7 @@ pub use state::*;
 mod audit;
 #[cfg(test)]
 mod background_tests;
-mod command;
+pub(crate) mod command;
 mod comments;
 mod commit;
 mod external;
