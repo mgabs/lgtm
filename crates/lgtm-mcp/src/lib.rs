@@ -448,6 +448,7 @@ impl McpServer {
                         pr_number: None,
                         remote_id: None,
                         orphaned: false,
+                        side: lgtm_core::comment::CommentSide::Right,
                         track: lgtm_core::outcome::Tracking {
                             hunk_hash: self.git_engine.compute_diff_snapshot().ok().and_then(|s| {
                                 lgtm_core::review::hunk_hash_at(&s.files, file, line)

@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -96,8 +96,12 @@ pub enum Commands {
     /// Public GitHub.com patches can fall back to anonymous HTTPS when gh is missing
     /// or needs login and no API token is set. Private access and writes need authentication.
     Pr {
+        #[command(subcommand)]
+        action: Option<PrSubcommand>,
+
         /// Pull Request number
-        number: u64,
+        #[arg(value_name = "NUMBER")]
+        number: Option<u64>,
     },
     /// List pull requests by state (closed includes merged/completed and abandoned)
     ///
@@ -241,6 +245,39 @@ pub enum Commands {
     External(Vec<String>),
 }
 
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum PrSubcommand {
+    /// Post pending local comments to the PR
+    Post {
+        /// Pull request number (auto-detected from branch/comments if omitted)
+        #[arg(value_name = "PR")]
+        pr: Option<u64>,
+
+        /// Confirm posting without prompt
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Reply to an existing review thread
+    Reply {
+        /// Pull request number
+        pr: u64,
+        /// Review thread id
+        thread: String,
+        /// Comment reply message
+        body: String,
+    },
+    /// Resolve or unresolve a review thread
+    Resolve {
+        /// Pull request number
+        pr: u64,
+        /// Review thread id
+        thread: String,
+        /// Mark as unresolved instead of resolved
+        #[arg(long)]
+        unresolve: bool,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,5 +314,68 @@ mod tests {
             );
         }
         assert!(Cli::try_parse_from(["lgtm", "prs", "--state", "invalid"]).is_err());
+    }
+
+    #[test]
+    fn pr_commands_parse_correctly() {
+        let cli = Cli::try_parse_from(["lgtm", "pr", "42"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Pr {
+                action: None,
+                number: Some(42)
+            })
+        ));
+
+        let cli = Cli::try_parse_from(["lgtm", "pr", "post"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Pr {
+                action: Some(PrSubcommand::Post {
+                    pr: None,
+                    yes: false
+                }),
+                number: None
+            })
+        ));
+
+        let cli = Cli::try_parse_from(["lgtm", "pr", "post", "42", "--yes"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Pr {
+                action: Some(PrSubcommand::Post {
+                    pr: Some(42),
+                    yes: true
+                }),
+                number: None
+            })
+        ));
+
+        let cli = Cli::try_parse_from(["lgtm", "pr", "reply", "42", "T1", "looks good"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Pr {
+                action: Some(PrSubcommand::Reply {
+                    pr: 42,
+                    ref thread,
+                    ref body
+                }),
+                number: None
+            }) if thread == "T1" && body == "looks good"
+        ));
+
+        let cli =
+            Cli::try_parse_from(["lgtm", "pr", "resolve", "42", "T1", "--unresolve"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Pr {
+                action: Some(PrSubcommand::Resolve {
+                    pr: 42,
+                    ref thread,
+                    unresolve: true
+                }),
+                number: None
+            }) if thread == "T1"
+        ));
     }
 }

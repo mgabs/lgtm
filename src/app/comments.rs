@@ -568,6 +568,10 @@ impl App {
             self.status_message = Some("Open a PR first (:pr <n>)".to_string());
             return;
         };
+        let associated = post::associate_directives(&mut self.comments, &self.snapshot.files, pr);
+        if associated > 0 {
+            let _ = self.comment_store.save_comments(&self.comments);
+        }
         let plan = post::plan(&self.comments, &self.snapshot.files, pr);
         if plan.total() == 0 {
             self.status_message = Some("No unposted comments for this PR".to_string());
@@ -622,6 +626,10 @@ impl App {
             if confirmed > 0 {
                 let _ = self.comment_store.save_comments(&self.comments);
             }
+        }
+        let associated = post::associate_directives(&mut self.comments, &self.snapshot.files, pr);
+        if associated > 0 {
+            let _ = self.comment_store.save_comments(&self.comments);
         }
         let plan = post::plan(&self.comments, &self.snapshot.files, pr);
         if plan.total() == 0 {
@@ -1063,6 +1071,7 @@ impl App {
                 pr_number: self.pr.current_number,
                 remote_id: None,
                 orphaned: false,
+                side: lgtm_core::comment::CommentSide::Right,
                 track: lgtm_core::outcome::Tracking {
                     hunk_hash: lgtm_core::review::hunk_hash_at(
                         &self.snapshot.files,
@@ -1094,11 +1103,18 @@ impl App {
             let mut target_line_no = 1;
             let mut target_code = String::new();
             let mut line_counter = 0;
+            let mut side = lgtm_core::comment::CommentSide::Right;
 
             for hunk in &file.hunks {
                 for line in &hunk.lines {
                     if line_counter == self.cursor_line_idx {
-                        target_line_no = line.new_line_num.or(line.old_line_num).unwrap_or(1);
+                        if line.line_type == lgtm_core::model::LineType::Deletion {
+                            target_line_no = line.old_line_num.unwrap_or(1);
+                            side = lgtm_core::comment::CommentSide::Left;
+                        } else {
+                            target_line_no = line.new_line_num.or(line.old_line_num).unwrap_or(1);
+                            side = lgtm_core::comment::CommentSide::Right;
+                        }
                         target_code = line.content.clone();
                         break;
                     }
@@ -1121,6 +1137,7 @@ impl App {
                 pr_number: self.pr.current_number,
                 remote_id: None,
                 orphaned: false,
+                side,
                 track: lgtm_core::outcome::Tracking {
                     hunk_hash: lgtm_core::review::hunk_hash_at(
                         &self.snapshot.files,
@@ -1253,6 +1270,7 @@ mod tests {
             pr_number: None,
             remote_id: None,
             orphaned: false,
+            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         app.comments.push(anchor);
@@ -1316,6 +1334,7 @@ mod tests {
             pr_number: None,
             remote_id: None,
             orphaned: false,
+            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         let _ = app.comment_store.add_comment(&second_anchor); // lgtm:ignore

@@ -173,6 +173,20 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
                 )
             };
 
+            let origin_badge = if comment.remote_id.is_some() {
+                Span::styled("[Remote] ", Style::default().fg(Color::Green))
+            } else if comment.pr_number.is_some() {
+                Span::styled("[Pending] ", Style::default().fg(Color::Yellow))
+            } else {
+                Span::styled("[Local] ", Style::default().fg(Color::DarkGray))
+            };
+
+            let side_badge = if comment.side == lgtm_core::comment::CommentSide::Left {
+                Span::styled("«DEL» ", Style::default().fg(Color::LightRed))
+            } else {
+                Span::raw("")
+            };
+
             let replies_tag = if !comment.replies.is_empty() {
                 format!(
                     " ({} {})",
@@ -189,6 +203,8 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
 
             let mut spans = vec![
                 status_badge,
+                origin_badge,
+                side_badge,
                 Span::styled(
                     format!("{}:{} ", comment.file_path, comment.target_line_no),
                     Style::default()

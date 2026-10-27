@@ -192,8 +192,13 @@ impl App {
         }
         self.marks = completion.marks;
         self.invalidate_diff_folds();
+        let associated = lgtm_core::github::post::associate_directives(
+            &mut self.comments,
+            &self.snapshot.files,
+            pr,
+        );
         let mut persisted = true;
-        if completion.changed {
+        if completion.changed || associated > 0 {
             // Retain the UI-owned durable write boundary used by remote posting receipts.
             let _timing = lgtm_core::debug::Span::new("review.persist_pr_directives");
             if let Err(error) = self.comment_store.save_comments(&self.comments) {

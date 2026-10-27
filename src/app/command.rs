@@ -381,6 +381,8 @@ impl App {
                     let _ = self.comment_store.save_comments(&self.comments);
                     self.status_message =
                         Some(format!("Resolved all {} directives", self.comments.len()));
+                } else if self.thread_at_cursor().is_some() {
+                    self.toggle_resolve_thread_at_cursor();
                 } else {
                     self.toggle_resolve_current_comment();
                 }
@@ -396,10 +398,40 @@ impl App {
                         "Marked all {} directives active",
                         self.comments.len()
                     ));
+                } else if self.thread_at_cursor().is_some() {
+                    self.toggle_resolve_thread_at_cursor();
                 } else {
                     self.toggle_resolve_current_comment();
                 }
                 self.active_view = ActiveView::Diff;
+            }
+            "reply" | "rep" => {
+                if !args.is_empty() {
+                    let text = args.join(" ");
+                    if let Some(t_idx) = self.thread_at_cursor() {
+                        self.thread_action_async(&[
+                            "reply",
+                            &(t_idx + 1).to_string(),
+                            &text,
+                            "--yes",
+                        ]);
+                    } else if let Some(idx) = self.comment_idx_at_cursor() {
+                        self.comments[idx].replies.push(text);
+                        let _ = self.comment_store.save_comments(&self.comments);
+                        self.status_message = Some("Reply added to local comment".to_string());
+                    } else {
+                        self.status_message =
+                            Some("No thread or comment at cursor to reply to".to_string());
+                    }
+                    self.active_view = ActiveView::Diff;
+                } else if let Some(t_idx) = self.thread_at_cursor() {
+                    self.start_thread_reply(t_idx);
+                } else if let Some(idx) = self.comment_idx_at_cursor() {
+                    self.start_reply_to_comment(idx);
+                } else {
+                    self.comment_input.clear();
+                    self.active_view = ActiveView::CommentInput;
+                }
             }
             "y" | "yank" => {
                 self.yank_current_code_line();
@@ -778,6 +810,7 @@ mod tests {
                     pr_number: None,
                     remote_id: None,
                     orphaned: false,
+                    side: lgtm_core::comment::CommentSide::Right,
                     track: Default::default(),
                 });
         c.pr_number = Some(4);
@@ -900,6 +933,7 @@ mod tests {
             pr_number: None,
             remote_id: None,
             orphaned,
+            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         app.comments = vec![mk(true), mk(false), mk(true)];
@@ -973,6 +1007,7 @@ mod tests {
             pr_number: None,
             remote_id: None,
             orphaned: false,
+            side: lgtm_core::comment::CommentSide::Right,
             track: lgtm_core::outcome::Tracking {
                 hunk_hash: Some("abc".into()),
                 ..Default::default()

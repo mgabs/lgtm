@@ -622,7 +622,16 @@ fn bdd_core_016_invalid_tokens_do_not_downgrade_reads_or_writes() {
     // When reading or writing, then each request fails without CLI or anonymous retry.
     assert!(provider.list_prs().is_err());
     assert!(provider.post_general(42, "text").is_err());
-    assert!(provider.post_inline(42, "sha", "a.rs", 1, "text").is_err());
+    assert!(provider
+        .post_inline(
+            42,
+            "sha",
+            "a.rs",
+            1,
+            lgtm_core::comment::CommentSide::Right,
+            "text"
+        )
+        .is_err());
     assert!(provider.reply(42, "thread", 1, "text").is_err());
     assert!(provider.set_resolved(42, "thread", true).is_err());
     assert!(provider.post_review(42, "COMMENT", "text").is_err());

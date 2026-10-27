@@ -1,9 +1,15 @@
 //! Resumable posting of local PR comments: inline where the line is in the diff, otherwise one general comment.
 use super::GithubClient;
-use crate::comment::CommentAnchor;
-use crate::model::FileDiff;
+use crate::comment::{CommentAnchor, CommentSide};
+use crate::model::{FileDiff, LineType};
 use anyhow::Result;
 use std::time::Duration;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedComment {
+    pub index: usize,
+    pub reason: String,
+}
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Plan {
@@ -11,6 +17,8 @@ pub struct Plan {
     pub inline: Vec<usize>,
     /// Indexes of comments outside the diff, posted together as one comment.
     pub general: Vec<usize>,
+    /// Indexes and reasons for skipped comments.
+    pub skipped: Vec<SkippedComment>,
 }
 
 impl Plan {
@@ -35,13 +43,31 @@ impl Report {
     }
 }
 
-fn in_diff(files: &[FileDiff], c: &CommentAnchor) -> bool {
+/// Associates unattached local comments (`pr_number == None`) with `pr`
+/// if their target file is part of the PR's changed files.
+/// Returns the number of directives associated.
+pub fn associate_directives(comments: &mut [CommentAnchor], files: &[FileDiff], pr: u64) -> usize {
+    let mut count = 0;
+    for c in comments.iter_mut() {
+        if c.pr_number.is_none() && files.iter().any(|f| f.display_name() == c.file_path) {
+            c.pr_number = Some(pr);
+            count += 1;
+        }
+    }
+    count
+}
+
+pub fn in_diff(files: &[FileDiff], c: &CommentAnchor) -> bool {
     files.iter().any(|f| {
         f.display_name() == c.file_path
-            && f.hunks
-                .iter()
-                .flat_map(|h| &h.lines)
-                .any(|l| l.new_line_num == Some(c.target_line_no))
+            && f.hunks.iter().flat_map(|h| &h.lines).any(|l| match c.side {
+                CommentSide::Left => {
+                    l.line_type == LineType::Deletion && l.old_line_num == Some(c.target_line_no)
+                }
+                CommentSide::Right => {
+                    l.line_type != LineType::Deletion && l.new_line_num == Some(c.target_line_no)
+                }
+            })
     })
 }
 
@@ -49,11 +75,35 @@ fn in_diff(files: &[FileDiff], c: &CommentAnchor) -> bool {
 pub fn plan(comments: &[CommentAnchor], files: &[FileDiff], pr: u64) -> Plan {
     let mut p = Plan::default();
     for (i, c) in comments.iter().enumerate() {
-        if c.pr_number != Some(pr)
-            || c.remote_id.is_some()
-            || c.is_remote_uncertain()
-            || c.is_resolved
-        {
+        if c.pr_number != Some(pr) {
+            p.skipped.push(SkippedComment {
+                index: i,
+                reason: match c.pr_number {
+                    Some(other) => format!("belongs to PR #{other}"),
+                    None => "not associated with PR (local only)".to_string(),
+                },
+            });
+            continue;
+        }
+        if c.remote_id.is_some() {
+            p.skipped.push(SkippedComment {
+                index: i,
+                reason: "already posted to remote".to_string(),
+            });
+            continue;
+        }
+        if c.is_remote_uncertain() {
+            p.skipped.push(SkippedComment {
+                index: i,
+                reason: "remote post outcome uncertain (reconcile threads first)".to_string(),
+            });
+            continue;
+        }
+        if c.is_resolved {
+            p.skipped.push(SkippedComment {
+                index: i,
+                reason: "marked resolved".to_string(),
+            });
             continue;
         }
         if in_diff(files, c) {
@@ -100,6 +150,7 @@ fn post_inline_comments(
             sha,
             &c.file_path,
             c.target_line_no,
+            c.side,
             &c.comment_text,
         ) {
             Ok(id) => id,
