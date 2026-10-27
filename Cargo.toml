@@ -2,7 +2,7 @@
 members = ["crates/lgtm-core", "crates/lgtm-mcp", "crates/lgtm-ast"]
 
 [workspace.package]
-version = "2.4.0"
+version = "2.5.0"
 edition = "2021"
 authors = ["lgtm contributors"]
 

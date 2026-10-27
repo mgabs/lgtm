@@ -36,6 +36,7 @@ fn c(path: &str, line: u32, pr: Option<u64>) -> CommentAnchor {
         created_at_turn: 1,
         is_resolved: false,
         pr_number: pr,
+        side: Default::default(),
         remote_id: None,
         orphaned: false,
         track: Default::default(),
@@ -61,14 +62,62 @@ fn set() -> Vec<CommentAnchor> {
 #[test]
 fn plan_splits_inline_general_and_skips_the_rest() {
     let p = plan(&set(), &files(), 7);
-    assert_eq!(
-        p,
-        Plan {
-            inline: vec![0],
-            general: vec![1, 2]
-        }
-    );
+    assert_eq!(p.inline, vec![0]);
+    assert_eq!(p.general, vec![1, 2]);
+    assert_eq!(p.skipped.len(), 4);
     assert_eq!(p.total(), 3);
+}
+
+#[test]
+fn associate_directives_binds_unattached_comments_to_pr() {
+    let mut comments = vec![
+        c("a.rs", 5, None),
+        c("other.rs", 10, None),
+        c("a.rs", 5, Some(99)),
+    ];
+    let count = associate_directives(&mut comments, &files(), 7);
+    assert_eq!(count, 1);
+    assert_eq!(comments[0].pr_number, Some(7));
+    assert_eq!(comments[1].pr_number, None);
+    assert_eq!(comments[2].pr_number, Some(99));
+}
+
+#[test]
+fn in_diff_checks_side_and_deletion() {
+    use crate::model::LineType;
+    use std::path::PathBuf;
+    let files = vec![FileDiff {
+        old_path: Some(PathBuf::from("del.rs")),
+        new_path: PathBuf::from("del.rs"),
+        change_type: ChangeType::Modified,
+        additions: 0,
+        deletions: 1,
+        hunks: vec![DiffHunk {
+            header: "@@ -10,1 +10,0 @@".into(),
+            old_start: 10,
+            old_lines: 1,
+            new_start: 10,
+            new_lines: 0,
+            lines: vec![DiffLine {
+                line_type: LineType::Deletion,
+                content: "deleted line".into(),
+                old_line_num: Some(10),
+                new_line_num: None,
+            }],
+            is_folded: false,
+            folded_blocks: Vec::new(),
+        }],
+        is_folded: false,
+        is_reviewed: false,
+    }];
+
+    let mut left_comment = c("del.rs", 10, Some(7));
+    left_comment.side = CommentSide::Left;
+    assert!(in_diff(&files, &left_comment));
+
+    let mut right_comment = c("del.rs", 10, Some(7));
+    right_comment.side = CommentSide::Right;
+    assert!(!in_diff(&files, &right_comment));
 }
 
 #[test]

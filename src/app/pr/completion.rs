@@ -91,9 +91,14 @@ pub(super) fn prepare(
             file.is_reviewed = lgtm_core::review::file_reviewed(&state.hunks, file);
             let name = file.display_name();
             for hunk in &mut file.hunks {
-                let hash = lgtm_core::review::hunk_hash(hunk);
-                // A retry must also clear folds removed since the earlier preparation.
-                hunk.folded_blocks = lgtm_core::review::load_hunk_folds(&state.folds, &name, &hash);
+                if state.folds.is_empty() {
+                    hunk.folded_blocks.clear();
+                } else {
+                    let hash = lgtm_core::review::hunk_hash(hunk);
+                    // A retry must also clear folds removed since the earlier preparation.
+                    hunk.folded_blocks =
+                        lgtm_core::review::load_hunk_folds(&state.folds, &name, &hash);
+                }
             }
         }
     }

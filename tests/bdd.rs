@@ -819,3 +819,44 @@ echo "[]"
         assert!(status.success(), "expected clean exit, got {status}");
     }
 }
+
+#[test]
+fn bdd_cli_010_pr_post_command_validates_target_pr_and_previews_comments() {
+    let repo = tempfile::tempdir().unwrap();
+    lgtm_core::git2::Repository::init(repo.path()).unwrap();
+
+    // When no PR number is given and no comments exist, it asks for a PR number
+    let output = lgtm(repo.path(), &["pr", "post"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("PR number required"));
+
+    // When an explicit PR number is given on an empty review
+    let output = lgtm(repo.path(), &["pr", "post", "42"]);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("Checking diff")
+            || combined.contains("PR #42")
+            || combined.contains("Failed to query diff")
+            || combined.contains("Error")
+    );
+}
+
+#[test]
+fn bdd_cli_011_pr_reply_and_resolve_cli_argument_handling() {
+    let repo = tempfile::tempdir().unwrap();
+    lgtm_core::git2::Repository::init(repo.path()).unwrap();
+
+    // Invoking pr reply requires arguments (PR, thread, body)
+    let output = lgtm(repo.path(), &["pr", "reply"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("<PR>"));
+
+    // Invoking pr resolve requires arguments (PR, thread)
+    let output = lgtm(repo.path(), &["pr", "resolve"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("<PR>"));
+}

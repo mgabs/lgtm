@@ -1,6 +1,7 @@
 //! Azure DevOps REST with cached CLI authentication and an `az` CLI fallback.
 use super::{Forge, PrDiscussion};
 
+use crate::comment::CommentSide;
 use crate::github::{Bucket, Check, Thread, ThreadComment};
 use crate::model::DiffSnapshot;
 use crate::pr::{PrAuthor, PullRequestSummary};
@@ -641,13 +642,29 @@ impl PrDiscussion for AzureForge {
             .map(str::to_string)
             .context("PR has no source commit")
     }
-    fn post_inline(&self, pr: u64, _sha: &str, path: &str, line: u32, body: &str) -> Result<u64> {
+    fn post_inline(
+        &self,
+        pr: u64,
+        _sha: &str,
+        path: &str,
+        line: u32,
+        side: CommentSide,
+        body: &str,
+    ) -> Result<u64> {
         let pos = serde_json::json!({"line": line, "offset": 1});
-        let ctx = serde_json::json!({
+        let mut ctx = serde_json::json!({
             "filePath": format!("/{path}"),
-            "rightFileStart": pos,
-            "rightFileEnd": pos,
         });
+        match side {
+            CommentSide::Left => {
+                ctx["leftFileStart"] = pos.clone();
+                ctx["leftFileEnd"] = pos;
+            }
+            CommentSide::Right => {
+                ctx["rightFileStart"] = pos.clone();
+                ctx["rightFileEnd"] = pos;
+            }
+        }
         self.new_thread(pr, body, Some(ctx))
     }
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
@@ -938,7 +955,11 @@ mod tests {
             ],
         );
         assert_eq!(f.head_sha(2).unwrap(), "abc");
-        assert_eq!(f.post_inline(2, "abc", "src/a.rs", 4, "hi").unwrap(), 7);
+        assert_eq!(
+            f.post_inline(2, "abc", "src/a.rs", 4, CommentSide::Right, "hi")
+                .unwrap(),
+            7
+        );
         assert_eq!(f.post_general(2, "hi").unwrap(), 7);
         assert_eq!(f.reply(2, "5", 1, "ok").unwrap(), 7);
         f.set_resolved(2, "5", true).unwrap();

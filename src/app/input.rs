@@ -207,7 +207,7 @@ impl App {
                     return;
                 }
                 (' ', KeyCode::Char('x')) => {
-                    self.discard_current_hunk();
+                    self.reject_hunk_and_reprompt();
                     return;
                 }
                 (' ', KeyCode::Char('w')) => {
@@ -260,10 +260,6 @@ impl App {
                 } else {
                     self.discard_current_hunk();
                 }
-            }
-            (KeyModifiers::SHIFT, KeyCode::Char('X'))
-            | (KeyModifiers::NONE, KeyCode::Char('X')) => {
-                self.reject_hunk_and_reprompt();
             }
             (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
                 self.page_down(15);
@@ -1825,5 +1821,37 @@ mod tests {
         // Colon command :preview toggles back
         app.execute_command("preview");
         assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_capital_x_triggers_file_discard_not_reprompt() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        let mut app = create_test_app();
+        let key = KeyEvent {
+            code: KeyCode::Char('X'),
+            modifiers: KeyModifiers::SHIFT,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+        app.handle_key(key);
+        // Ensure active_view did not open CommentInput (which was previously triggered by reject prompt)
+        assert_ne!(app.active_view, ActiveView::CommentInput);
+    }
+
+    #[test]
+    fn test_space_x_triggers_reject_and_reprompt() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        let mut app = create_test_app();
+        let make_key = |code: KeyCode| KeyEvent {
+            code,
+            modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+        app.handle_key(make_key(KeyCode::Char(' ')));
+        assert_eq!(app.pending_leader, Some(' '));
+        app.handle_key(make_key(KeyCode::Char('x')));
+        assert_eq!(app.pending_leader, None);
+        assert!(app.status_message.is_some() || app.active_view == ActiveView::AgentPrompt);
     }
 }

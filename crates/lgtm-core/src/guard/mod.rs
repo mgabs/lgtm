@@ -258,13 +258,46 @@ impl SecurityAndTestGuard {
         let mut total_logic_lines = 0;
         let mut total_assert_additions = 0;
 
-        for file in files {
-            let alerts = Self::scan_file(file);
-            all_alerts.extend(alerts);
+        if files.len() >= 8 {
+            let num_threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+                .min(files.len())
+                .min(8);
+            let chunk_size = files.len().div_ceil(num_threads);
+            let results: Vec<(Vec<GuardAlert>, usize, usize)> = std::thread::scope(|s| {
+                let mut handles = Vec::new();
+                for chunk in files.chunks(chunk_size) {
+                    handles.push(s.spawn(move || {
+                        let mut chunk_alerts = Vec::new();
+                        let mut chunk_logic = 0;
+                        let mut chunk_asserts = 0;
+                        for file in chunk {
+                            chunk_alerts.extend(Self::scan_file(file));
+                            let (logic, asserts) = count_file_metrics(file);
+                            chunk_logic += logic;
+                            chunk_asserts += asserts;
+                        }
+                        (chunk_alerts, chunk_logic, chunk_asserts)
+                    }));
+                }
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            });
 
-            let (logic, asserts) = count_file_metrics(file);
-            total_logic_lines += logic;
-            total_assert_additions += asserts;
+            for (alerts, logic, asserts) in results {
+                all_alerts.extend(alerts);
+                total_logic_lines += logic;
+                total_assert_additions += asserts;
+            }
+        } else {
+            for file in files {
+                let alerts = Self::scan_file(file);
+                all_alerts.extend(alerts);
+
+                let (logic, asserts) = count_file_metrics(file);
+                total_logic_lines += logic;
+                total_assert_additions += asserts;
+            }
         }
 
         // Assertion Density Gate: alert if substantial new logic is added without any assertions
@@ -371,6 +404,37 @@ pub fn fnv1a(s: &str) -> u64 {
     })
 }
 
+#[derive(Default)]
+pub struct DiffLineMap<'a> {
+    lines: std::collections::HashMap<(&'a str, u32), &'a str>,
+}
+
+impl<'a> DiffLineMap<'a> {
+    pub fn build(files: &'a [FileDiff]) -> Self {
+        let mut lines = std::collections::HashMap::new();
+        for f in files {
+            if let Some(path) = f.new_path.to_str() {
+                for h in &f.hunks {
+                    for l in &h.lines {
+                        if let Some(n) = l.new_line_num {
+                            lines.insert((path, n), l.content.as_str());
+                        }
+                    }
+                }
+            }
+        }
+        Self { lines }
+    }
+
+    pub fn get(&self, file_path: &str, line_no: u32) -> Option<&'a str> {
+        let clean = file_path.trim_start_matches("./");
+        self.lines
+            .get(&(clean, line_no))
+            .or_else(|| self.lines.get(&(file_path, line_no)))
+            .copied()
+    }
+}
+
 /// Stable id from rule, file, whitespace-normalized flagged line and occurrence index (no line number).
 /// Text of the flagged new-side line, when the alert points at one.
 pub fn line_text<'a>(files: &'a [FileDiff], a: &GuardAlert) -> Option<&'a str> {
@@ -384,9 +448,13 @@ pub fn line_text<'a>(files: &'a [FileDiff], a: &GuardAlert) -> Option<&'a str> {
 }
 
 pub fn assign_fingerprints(alerts: &mut [GuardAlert], files: &[FileDiff]) {
+    let line_map = DiffLineMap::build(files);
     let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     for a in alerts.iter_mut() {
-        let text = line_text(files, a).unwrap_or(&a.title);
+        let text = a
+            .line_no
+            .and_then(|ln| line_map.get(&a.file_path, ln))
+            .unwrap_or(&a.title);
         let norm = text.split_whitespace().collect::<Vec<_>>().join(" ");
         let key = format!("{}\0{}\0{}", a.rule_id, a.file_path, norm);
         let n = seen.entry(key.clone()).and_modify(|c| *c += 1).or_insert(0);

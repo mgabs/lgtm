@@ -182,91 +182,10 @@ impl CommandLine {
     }
 
     pub fn autocomplete_next(&mut self) {
-        let commands = [
-            "approve",
-            "audit",
-            "c",
-            "checks",
-            "ci",
-            "clear",
-            "clear-resolved",
-            "comments",
-            "commit",
-            "context",
-            "diff",
-            "directives",
-            "drawer",
-            "e",
-            "edit",
-            "editor",
-            "exit",
-            "export",
-            "f",
-            "file",
-            "files",
-            "filter",
-            "find",
-            "h",
-            "help",
-            "hidden",
-            "hook",
-            "inject",
-            "issues",
-            "lgtm",
-            "md",
-            "n",
-            "next",
-            "p",
-            "pane",
-            "panes",
-            "pr",
-            "preview",
-            "prompt",
-            "prs",
-            "push",
-            "q",
-            "quit",
-            "r",
-            "ref",
-            "reject",
-            "reject-all",
-            "reload",
-            "res",
-            "resolve",
-            "review",
-            "risk",
-            "scan",
-            "send",
-            "sev",
-            "sidebar",
-            "sink",
-            "sp",
-            "split",
-            "thread",
-            "threads",
-            "todo",
-            "tree",
-            "unresolve",
-            "vsp",
-            "vsplit",
-            "w",
-            "worktrees",
-            "write",
-            "wq",
-            "wt",
-            "x",
-            "yank",
-            "yr",
-        ];
-
         if self.completions.is_empty() {
             let current = self.input.trim_start_matches(':').trim();
             self.prefix = current.to_string();
-            let matches: Vec<String> = commands
-                .iter()
-                .filter(|&&cmd| current.is_empty() || cmd.starts_with(current))
-                .map(|&s| s.to_string())
-                .collect();
+            let matches = super::command::autocomplete_candidates(current);
 
             if !matches.is_empty() {
                 self.completions = matches;

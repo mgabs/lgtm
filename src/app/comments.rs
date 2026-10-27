@@ -568,6 +568,10 @@ impl App {
             self.status_message = Some("Open a PR first (:pr <n>)".to_string());
             return;
         };
+        let associated = post::associate_directives(&mut self.comments, &self.snapshot.files, pr);
+        if associated > 0 {
+            let _ = self.comment_store.save_comments(&self.comments);
+        }
         let plan = post::plan(&self.comments, &self.snapshot.files, pr);
         if plan.total() == 0 {
             self.status_message = Some("No unposted comments for this PR".to_string());
@@ -622,6 +626,10 @@ impl App {
             if confirmed > 0 {
                 let _ = self.comment_store.save_comments(&self.comments);
             }
+        }
+        let associated = post::associate_directives(&mut self.comments, &self.snapshot.files, pr);
+        if associated > 0 {
+            let _ = self.comment_store.save_comments(&self.comments);
         }
         let plan = post::plan(&self.comments, &self.snapshot.files, pr);
         if plan.total() == 0 {
@@ -1063,6 +1071,7 @@ impl App {
                 pr_number: self.pr.current_number,
                 remote_id: None,
                 orphaned: false,
+                side: lgtm_core::comment::CommentSide::Right,
                 track: lgtm_core::outcome::Tracking {
                     hunk_hash: lgtm_core::review::hunk_hash_at(
                         &self.snapshot.files,
@@ -1094,11 +1103,18 @@ impl App {
             let mut target_line_no = 1;
             let mut target_code = String::new();
             let mut line_counter = 0;
+            let mut side = lgtm_core::comment::CommentSide::Right;
 
             for hunk in &file.hunks {
                 for line in &hunk.lines {
                     if line_counter == self.cursor_line_idx {
-                        target_line_no = line.new_line_num.or(line.old_line_num).unwrap_or(1);
+                        if line.line_type == lgtm_core::model::LineType::Deletion {
+                            target_line_no = line.old_line_num.unwrap_or(1);
+                            side = lgtm_core::comment::CommentSide::Left;
+                        } else {
+                            target_line_no = line.new_line_num.or(line.old_line_num).unwrap_or(1);
+                            side = lgtm_core::comment::CommentSide::Right;
+                        }
                         target_code = line.content.clone();
                         break;
                     }
@@ -1121,6 +1137,7 @@ impl App {
                 pr_number: self.pr.current_number,
                 remote_id: None,
                 orphaned: false,
+                side,
                 track: lgtm_core::outcome::Tracking {
                     hunk_hash: lgtm_core::review::hunk_hash_at(
                         &self.snapshot.files,
@@ -1253,6 +1270,7 @@ mod tests {
             pr_number: None,
             remote_id: None,
             orphaned: false,
+            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         app.comments.push(anchor);
@@ -1316,6 +1334,7 @@ mod tests {
             pr_number: None,
             remote_id: None,
             orphaned: false,
+            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         let _ = app.comment_store.add_comment(&second_anchor); // lgtm:ignore
@@ -1367,5 +1386,75 @@ mod tests {
             "Rotate and move to environment variable"
         );
         assert!(app.comments[0].target_code.contains("High-Entropy Secret"));
+    }
+
+    #[test]
+    fn test_tui_r_and_capital_r_keybinding_flow() {
+        let mut app = create_test_app();
+        let hunk = DiffHunk {
+            header: "@@ -1,1 +1,1 @@".into(),
+            old_start: 1,
+            old_lines: 1,
+            new_start: 1,
+            new_lines: 1,
+            lines: vec![DiffLine {
+                line_type: LineType::Context,
+                content: "line 1".into(),
+                old_line_num: Some(1),
+                new_line_num: Some(1),
+            }],
+            is_folded: false,
+            folded_blocks: Vec::new(),
+        };
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/main.rs"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![hunk],
+            is_folded: false,
+            is_reviewed: false,
+        };
+        app.snapshot = DiffSnapshot::new(vec![file]);
+        let anchor = CommentAnchor {
+            id: lgtm_core::comment::new_id(),
+            file_path: "src/main.rs".into(),
+            target_line_no: 1,
+            target_code: "line 1".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "Original directive".into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: Some(42),
+            remote_id: None,
+            orphaned: false,
+            side: lgtm_core::comment::CommentSide::Right,
+            track: Default::default(),
+        };
+        app.comments.push(anchor);
+        app.cursor_line_idx = 0;
+        assert_eq!(app.comment_idx_at_cursor(), Some(0));
+
+        // Press 'r' to start reply
+        app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::CommentReply);
+        assert_eq!(app.comment_reply_target_idx, Some(0));
+
+        // Submit reply with Enter
+        app.comment_reply_input = "Replied inline".into();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.comments[0].replies, vec!["Replied inline"]);
+
+        // Press 'R' to toggle resolved
+        app.handle_key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::NONE));
+        assert!(app.comments[0].is_resolved);
+
+        // Press 'R' again to unresolve
+        app.handle_key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::NONE));
+        assert!(!app.comments[0].is_resolved);
     }
 }

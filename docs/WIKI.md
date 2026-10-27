@@ -22,15 +22,29 @@
    - [Breaking Public API Drift](#breaking-public-api-drift)
    - [OWASP Security & Hardcoded Secrets](#owasp-security--hardcoded-secrets)
    - [Test Neutering & Assertion Drop Detection](#test-neutering--assertion-drop-detection)
-5. [Git Range & Revision Diffing](#5-git-range--revision-diffing)
+5. [Git Range, Revision & Pull Request Diffing](#5-git-range-revision--pull-request-diffing)
+   - [CLI Range Diffing](#cli-usage)
+   - [In-App Revision Switching](#in-app-revision-switching)
+   - [Pull Request Reviews (GitHub & Azure DevOps)](#pull-request-reviews-github--azure-devops)
+   - [Open & Closed PR State Filtering](#open-and-closed-prs)
+   - [Discussions, Threads & Gutter Markers](#pr-threads-and-remote-discussions)
+   - [Directive Outcomes & Remote Posting](#directive-outcomes-and-remote-posting)
+   - [Durable Review State & Comment Re-pinning](#durable-review-state-and-comment-re-pinning)
 6. [Model Context Protocol (MCP) Server](#6-model-context-protocol-mcp-server)
 7. [Headless CI & Security Gates](#7-headless-ci--security-gates)
+   - [CI Quality Gate (`lgtm check`)](#1-lgtm-check-ci-quality-gate)
+   - [Agent Gate (`lgtm gate`)](#2-lgtm-gate-human-in-the-loop-agent-gate)
+   - [Audit Scanner (`lgtm scan`)](#3-lgtm-scan-codebase-security-audit)
+   - [Suppression, Thresholds & Baselines](#suppression-thresholds--baselines)
+   - [Git Pre-commit Hook Integration](#git-pre-commit-hook-integration)
+   - [CI Pipeline Recipes](#ci-recipes)
 8. [Ex-Commands Dictionary (`:cmds`)](#8-ex-commands-dictionary-cmds)
 9. [Configuration Reference (`.lgtm.toml`)](#9-configuration-reference-lgtmtoml)
 10. [CLI Command Reference](#10-cli-command-reference)
 11. [Additional Guardrails](#11-additional-guardrails)
 12. [Quality Tooling (`make` targets)](#12-quality-tooling-make-targets)
 13. [Source Module Map](#13-source-module-map)
+14. [Diagnostics, Workload Benchmarking & Performance Debugging](#14-diagnostics-workload-benchmarking--performance-debugging)
 
 ---
 
@@ -329,9 +343,9 @@ Java (`.java`, same engine):
 
 ---
 
-## 5. Git Range & Revision Diffing
+## 5. Git Range, Revision & Pull Request Diffing
 
-`lgtm` supports arbitrary Git revision ranges from the CLI and inside the TUI:
+`lgtm` supports arbitrary Git revision ranges from the CLI, dynamically inside the TUI, and full pull request workflows across GitHub and Azure DevOps.
 
 ### CLI Usage
 ```bash
@@ -347,7 +361,7 @@ lgtm HEAD~3..HEAD
 # Review a specific commit hash
 lgtm 0c20203
 
-# Review a GitHub Pull Request
+# Review a GitHub or Azure DevOps Pull Request
 lgtm pr 42
 ```
 
@@ -358,6 +372,81 @@ Type `:` in diff view to change comparison targets dynamically:
 - `:rev HEAD~2..HEAD`
 - `:pr 104`
 - `:reload` (or `:e`) to re-scan current target from disk
+
+---
+
+### Pull Request Reviews (GitHub & Azure DevOps)
+
+`lgtm` automatically detects the provider from your repository `origin` remote:
+- **GitHub**: detected for `github.com` remotes. Interfaces with Git, REST API, or `gh` CLI.
+- **Azure DevOps**: detected for `dev.azure.com`, `ssh.dev.azure.com`, and `*.visualstudio.com`. Uses `az` CLI with `azure-devops` extension and REST authentication tokens.
+
+#### Open and Closed PRs
+
+List PRs from the command line:
+```bash
+lgtm prs                # List open PRs (default)
+lgtm prs --state closed # List closed & merged PRs
+lgtm prs --state all    # List all PRs
+```
+
+Inside the TUI:
+- Use `:prs open`, `:prs closed`, or `:prs all` to open the PR picker.
+- Press `1` (open), `2` (closed), or `3` (all) inside the picker to toggle states instantly.
+- Any PR can be opened directly with `lgtm pr <number>` or `:pr <number>`.
+
+The closed view includes merged and closed GitHub PRs, and completed and abandoned Azure PRs.
+
+**Historical and Stored Patch Handling**:
+- **Azure DevOps**: Reads fresh PR metadata first through REST, reusing the cached authentication token with a CLI fallback. It uses recorded source and target commits before probing Git refs, preventing broken attempts on deleted branches. If commits exist locally, no additional fetch is performed.
+- **GitHub**: Falls back to the stored PR patch from the API or `gh` CLI, avoiding guessing the current target branch for historical reviews. For public repositories on `github.com`, anonymous HTTPS fallback is supported via `curl` when `gh` is missing or unauthenticated and no token is present. Discussion threads and write operations always require credentials.
+- **Diagnostics & Latency**: See [Diagnostics & Workload Benchmarking](#14-diagnostics-workload-benchmarking--performance-debugging) for profiling slow PR loads and request budgets.
+
+#### Azure DevOps Integration Details
+
+To use Azure DevOps:
+```bash
+az extension add --name azure-devops
+az login # or az devops login
+```
+
+| Feature | Support |
+|---|---|
+| `:prs open/closed/all` | List PRs filtered by state (default: open) |
+| `:pr <n>` | Reads metadata via REST with cached auth and CLI fallback |
+| `:checks` | Displays branch policy status as pass / fail / pending |
+| `:threads` | PR threads via `az devops invoke`; system/deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved |
+| `:pr post --yes` | Directives on diff lines post as inline threads; rest post to combined general thread; `:thread reply`, `resolve` (`fixed`), `unresolve` (`active`) |
+| Review submit | `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` posts body as discussion thread |
+
+Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queries reuse one `az account get-access-token` per session (~30m, memory-only, passed to curl via private temporary file). Results are cached for 5 minutes; writes invalidate cache.
+
+#### PR Threads and Remote Discussions
+
+- Run `:threads` to fetch remote discussion threads in the background.
+- Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread).
+- Jump between discussions using `]t` / `[t`.
+- Reply directly on marked lines with `r` or `:thread reply <n> <text> --yes`.
+- Toggle thread resolution with `R` or `:thread resolve <n> --yes` / `:thread unresolve <n> --yes`.
+
+#### Directive Outcomes and Remote Posting
+
+- **Directive Outcomes** (`lgtm_core::outcome`): Each comment stores the hash of its hunk when written. On diff reloads, directives are classified as:
+  - `untouched`: same hunk content.
+  - `changed`: file still in diff, hunk differs.
+  - `gone`: file left the diff.
+  - `orphaned`: commented code no longer found in file.
+  - Agent claims via MCP (`lgtm_resolve_directive`) are tracked separately; unverified claims show `[claimed but not changed]` in red.
+- **Posting Directives**:
+  - `:pr post` previews comment count (inline vs general).
+  - `:pr post --yes` dispatches comments to the remote forge.
+  - Each comment's `remote_id` is recorded immediately so interrupted runs resume without duplication.
+
+#### Durable Review State and Comment Re-pinning
+
+- **Hunk & File Review Marks**: Press `M` to mark/unmark the current hunk as reviewed, or `v` to mark the entire file. Marks persist per review target in `.lgtm/reviews/<target>.json` and survive code changes above the hunk.
+- **Export & Import**: `lgtm review export [target]` outputs state JSON; `lgtm review import <file>` merges marks and directives.
+- **Comment Re-pinning & Orphans**: On reload, comments in `.lgtm/comments.jsonl` re-pin using fuzzy content matching around neighboring lines. If code is deleted, the comment is preserved as `⚠ Orphaned` (viewable in `:c`, manageable via `:directives orphans repin <n>` or `:directives orphans drop`).
 
 ---
 
@@ -484,6 +573,8 @@ lgtm scan --output lgtm-report.md
 lgtm scan --format sarif --output lgtm-results.sarif
 ```
 
+### Suppression, Thresholds & Baselines
+
 Config (`.lgtm.toml`) is applied by `check`, `ci`, `scan`, `risk` and the TUI through one pipeline in `lgtm-core::findings`: suppress (inline + `[ignore]`), then `[severity]` overrides. Suppression forms:
 
 - `lgtm:ignore` (and variants) hides every rule on that line.
@@ -495,33 +586,6 @@ Config (`.lgtm.toml`) is applied by `check`, `ci`, `scan`, `risk` and the TUI th
 Suppressed counts go to stderr; `check`/`ci --show-suppressed` lists them. `ci` ignores the user config file; `--no-user-config` or `LGTM_NO_USER_CONFIG=1` ignores it elsewhere.
 
 Baselines: `lgtm baseline update [--prune]` runs a full scan and records `{rule_id, file, fingerprint}` entries, sorted, in `[baseline] file` (default `.lgtm-baseline.json`). `check`, `ci`, `scan`, `risk` and the TUI then treat matching findings as existing: they are counted on stderr and never affect the exit code. `scan` also reports stale entries (no matching finding); `--prune` removes them. Critical findings are never baselined unless `[baseline] allow_critical = true`. Fingerprints ignore line numbers, so moving code keeps its baseline entry; Editing the flagged line makes it new again.
-
-Remote PR calls: `lgtm_core::github::GithubClient` hides `gh` (Azure DevOps uses `az`, see below); `:checks` shows CI pass/fail/pending in the PR header and `:threads` lists open review threads in the status line and marks their lines in the diff gutter (`◆` open, `◇` resolved). Both run only on demand; missing credentials give a clear message and local features keep working. See the [README diagnostics guide](../README.md#debugging-slow-pr-reviews) for opt-in timing logs.
-
-Posting: `:pr post` previews how many comments would go inline (line is in the diff) or into one combined general comment; `:pr post --yes` sends them, saving each comment's `remote_id` right away so a failed run resumes without duplicates ("N of M posted"). Only unresolved comments made while that PR was open are posted. Not yet: re-anchoring on a changed PR head, orphan skipping, and a `↑ #id` marker in the UI.
-
-Public GitHub listings and stored patches support anonymous HTTPS fallback for a
-recognized `github.com` origin when no API token is set and `gh` is unavailable
-or needs login. Successful CLI reads are reused. Each fallback sends one GET
-without credentials; failures report missing/private resources, access restrictions,
-or public rate limits without retrying. Invalid API tokens, Git-fetch auth errors,
-network failures, enterprise hosts, and SSH aliases do not activate this fallback.
-Discussion threads and writes still require credentials.
-
-PR loading and directive preparation run in the background while the current review stays visible.
-Closing drafts, modals, and visual selections allows the prepared review to appear. If its
-comments, marks, or turn changed during loading, preparation runs again against the fetched
-snapshot without another fetch or scan. The UI merges and saves current directives, preserving
-new edits, replies, and posting receipts. Local refresh reconciliation and this final save
-still run on the UI thread. Use `:reload` to fetch the current PR again.
-
-Threads: after `:threads`, `:thread reply <n> <text>`, `:thread resolve <n>` and `:thread unresolve <n>` (n = 1-based position in the list) preview what they would do; add `--yes` to send. Nothing is replied to or resolved without it, and a 403 or auth failure is shown as is, never retried.
-
-Directive outcomes (`lgtm_core::outcome`): each comment stores the hash of its hunk when written. On every diff reload, open directives from earlier turns are classified as `untouched` (same hunk), `changed` (file still in the diff, hunk differs), `gone` (file left the diff) or `orphaned` (no baseline, e.g. older comments). The result is saved on the comment. Agent claims are stored apart (`claim`) and never change the outcome or resolve anything; "claimed but not changed" is flagged. In the directive list (`:c`) each open directive shows its verdict (`[changed]`, `[claimed but not changed]` in red, ...) and the title shows the per-turn counts; `:directives recheck` recomputes on demand and prints the counts. Resolving stays a human action: `v`/Space in the list. No outcome filter yet.
-
-Review state (`lgtm_core::review`): in the TUI, `M` marks or unmarks the current hunk and `v` the whole file; marks persist per target (`pr-N`, revision or `working`) and survive edits above the hunk. The file list shows `✓n/m` for partly reviewed files. `lgtm review export [target]` prints the JSON and `lgtm review import <file>` merges it (hunks by hash, comments by file+code+text; local wins on conflicts, which are listed on stderr). Storage: `.lgtm/reviews/<target>.json` holds hunk marks (keyed by a whitespace-normalized hunk content hash) and the review-store comment model with `reanchor`; files with a newer `version` are refused.
-
-Comments and directives still live in `.lgtm/comments.jsonl` (ids stay stable for MCP). On every diff reload they are re-pinned: the commented code plus its neighbours is searched in the same file and the nearest match wins. If it is gone from a file still in the diff, the comment is flagged `orphaned` (`⚠ Orphaned` in `:c`, a count in the header, no inline marker) and never deleted automatically; it recovers if the code returns. `:directives orphans` lists them, `:directives orphans repin <n>` moves orphan n to the cursor line, and `:directives orphans drop` previews deleting them all (`--yes` to confirm). Comments on files outside the current diff, or on deleted lines, are left as they are.
 
 In the TUI, suppressed and baselined findings never appear in the alert list or block anything. The header shows a dim `(+N suppressed, M baselined :hidden)` counter, and `:hidden` lists the first five in the status line.
 
@@ -578,7 +642,7 @@ jobs:
 
 ---
 
-### CI recipes
+### CI Pipeline Recipes
 
 Gate a pull request on the committed range (needs full history: `fetch-depth: 0`). Exit codes: 0 pass, 1 blocking findings, 2 tool error.
 
@@ -598,7 +662,7 @@ Inputs: `version` (required), `base`, `strict`, `upload-sarif`. Outputs: `exit-c
 **GitLab CI** (any runner: install the release tarball, then run):
 
 ```bash
-lgtm ci --rev "origin/${TARGET_BRANCH}...HEAD" -f markdown
+lgtm check --rev "origin/${TARGET_BRANCH}...HEAD" -f markdown
 ```
 
 **Azure Pipelines** (needs `fetchDepth: 0`; findings appear as `##vso[task.logissue]` annotations, auto-selected when `TF_BUILD` is set or with `-f azure`):
@@ -609,11 +673,13 @@ steps:
     fetchDepth: 0
   - script: |
       # install the lgtm release tarball, then:
-      lgtm ci --rev "origin/$(System.PullRequest.TargetBranch)...HEAD" -f azure
+      lgtm check --rev "origin/$(System.PullRequest.TargetBranch)...HEAD" -f azure
     displayName: lgtm
 ```
 
-**pre-commit hook** (`.git/hooks/pre-commit`, checks the working tree):
+### Git Pre-commit Hook Integration
+
+Manage `.git/hooks/pre-commit` to gate commits locally on the working tree:
 
 ```bash
 # Manage pre-commit hook automatically:
@@ -628,7 +694,7 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 
 | Works | Not yet (planned) |
 |---|---|
-| `:prs open/closed/all`, `lgtm prs --state open/closed/all`: list PRs by state (default open) | |
+| `:prs open/closed/all`, `lgtm pr list --state open/closed/all`: list PRs by state (default open; alias `lgtm prs`) | |
 | `:pr <n>`, `lgtm pr <n>`: reads fresh metadata through REST with cached authentication and CLI fallback; uses recorded commits before probing refs, including completed/abandoned PRs | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
@@ -640,6 +706,8 @@ After `:threads`, diff lines with remote discussion get a gutter marker (`◆` o
 Speed: `:prs`, `:checks` and `:threads` run in the background (the status line shows "Loading..."), and Azure reads call the REST API with `curl` using one `az account get-access-token` per session (about 30 minutes, memory only; the token goes to curl through a private temp file, never the command line). Results are cached for 5 minutes and any write (post, reply, resolve, vote) clears the cache. If `curl` or the token fails, lgtm falls back to `az repos` / `az devops invoke` (slower, same result).
 
 Errors name the fix: missing `az`, missing extension, or not logged in. The organization and project come from the git remote (`--detect true`). Unverified against a live Azure DevOps project.
+
+---
 
 ## 8. Ex-Commands Dictionary (`:cmds`)
 
@@ -731,8 +799,8 @@ path = ".lgtm-baseline.json"
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
 | `lgtm init` / `--init` | Create `.lgtm.toml` |
 | `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via Git/API/`gh`, Azure DevOps via `az`) |
-| `lgtm prs --state open/closed/all` | List and pick PRs by state (default open) |
-| `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
+| `lgtm pr list [--state open\|closed\|all]` | List and pick PRs by state (default open; alias: `lgtm prs`) |
+| `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too; alias: `lgtm ci`) |
 | `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
 | `lgtm ci [--strict] [--rev <spec>] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF. `--rev origin/main...HEAD` checks a committed range. Exit 0 pass, 1 blocking findings, 2 tool error (also on `check`) |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
@@ -816,6 +884,106 @@ automation coverage, verified coverage, and pass rate.
 | `ipc/` | Multiplexer sinks (`tmux`, `zellij`, `wezterm`, `kitty`), OSC 52 clipboard; `AgentSink` enum (`sink.rs`) |
 | `watcher/` | Debounced filesystem watcher |
 | `crates/lgtm-mcp/src/lib.rs` (crate root) | MCP server and live resource watcher notifications |
+
+---
+
+## 14. Diagnostics, Workload Benchmarking & Performance Debugging
+
+`lgtm` includes an opt-in structured JSONL diagnostics and timing recorder engineered to isolate latency bottlenecks in UI rendering, filesystem watching, background scanning, and remote PR provider operations.
+
+### Enabling Timing Diagnostics
+
+Launch the binary with `--debug`:
+
+```bash
+# Debug active PR review (writes /tmp/lgtm-debug.jsonl by default)
+lgtm --debug pr 42
+
+# Specify a custom log path
+lgtm --debug --debug-log /tmp/lgtm-review.jsonl pr 42
+```
+
+> **Note**: Setting `LGTM_DEBUG_LOG` alone has no effect unless `--debug` is explicitly supplied. Always use a log path outside the repository or inside `.lgtm/` to avoid treating diagnostic writes as workspace modifications. Arguments, command output, comment text, source code, and credentials are never logged.
+
+### Diagnostic Records & Structure
+
+Each operation records matched `start` and `end` JSONL records keyed by `pid` and numeric `id`. End records report `elapsed_ms`, `outcome`, and operational `counts`:
+- A `start` record without a corresponding `end` indicates an operation still blocked on I/O or background workers.
+- UI diagnostics: `ui.draw` (including terminal output), `ui.render`, `ui.input`, `ui.background_events`, `ui.callback`, and `ui.callback_wait` (wait time between job completion and UI callback dispatch; `counts.applied=0` means the callback was dropped).
+- Review operations: `ui.pr_apply`, `review.local_snapshot`, `review.reanchor`, `review.outcomes`, `review.pr_directives`, and `review.load_marks`.
+- Local refreshes: `ui.local_request` (`counts.coalesced`), `ui.local_discard` (superseded completions), and `ui.local_apply`.
+
+### Terminal Event Loop Budgets
+
+The main event loop draws at startup, upon input, after resize/focus changes, on applicable file watcher notifications, and on background worker completions:
+- Idle check frequency: checks for background completions at most every 16 ms without redrawing.
+- Processing limits per iteration: up to 32 terminal events, 32 watcher messages, and 8 callbacks, with a dedicated 4 ms budget per batch.
+- Input processing remains strictly on the UI thread so external terminal editors (`$EDITOR`) retain full keyboard control.
+- If the filesystem watcher fails to initialize, external repository status polls once per second; use `:reload` to manually refresh.
+
+### Render & Viewport Caches
+
+Diff rendering maintains granular incremental caches:
+- Visible rows preparation: `ui.rows_prepare`, `ui.layout_prepare`, `ui.annotations_prepare`, `ui.words_prepare`.
+- Viewport styling: `ui.diff_viewport`, `ui.drawer_viewport`.
+- Navigation reuses selected file layouts and folded-row mappings.
+- Token/word-level diffs are prepared only for visible line pairs and preserved across navigation, folding, annotations, and window resizes.
+
+### Diagnostic Span Dictionary
+
+| Span | Description |
+|---|---|
+| `pr.anonymous_read` | Public GitHub HTTPS fallback attempt (logs timing without repo URLs) |
+| `pr.diff`, `git.fetch_*`, `pr.build_diff` | Fetching and building PR diffs, including fallbacks |
+| `review.scan` / `review.reload` | Guard scanning and explicit diff reloads |
+| `comments.add_comment` / `comments.save_comments` | Directive creation, replies, and resolution saves |
+| `pr.post_batch`, `pr.head_sha`, `pr.post_inline` | Remote posting, persistence, and intentional request spacing |
+| `pr.threads`, `pr.thread`, `pr.reply`, `pr.resolve` | Reading and updating remote discussions |
+| `command.curl`, `command.gh`, `command.az` | Underlying provider commands (records safe category, exit code, and HTTP status; no raw output) |
+
+### Workload Benchmarks & Performance Suites
+
+#### 1. Offline UI Workload Benchmark
+Compares rendering and event loop latency across 100 lines, 10,000 lines, 1,000 comments, and 2,000 files:
+```bash
+cargo test --bin lgtm ui_workload_benchmark -- --ignored --nocapture
+
+# Record instrumented spans
+LGTM_UI_PERF_LOG=/tmp/lgtm-ui-performance.jsonl \
+cargo test --bin lgtm ui_workload_benchmark -- --ignored --nocapture
+```
+
+#### 2. Offline Forge Request-Budget Tests
+Verifies request budgets across forge instances without wall-clock flakiness:
+```bash
+# Azure DevOps offline request budgets
+cargo test -p lgtm-core forge::azure::performance_tests -- --nocapture
+
+# GitHub offline request budgets (merge-ref fetch, cached fallbacks)
+cargo test -p lgtm-core forge::github::performance_tests -- --nocapture
+```
+
+#### 3. Live Forge Benchmarks (Opt-In)
+Measure live network and checkout performance against real pull requests:
+```bash
+# Live Azure PR benchmark
+LGTM_PERF_REPO=/path/to/azure-checkout LGTM_PERF_PR=19673 LGTM_PERF_RUNS=10 \
+cargo test -p lgtm-core live_azure_pr_load_benchmark -- --ignored --nocapture
+
+# Live GitHub PR benchmark
+LGTM_PERF_REPO=/path/to/github-checkout LGTM_PERF_PR=19 LGTM_PERF_RUNS=10 \
+cargo test -p lgtm-core live_github_pr_load_benchmark -- --ignored --nocapture
+```
+
+#### 4. Offline PR Completion Fixture Benchmark
+Measures background preparation and UI completion on a fixture with 1,000 directives and 2,000 lines:
+```bash
+cargo test --bin lgtm pr_completion_workload_benchmark -- --ignored --nocapture
+
+# Optional phase diagnostics
+LGTM_PR_PERF_LOG=/tmp/lgtm-pr-completion.jsonl \
+cargo test --bin lgtm pr_completion_workload_benchmark -- --ignored --nocapture
+```
 
 ---
 

@@ -14,6 +14,23 @@ pub fn new_id() -> String {
     format!("{:x}-{now:x}-{sequence:x}", std::process::id())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum CommentSide {
+    #[default]
+    Right,
+    Left,
+}
+
+impl CommentSide {
+    pub fn as_github_str(&self) -> &'static str {
+        match self {
+            Self::Right => "RIGHT",
+            Self::Left => "LEFT",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommentAnchor {
     /// Stable local identity, retained when code moves or the directive is edited.
@@ -31,6 +48,9 @@ pub struct CommentAnchor {
     pub is_resolved: bool,
     #[serde(default)]
     pub pr_number: Option<u64>,
+    /// Side of diff for PR reviews: RIGHT for additions/context, LEFT for deletions.
+    #[serde(default)]
+    pub side: CommentSide,
     /// GitHub comment id once posted; posted comments are never posted again.
     #[serde(default)]
     pub remote_id: Option<u64>,
@@ -227,6 +247,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
+            side: CommentSide::Right,
             remote_id: None,
             orphaned: false,
             track: Default::default(),
@@ -268,6 +289,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: Some(99),
+            side: CommentSide::Left,
             remote_id: None,
             orphaned: false,
             track: Default::default(),
@@ -310,5 +332,20 @@ mod tests {
                 .unwrap()
                 .contains(&first[0].id)
         );
+        // Default side for legacy comments without side field must be Right
+        assert_eq!(first[0].side, CommentSide::Right);
+    }
+
+    #[test]
+    fn comment_side_serde() {
+        let json = r#"{"side":"LEFT"}"#;
+        #[derive(Deserialize)]
+        struct S {
+            side: CommentSide,
+        }
+        let s: S = serde_json::from_str(json).unwrap();
+        assert_eq!(s.side, CommentSide::Left);
+        assert_eq!(s.side.as_github_str(), "LEFT");
+        assert_eq!(CommentSide::Right.as_github_str(), "RIGHT");
     }
 }

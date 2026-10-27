@@ -298,7 +298,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Open interactive Review Directives list drawer (:directives)"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  Ctrl-s / :review ", Style::default().fg(Color::Cyan)),
+                    Span::styled("  Ctrl-s / <Space>s / :send", Style::default().fg(Color::Cyan)),
                     Span::raw("Compile directives to batch prompt and blast to tmux agent / PR / clipboard"),
                 ]),
                 Line::from(vec![
@@ -306,7 +306,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Inject #ref file:line [rule] alert | DIRECTIVE into target agent pane"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  X (or :reject)   ", Style::default().fg(Color::Cyan)),
+                    Span::styled("  <Space>x (or :reject)", Style::default().fg(Color::Cyan)),
                     Span::raw("Reject & revert hunk under cursor and re-prompt agent with reason"),
                 ]),
                 Line::from(vec![
@@ -372,12 +372,16 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Toggle Visual Line Selection mode to stage/discard arbitrary line ranges"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  <Space>x         ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Discard changes in current hunk"),
+                    Span::styled("  x                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Discard changes in current hunk (or selected visual lines)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  X                ", Style::default().fg(Color::Cyan)),
                     Span::raw("Discard all working tree changes in current file (git restore)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  <Space>x         ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Reject & revert hunk under cursor and re-prompt agent with reason"),
                 ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
@@ -510,7 +514,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :q, :quit            ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Quit lgtm (:q! force quit)"),
+                    Span::raw("Quit lgtm (:q! / :quit! force quit)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :wq, :x, :exit       ", Style::default().fg(Color::Cyan)),
@@ -521,12 +525,48 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Commit staged changes with message (or open Commit Forge modal)"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :prs [open|closed|all]", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open PR picker; 1/2/3 select open/closed/all"),
+                    Span::styled("  :send, :review, :push", Style::default().fg(Color::Cyan)),
+                    Span::raw("Compile directives to batch prompt and blast to agent sink"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :reply, :rep [text]  ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Reply to comment or thread at cursor"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :resolve, :res       ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Toggle directive resolved state (or :resolve all)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :unresolve           ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Mark directive active (or :unresolve all)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :c, :comments, :todo ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open review directives drawer (:directives recheck | orphans)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :clear / :clear-resolved", Style::default().fg(Color::Cyan)),
+                    Span::raw("Clear all directives, or clear only resolved ones"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :pr <number>         ", Style::default().fg(Color::Cyan)),
                     Span::raw("Load PR in background; close drafts and visual selections to switch"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :pr post [--yes]     ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Post pending review comments to GitHub/Azure PR"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :prs [open|closed|all]", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open PR picker modal (open, closed, or all)"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :threads, :thread    ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Inspect and reply to remote PR review threads"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :checks              ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Refresh and inspect CI status checks"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :pane [id]           ", Style::default().fg(Color::Cyan)),
@@ -537,40 +577,24 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("View or set active agent sink (tmux, zellij, wezterm, kitty, clipboard, auto)"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :c, :directives      ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Open review directives drawer (:directives recheck | orphans)"),
-                ]),
-                Line::from(vec![
-                    Span::styled("  :clear / :clear-resolved", Style::default().fg(Color::Cyan)),
-                    Span::raw("Clear all directives, or clear only resolved ones"),
-                ]),
-                Line::from(vec![
-                    Span::styled("  :resolve / :unresolve", Style::default().fg(Color::Cyan)),
-                    Span::raw("Toggle directive resolved state (or :resolve all / :unresolve all)"),
-                ]),
-                Line::from(vec![
                     Span::styled("  :f, :files, :find    ", Style::default().fg(Color::Cyan)),
                     Span::raw("Open fuzzy file switcher modal"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :tree, :drawer       ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Toggle file tree sidebar drawer"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :sp, :split, :vsp    ", Style::default().fg(Color::Cyan)),
                     Span::raw("Toggle Unified vs Side-by-Side Split Diff mode"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :audit, :scan repo   ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Audit the whole codebase (issues only, no diff view); plain :scan covers changes only"),
+                    Span::styled("  :diff [rev]          ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Return to Diff review mode or review branch/revision range"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :export [path]       ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Export audit scorecard report to Markdown (default: lgtm-report.md)"),
-                ]),
-                Line::from(vec![
-                    Span::styled("  :w [path]            ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Export audit report (in Audit mode) or save review directives (in Diff mode)"),
-                ]),
-                Line::from(vec![
-                    Span::styled("  :diff                ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Return to Diff review mode from Audit mode (or specify revision range)"),
+                    Span::styled("  :reload, :e, :edit   ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Reload diff and file tree from disk"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :approve / :lgtm     ", Style::default().fg(Color::Cyan)),
@@ -589,6 +613,30 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Open agent prompt / gate context modal"),
                 ]),
                 Line::from(vec![
+                    Span::styled("  :audit, :scan repo   ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Audit the whole codebase (issues only, no diff view); plain :scan covers changes only"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :risk                ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Run security and fraud risk scan on current diff"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :filter <1|2|3>      ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Filter audit alerts: [1] Critical | [2] High+ | [3] All"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :inject [all]        ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Inject audit alert remediation directives directly to agent sink"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :hidden              ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Display baselined and suppressed security findings"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :export [path]       ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Export audit scorecard report to Markdown (default: lgtm-report.md)"),
+                ]),
+                Line::from(vec![
                     Span::styled("  :editor [name]       ", Style::default().fg(Color::Cyan)),
                     Span::raw("View or set active editor (nvim, vim, vscode, cursor, helix)"),
                 ]),
@@ -603,6 +651,18 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 Line::from(vec![
                     Span::styled("  :md, :preview        ", Style::default().fg(Color::Cyan)),
                     Span::raw("Toggle rendered Markdown preview for .md files"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :yank, :y            ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Yank current code line to system clipboard"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :ref, :yr            ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Yank code reference anchor file:line to system clipboard"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :h, :help, :?        ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Open this interactive documentation modal"),
                 ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
@@ -659,8 +719,12 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Headless gate for GitHub Actions & CI. Exits code 1 on Critical/High risks."),
                 ]),
                 Line::from(vec![
-                    Span::styled("  lgtm scan --tui      ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                    Span::raw("Launch interactive TUI Codebase Audit mode (`lgtm scan repo` / `lgtm audit`)."),
+                    Span::styled("  lgtm audit           ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Launch interactive TUI Codebase Audit mode."),
+                ]),
+                Line::from(vec![
+                    Span::styled("  lgtm pr list         ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("List repository pull requests by state (open, closed, all)."),
                 ]),
                 Line::from(vec![
                     Span::styled("  lgtm scan -o rep.md  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
