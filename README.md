@@ -49,7 +49,7 @@
 - **Tabbed Interactive Help Modal (`?` / `h`)**: 7 discrete documentation tabs covering Overview & Modes, Motions, Directives, Staging & Forge, Folding, Guardrails, and Ex-Commands & CI.
 - **Neovim-Style Ex Commands**: `:w`, `:q`, `:wq`, `:commit`, `:diff <rev>`, `:pr <num>`, `:prs`, `:pane`, `:files`, `:split`, `:risk`, `:approve`, `:reject`, `:prompt`, `:<line_num>` with `Tab` / `Shift-Tab` wildmenu auto-completion.
 - **PR Review Mode**: Review GitHub PRs (Git, API, or `gh`) or Azure DevOps PRs (`az`: list, diff, policies, threads, post, reply, resolve, vote) with `lgtm pr <num>` or `:pr <num>`, write inline review directives, batch compile to `.lgtm/pr-<num>-review.md`, and submit via `gh pr review` on GitHub.
-- **CI step**: `lgtm ci --rev origin/main...HEAD` gates a committed range (exit 0 pass, 1 blocking findings, 2 tool error); a composite GitHub Action (`mgabs/lgtm`) adds verified install, SARIF upload and a job summary.
+- **CI step**: `lgtm check --rev origin/main...HEAD` gates a committed range (exit 0 pass, 1 blocking findings, 2 tool error); a composite GitHub Action (`mgabs/lgtm`) adds verified install, SARIF upload and a job summary.
 - **Orphaned comments**: comments re-pin when code moves and are flagged `⚠ Orphaned` when their code is gone, never deleted.
 - **Interactive Codebase Audit Mode (`lgtm scan repo` / `lgtm audit` / `:scan`)**: Dedicated dual-pane TUI reviewing repository-wide security and architectural issues without diff noise. Features 1-key severity filtering (`1`: Critical, `2`: High+, `3`: All), `$EDITOR` jumping (`e`/`o`), directive injection into agents (`Enter`), and Markdown report export (`w` / `:export`).
 - **Headless CI & Security Gates**:
@@ -87,15 +87,15 @@ lgtm
 
 # Launch interactive Codebase Audit Mode (only issues, no diff view)
 lgtm scan repo
-# or: lgtm scan --tui / lgtm audit
+# or: lgtm audit
 
 # Review an open or closed GitHub or Azure DevOps PR
 lgtm pr 42
 
 # List open PRs (default), closed PRs, or all states
-lgtm prs
-lgtm prs --state closed
-lgtm prs --state all
+lgtm pr list
+lgtm pr list --state closed
+lgtm pr list --state all
 
 # Run CI security & quality gate (exit code 1 on critical security / test neutering)
 lgtm check --strict
@@ -115,7 +115,7 @@ lgtm commit -m "feat: core diff engine"
 
 ## Open and closed PRs
 
-List PRs with `lgtm prs --state open`, `--state closed`, or `--state all`.
+List PRs with `lgtm pr list --state open`, `--state closed`, or `--state all` (or alias `lgtm prs`).
 Inside the TUI, use `:prs open`, `:prs closed`, or `:prs all`; the picker also supports
 `1` (open), `2` (closed), and `3` (all). Each entry shows its provider status.
 The state filter applies to the returned listing; provider page limits still apply.
