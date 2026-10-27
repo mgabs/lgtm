@@ -166,7 +166,7 @@ pub struct App {
     ready_pr: Option<pr::LoadedPr>,
     pr_load_lock: std::sync::Arc<std::sync::Mutex<()>>,
     pr_load_latest: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    thread_revision: u64,
+    pub thread_revision: u64,
     thread_reconcile: std::collections::HashSet<(u64, String)>,
     thread_jobs:
         std::collections::HashMap<(u64, String), std::collections::VecDeque<comments::ThreadJob>>,

@@ -122,6 +122,8 @@ fn hash_streaming_matches_reference() {
 
     for c in cases {
         assert_eq!(hunk_hash(&c), reference_hunk_hash(&c));
+        assert_eq!(format_hunk_hash(hunk_hash_u64(&c)), hunk_hash(&c));
+        assert_eq!(format_hunk_hash(c.hash_u64()), hunk_hash(&c));
     }
 }
 

@@ -170,11 +170,16 @@ pub(crate) struct RenderCache {
 
 pub(super) fn annotation_signature(app: &App) -> u64 {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
-    app.snapshot
+    let current_file_name = app
+        .snapshot
         .files
         .get(app.selected_file_idx)
-        .map(|f| &f.new_path)
-        .hash(&mut hash);
+        .map(|f| {
+            f.new_path.hash(&mut hash);
+            f.display_name()
+        })
+        .unwrap_or_default();
+
     app.comments.len().hash(&mut hash);
     for c in &app.comments {
         (
@@ -188,17 +193,14 @@ pub(super) fn annotation_signature(app: &App) -> u64 {
         )
             .hash(&mut hash);
     }
+
     app.alerts.len().hash(&mut hash);
     for a in &app.alerts {
-        (
-            &a.file_path,
-            a.line_no,
-            a.severity as u8,
-            &a.title,
-            &a.description,
-        )
-            .hash(&mut hash);
+        if a.file_path == current_file_name {
+            (a.line_no, a.severity as u8, &a.title, &a.description).hash(&mut hash);
+        }
     }
+
     app.threads.len().hash(&mut hash);
     for t in &app.threads {
         (&t.path, t.line, t.resolved).hash(&mut hash);
@@ -264,19 +266,14 @@ impl RenderCache {
     }
     pub(super) fn prepare_reviewed(&mut self, app: &App) {
         if app.marks.is_empty() {
+            self.reviewed.clear();
             return;
         }
         let mut hash = std::collections::hash_map::DefaultHasher::new();
+        app.marks.len().hash(&mut hash);
         for mark in &app.marks {
-            (
-                &mark.file,
-                &mark.content_hash,
-                mark.last_line,
-                &mark.reviewed_at,
-            )
-                .hash(&mut hash);
+            (&mark.file, &mark.content_hash, mark.last_line).hash(&mut hash);
         }
-        // A selected-file change does not alter the document's reviewed counts.
         let mut key = Key::of(app).content();
         key.for_document();
         let source = (key, hash.finish());

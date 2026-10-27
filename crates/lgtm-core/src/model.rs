@@ -60,6 +60,12 @@ pub struct DiffHunk {
     pub folded_blocks: Vec<BlockRange>,
 }
 
+impl DiffHunk {
+    pub fn hash_u64(&self) -> u64 {
+        crate::review::hunk_hash_u64(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileDiff {
     pub old_path: Option<PathBuf>,
