@@ -1,6 +1,6 @@
 //! Pure post-guard pipeline: suppress (inline + path ignores) -> severity overrides.
 use crate::config::LgtmConfig;
-use crate::guard::{line_text, GuardAlert, SecurityAndTestGuard, Severity};
+use crate::guard::{GuardAlert, SecurityAndTestGuard, Severity};
 use crate::model::FileDiff;
 
 #[derive(Debug, Default, Clone)]
@@ -28,10 +28,12 @@ pub fn run_in(
 }
 
 pub fn apply(alerts: Vec<GuardAlert>, files: &[FileDiff], cfg: &LgtmConfig) -> Findings {
+    let line_map = crate::guard::DiffLineMap::build(files);
     let mut out = Findings::default();
     for mut a in alerts {
-        let ignored =
-            path_ignored(&a, cfg) || inline_ignored(&a, files) || below_threshold(&a, cfg);
+        let ignored = path_ignored(&a, cfg)
+            || inline_ignored_mapped(&a, &line_map)
+            || below_threshold(&a, cfg);
         if ignored {
             out.suppressed.push(a);
             continue;
@@ -46,6 +48,22 @@ pub fn apply(alerts: Vec<GuardAlert>, files: &[FileDiff], cfg: &LgtmConfig) -> F
         }
     }
     out
+}
+
+fn inline_ignored_mapped(a: &GuardAlert, line_map: &crate::guard::DiffLineMap<'_>) -> bool {
+    let Some(ln) = a.line_no else {
+        return false;
+    };
+    let Some(text) = line_map.get(&a.file_path, ln) else {
+        return false;
+    };
+    let Some(rest) = text.split_once("lgtm:ignore(").map(|(_, r)| r) else {
+        return false;
+    };
+    let list = rest.split(')').next().unwrap_or("");
+    list.split(',')
+        .map(str::trim)
+        .any(|p| rule_matches(p, &a.rule_id))
 }
 
 /// Prefix glob: `*` matches everything, `dead/*` matches `dead/unused-function`.
@@ -75,20 +93,6 @@ fn path_ignored(a: &GuardAlert, cfg: &LgtmConfig) -> bool {
         || cfg.ignore.rules.iter().any(|(r, paths)| {
             rule_matches(r, &a.rule_id) && paths.iter().any(|p| path_glob(p, &a.file_path))
         })
-}
-
-/// `lgtm:ignore(sec/tls-bypass, dead/*)` on the flagged line.
-fn inline_ignored(a: &GuardAlert, files: &[FileDiff]) -> bool {
-    let Some(text) = line_text(files, a) else {
-        return false;
-    };
-    let Some(rest) = text.split_once("lgtm:ignore(").map(|(_, r)| r) else {
-        return false;
-    };
-    let list = rest.split(')').next().unwrap_or("");
-    list.split(',')
-        .map(str::trim)
-        .any(|p| rule_matches(p, &a.rule_id))
 }
 
 /// Guards report spikes from a floor of 8 points; a higher configured threshold hides smaller ones.

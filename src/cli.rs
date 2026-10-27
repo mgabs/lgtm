@@ -276,6 +276,11 @@ pub enum PrSubcommand {
         #[arg(long)]
         unresolve: bool,
     },
+    /// List pull requests by state (open, closed, all)
+    List {
+        #[arg(long, default_value = "open", value_parser = ["open", "closed", "all"])]
+        state: String,
+    },
 }
 
 #[cfg(test)]
@@ -376,6 +381,35 @@ mod tests {
                 }),
                 number: None
             }) if thread == "T1"
+        ));
+        let cli = Cli::try_parse_from(["lgtm", "pr", "list", "--state", "closed"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Pr {
+                action: Some(PrSubcommand::List { ref state }),
+                number: None
+            }) if state == "closed"
+        ));
+    }
+
+    #[test]
+    fn test_cli_deprecated_commands_parse() {
+        let cli = Cli::try_parse_from(["lgtm", "ci", "--strict"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Ci { strict: true, .. })
+        ));
+
+        let cli = Cli::try_parse_from(["lgtm", "status"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Status { revision: None })
+        ));
+
+        let cli = Cli::try_parse_from(["lgtm", "serve", "--mcp"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Serve { mcp: true, .. })
         ));
     }
 }

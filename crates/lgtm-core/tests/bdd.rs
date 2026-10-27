@@ -1098,3 +1098,152 @@ fn bdd_core_022_failed_receipt_save_recovers_after_restart_without_duplicate_pos
     assert_eq!(restarted_comments[0].remote_id, Some(101));
     assert_eq!(restarted_comments[1].remote_id, Some(102));
 }
+
+#[test]
+fn bdd_core_023_multiline_markdown_and_code_blocks_are_preserved_without_corruption() {
+    use lgtm_core::{
+        comment::CommentStore,
+        github::{post, FakeClient},
+    };
+    let repo = tempfile::tempdir().unwrap();
+    let store = CommentStore::new(repo.path());
+    let complex_markdown = "### Optimization Suggestion\n```rust\nfn fast_path() -> bool {\n    true\n}\n```\n> Quote line";
+    let mut comments = vec![directive(complex_markdown)];
+    store.save_comments(&comments).unwrap();
+    let files = patch(1, "code").files;
+    let client = FakeClient::default();
+    let plan = post::plan(&comments, &files, 42);
+
+    let report = post::post(
+        &client,
+        42,
+        &mut comments,
+        &plan,
+        std::time::Duration::ZERO,
+        |current| store.save_comments(current),
+    );
+
+    assert!(report.error.is_none());
+    assert_eq!(report.posted, 1);
+    let posted_text = client.posted.borrow().join("\n");
+    assert!(posted_text.contains("```rust"));
+    assert!(posted_text.contains("fn fast_path() -> bool"));
+    assert!(posted_text.contains("> Quote line"));
+}
+
+#[test]
+fn bdd_core_024_multifile_partial_batch_failure_saves_prior_receipts_and_retries_remaining() {
+    use lgtm_core::{
+        comment::{CommentAnchor, CommentStore},
+        github::{post, FakeClient},
+        model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType},
+    };
+    let repo = tempfile::tempdir().unwrap();
+    let store = CommentStore::new(repo.path());
+
+    let make_diff_file = |name: &str| FileDiff {
+        old_path: None,
+        new_path: std::path::PathBuf::from(name),
+        change_type: ChangeType::Modified,
+        additions: 1,
+        deletions: 0,
+        hunks: vec![DiffHunk {
+            header: "@@ -1,1 +1,1 @@".into(),
+            old_start: 1,
+            old_lines: 1,
+            new_start: 1,
+            new_lines: 1,
+            lines: vec![DiffLine {
+                line_type: LineType::Addition,
+                content: "+code".into(),
+                old_line_num: None,
+                new_line_num: Some(1),
+            }],
+            is_folded: false,
+            folded_blocks: vec![],
+        }],
+        is_folded: false,
+        is_reviewed: false,
+    };
+
+    let files = vec![
+        make_diff_file("a.rs"),
+        make_diff_file("b.rs"),
+        make_diff_file("c.rs"),
+    ];
+
+    let make_anchor = |name: &str| CommentAnchor {
+        id: lgtm_core::comment::new_id(),
+        file_path: name.into(),
+        target_line_no: 1,
+        target_code: "code".into(),
+        context_before: vec![],
+        context_after: vec![],
+        comment_text: format!("fix in {name}"),
+        replies: vec![],
+        created_at_turn: 1,
+        is_resolved: false,
+        pr_number: Some(42),
+        remote_id: None,
+        orphaned: false,
+        side: lgtm_core::comment::CommentSide::Right,
+        track: Default::default(),
+    };
+
+    let mut comments = vec![
+        make_anchor("a.rs"),
+        make_anchor("b.rs"),
+        make_anchor("c.rs"),
+    ];
+    store.save_comments(&comments).unwrap();
+
+    let client = FakeClient {
+        fail_post_after: Some(2),
+        ..Default::default()
+    };
+    let plan = post::plan(&comments, &files, 42);
+    assert_eq!(plan.total(), 3);
+
+    // When posting fails after 2 comments
+    let report = post::post(
+        &client,
+        42,
+        &mut comments,
+        &plan,
+        std::time::Duration::ZERO,
+        |current| store.save_comments(current),
+    );
+    assert_eq!(report.posted, 2);
+    assert!(report.error.is_some());
+
+    // First two comments have receipts saved to disk
+    let reopened = store.load_comments();
+    assert!(reopened[0].remote_id.is_some());
+    assert!(reopened[1].remote_id.is_some());
+    assert!(reopened[2].remote_id.is_none());
+
+    // When retrying with a healthy client
+    let retry_plan = post::plan(&reopened, &files, 42);
+    assert_eq!(retry_plan.total(), 1);
+    assert_eq!(retry_plan.inline, vec![2]);
+
+    let recovered_client = FakeClient::default();
+    let mut retry_comments = reopened;
+    let retry_report = post::post(
+        &recovered_client,
+        42,
+        &mut retry_comments,
+        &retry_plan,
+        std::time::Duration::ZERO,
+        |current| store.save_comments(current),
+    );
+    assert!(retry_report.error.is_none());
+    assert_eq!(retry_report.posted, 1);
+    assert_eq!(
+        recovered_client.posted.borrow().as_slice(),
+        ["c.rs:1:fix in c.rs"]
+    );
+
+    // All three comments now have remote IDs
+    assert!(retry_comments.iter().all(|c| c.remote_id.is_some()));
+}

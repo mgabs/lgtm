@@ -62,8 +62,8 @@ pub struct ReviewState {
     pub folds: Vec<FoldMark>,
 }
 
-/// Hash of the whitespace-normalized changed lines; ignores context, headers and line numbers.
-pub fn hunk_hash(h: &DiffHunk) -> String {
+/// Hash of the whitespace-normalized changed lines as a 64-bit integer.
+pub fn hunk_hash_u64(h: &DiffHunk) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
     let mut feed_byte = |b: u8| {
         hash = (hash ^ b as u64).wrapping_mul(0x100000001b3);
@@ -96,7 +96,17 @@ pub fn hunk_hash(h: &DiffHunk) -> String {
         }
     }
 
+    hash
+}
+
+/// Formats a 64-bit hunk hash as standard 16-hex characters.
+pub fn format_hunk_hash(hash: u64) -> String {
     format!("{:016x}", hash)
+}
+
+/// Hash of the whitespace-normalized changed lines; ignores context, headers and line numbers.
+pub fn hunk_hash(h: &DiffHunk) -> String {
+    format_hunk_hash(hunk_hash_u64(h))
 }
 
 /// Hash of the hunk holding new-side line `line` of `path`, if that line is in the diff.
@@ -113,11 +123,20 @@ pub fn hunk_hash_at(files: &[FileDiff], path: &str, line: u32) -> Option<String>
 /// nearest unused mark by line, so identical hunks stay distinct.
 pub fn reviewed_flags(marks: &[HunkMark], file: &FileDiff) -> Vec<bool> {
     let name = file.display_name();
+    let file_marks: Vec<(usize, &HunkMark)> = marks
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.file == name)
+        .collect();
+    if file_marks.is_empty() {
+        return vec![false; file.hunks.len()];
+    }
+
     let hashes: Vec<String> = file.hunks.iter().map(hunk_hash).collect();
     let mut pairs = Vec::new();
     for (hi, h) in file.hunks.iter().enumerate() {
-        for (mi, m) in marks.iter().enumerate() {
-            if m.file == name && m.content_hash == hashes[hi] {
+        for &(mi, m) in &file_marks {
+            if m.content_hash == hashes[hi] {
                 pairs.push((m.last_line.abs_diff(h.new_start), hi, mi));
             }
         }
@@ -314,12 +333,54 @@ fn line_at(h: &DiffHunk, idx: usize) -> Option<u32> {
     h.lines.iter().skip(idx).find_map(|l| l.new_line_num)
 }
 
+pub(crate) struct HunkIndex<'a> {
+    by_hash: std::collections::HashMap<String, Vec<(&'a FileDiff, &'a DiffHunk)>>,
+}
+
+impl<'a> HunkIndex<'a> {
+    pub fn build(files: &'a [FileDiff]) -> Self {
+        let mut by_hash: std::collections::HashMap<String, Vec<(&'a FileDiff, &'a DiffHunk)>> =
+            std::collections::HashMap::new();
+        for f in files {
+            for h in &f.hunks {
+                let hash = hunk_hash(h);
+                by_hash.entry(hash).or_default().push((f, h));
+            }
+        }
+        Self { by_hash }
+    }
+
+    pub fn find_exact(&self, c: &ReviewComment) -> Option<(&'a FileDiff, &'a DiffHunk)> {
+        let candidates = self.by_hash.get(&c.content_hash)?;
+        candidates
+            .iter()
+            .min_by_key(|(f, h)| {
+                let other = f.display_name() != c.anchor.file_path;
+                (other, h.new_start.abs_diff(c.hunk_start))
+            })
+            .copied()
+    }
+}
+
+fn reanchor_exact_indexed<'a>(c: &mut ReviewComment, index: &HunkIndex<'a>) -> bool {
+    let Some((f, h)) = index.find_exact(c) else {
+        return false;
+    };
+    let Some(line) = line_at(h, c.line_idx) else {
+        return false;
+    };
+    c.hunk_start = h.new_start;
+    c.settle(&f.display_name(), line);
+    true
+}
+
 /// Re-anchor after a diff reload: exact hunk hash (same file first, then nearest hunk),
 /// then fuzzy match on the commented code plus context; otherwise orphaned. Never deletes.
 pub fn reanchor(comments: &mut [ReviewComment], files: &[FileDiff]) {
+    let index = HunkIndex::build(files);
     for c in comments.iter_mut() {
-        let hit =
-            (!c.content_hash.is_empty() && reanchor_exact(c, files)) || reanchor_fuzzy(c, files);
+        let hit = (!c.content_hash.is_empty() && reanchor_exact_indexed(c, &index))
+            || reanchor_fuzzy(c, files);
         if !hit {
             c.status = Status::Orphaned;
         }
@@ -331,6 +392,7 @@ pub fn reanchor(comments: &mut [ReviewComment], files: &[FileDiff]) {
 /// Returns true when any anchor changed.
 pub fn reanchor_anchors(anchors: &mut [CommentAnchor], files: &[FileDiff]) -> bool {
     let mut changed = false;
+    let index = HunkIndex::build(files);
     for a in anchors.iter_mut() {
         let in_file = || files.iter().filter(|f| f.display_name() == a.file_path);
         // Comments on deleted lines have no new-side anchor; they stay put.
@@ -345,9 +407,12 @@ pub fn reanchor_anchors(anchors: &mut [CommentAnchor], files: &[FileDiff]) -> bo
         if on_deletion || in_file().next().is_none() {
             continue;
         }
-        let mut rc = [ReviewComment::new(a.clone(), &[])];
-        reanchor(&mut rc, files);
-        let [rc] = rc;
+        let mut rc = ReviewComment::new(a.clone(), &[]);
+        let hit = (!rc.content_hash.is_empty() && reanchor_exact_indexed(&mut rc, &index))
+            || reanchor_fuzzy(&mut rc, files);
+        if !hit {
+            rc.status = Status::Orphaned;
+        }
         let orphaned = rc.status == Status::Orphaned;
         if rc.anchor.target_line_no != a.target_line_no || orphaned != a.orphaned {
             a.target_line_no = rc.anchor.target_line_no;
@@ -356,26 +421,6 @@ pub fn reanchor_anchors(anchors: &mut [CommentAnchor], files: &[FileDiff]) -> bo
         }
     }
     changed
-}
-
-fn reanchor_exact(c: &mut ReviewComment, files: &[FileDiff]) -> bool {
-    let mut best: Option<((bool, u32), &FileDiff, &DiffHunk)> = None;
-    for f in files {
-        let other = f.display_name() != c.anchor.file_path;
-        for h in f.hunks.iter().filter(|h| hunk_hash(h) == c.content_hash) {
-            let key = (other, h.new_start.abs_diff(c.hunk_start));
-            if best.is_none_or(|(k, ..)| key < k) {
-                best = Some((key, f, h));
-            }
-        }
-    }
-    let Some((_, f, h)) = best else { return false };
-    let Some(line) = line_at(h, c.line_idx) else {
-        return false;
-    };
-    c.hunk_start = h.new_start;
-    c.settle(&f.display_name(), line);
-    true
 }
 
 fn reanchor_fuzzy(c: &mut ReviewComment, files: &[FileDiff]) -> bool {

@@ -91,7 +91,7 @@ impl PrEngine {
     }
 
     pub fn parse_unified_diff(diff_text: &str) -> Result<DiffSnapshot> {
-        let mut files: Vec<FileDiff> = Vec::new();
+        let mut files: Vec<FileDiff> = Vec::with_capacity(32);
         let mut current_file: Option<FileDiff> = None;
         let mut current_hunk: Option<DiffHunk> = None;
 
@@ -110,12 +110,15 @@ impl PrEngine {
                 }
 
                 // Extract path: diff --git a/foo/bar.rs b/foo/bar.rs
-                let parts: Vec<&str> = raw_line.split_whitespace().collect();
-                let b_path = parts
-                    .get(3)
-                    .map(|s| s.trim_start_matches("b/"))
+                let mut words = raw_line.split_ascii_whitespace();
+                let _diff = words.next();
+                let _git = words.next();
+                let a_raw = words.next();
+                let b_raw = words.next();
+                let b_path = b_raw
+                    .map(|s| s.strip_prefix("b/").unwrap_or(s))
                     .unwrap_or("unknown");
-                let a_path = parts.get(2).map(|s| s.trim_start_matches("a/"));
+                let a_path = a_raw.map(|s| s.strip_prefix("a/").unwrap_or(s));
 
                 current_file = Some(FileDiff {
                     old_path: a_path.map(PathBuf::from),
@@ -123,7 +126,7 @@ impl PrEngine {
                     change_type: ChangeType::Modified,
                     additions: 0,
                     deletions: 0,
-                    hunks: Vec::new(),
+                    hunks: Vec::with_capacity(8),
                     is_folded: false,
                     is_reviewed: false,
                 });
@@ -147,13 +150,14 @@ impl PrEngine {
                 current_old_line = old_start;
                 current_new_line = new_start;
 
+                let capacity = (new_lines.max(old_lines) as usize).min(1024);
                 current_hunk = Some(DiffHunk {
                     header: raw_line.to_string(),
                     old_start,
                     old_lines,
                     new_start,
                     new_lines,
-                    lines: Vec::new(),
+                    lines: Vec::with_capacity(capacity),
                     is_folded: false,
                     folded_blocks: Vec::new(),
                 });
@@ -207,25 +211,34 @@ impl PrEngine {
     }
 }
 
-fn parse_hunk_header(header: &str) -> (u32, u32, u32, u32) {
-    // Expected format: @@ -1,5 +1,6 @@
+fn parse_range(s: &str) -> (u32, u32) {
+    if let Some((start, count)) = s.split_once(',') {
+        (start.parse().unwrap_or(1), count.parse().unwrap_or(1))
+    } else {
+        (s.parse().unwrap_or(1), 1)
+    }
+}
+
+pub fn parse_hunk_header(header: &str) -> (u32, u32, u32, u32) {
     let mut old_start = 1;
     let mut old_lines = 1;
     let mut new_start = 1;
     let mut new_lines = 1;
 
-    let parts: Vec<&str> = header.split("@@").collect();
-    if parts.len() >= 2 {
-        let range_part = parts[1].trim();
-        for section in range_part.split_whitespace() {
-            if let Some(rest) = section.strip_prefix('-') {
-                let nums: Vec<&str> = rest.split(',').collect();
-                old_start = nums[0].parse().unwrap_or(1);
-                old_lines = nums.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
-            } else if let Some(rest) = section.strip_prefix('+') {
-                let nums: Vec<&str> = rest.split(',').collect();
-                new_start = nums[0].parse().unwrap_or(1);
-                new_lines = nums.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+    if let Some(first) = header.find("@@") {
+        let after_first = &header[first + 2..];
+        if let Some(second) = after_first.find("@@") {
+            let inner = &after_first[..second];
+            for word in inner.split_ascii_whitespace() {
+                if let Some(rest) = word.strip_prefix('-') {
+                    let (s, l) = parse_range(rest);
+                    old_start = s;
+                    old_lines = l;
+                } else if let Some(rest) = word.strip_prefix('+') {
+                    let (s, l) = parse_range(rest);
+                    new_start = s;
+                    new_lines = l;
+                }
             }
         }
     }
@@ -293,5 +306,10 @@ deleted file mode 100644
         assert_eq!(old_lines, 5);
         assert_eq!(new_start, 20);
         assert_eq!(new_lines, 8);
+
+        // Edge case: single line without comma count
+        assert_eq!(parse_hunk_header("@@ -1 +1 @@"), (1, 1, 1, 1));
+        assert_eq!(parse_hunk_header("@@ -42 +99 @@"), (42, 1, 99, 1));
+        assert_eq!(parse_hunk_header("invalid"), (1, 1, 1, 1));
     }
 }

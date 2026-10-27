@@ -178,6 +178,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some(Commands::Serve { mcp, repo }) => {
+            eprintln!("⚠️  Notice: 'lgtm serve --mcp' is deprecated. Use 'lgtm mcp'.");
             let target = repo.unwrap_or(cli.repo);
             let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
             if mcp {
@@ -255,6 +256,7 @@ fn main() -> ExitCode {
                         ExitCode::from(1)
                     }
                 },
+                Some(cli::PrSubcommand::List { state }) => list_prs_cli(&repo_path, &state),
                 None => match number {
                     Some(num) => {
                         if let Err(e) = run_tui(
@@ -278,27 +280,10 @@ fn main() -> ExitCode {
                 },
             }
         }
-        Some(Commands::Prs { state }) => match lgtm_core::forge::open(
-            &std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo.clone()),
-        )
-        .list_prs_state(pr::PullRequestState::parse(&state).expect("validated PR state"))
-        {
-            Ok(prs) => {
-                println!("📋 {} pull requests ({} total):\n", state, prs.len());
-                for pr in prs {
-                    println!(
-                            "  \x1b[1;34m#{}\x1b[0m {} \x1b[33mby @{}\x1b[0m (\x1b[32m+{}\x1b[0m/\x1b[31m-{}\x1b[0m) [\x1b[36m{}\x1b[0m] ({})",
-                            pr.number, pr.title, pr.author.login, pr.additions, pr.deletions, pr.head_ref_name, pr.state
-                        );
-                }
-                println!("\nRun `lgtm pr <num>` to review a PR.");
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                eprintln!("Error listing PRs: {}", e);
-                ExitCode::from(1)
-            }
-        },
+        Some(Commands::Prs { state }) => {
+            eprintln!("⚠️  Notice: 'lgtm prs' is deprecated. Use 'lgtm pr list'.");
+            list_prs_cli(&cli.repo, &state)
+        }
         Some(Commands::Check {
             repo,
             format,
@@ -325,15 +310,18 @@ fn main() -> ExitCode {
             show_suppressed,
             rev,
             ..
-        }) => run_check(
-            repo.unwrap_or(cli.repo),
-            &format,
-            output.as_deref(),
-            strict,
-            show_suppressed,
-            true,
-            rev.as_deref(),
-        ),
+        }) => {
+            eprintln!("⚠️  Notice: 'lgtm ci' is deprecated. Use 'lgtm check --no-user-config'.");
+            run_check(
+                repo.unwrap_or(cli.repo),
+                &format,
+                output.as_deref(),
+                strict,
+                show_suppressed,
+                true,
+                rev.as_deref(),
+            )
+        }
         Some(Commands::Baseline { prune, repo, .. }) => {
             let target = repo.unwrap_or(cli.repo);
             let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
@@ -401,6 +389,7 @@ fn main() -> ExitCode {
             let repo_path = std::fs::canonicalize(&repo_target).unwrap_or(repo_target);
 
             if open_tui {
+                eprintln!("⚠️  Notice: 'lgtm scan --tui' is deprecated. Use 'lgtm audit'.");
                 let start_mode = if full_repo {
                     AuditStartMode::FullRepo
                 } else {
@@ -475,7 +464,24 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Diff { revision }) | Some(Commands::Status { revision }) => {
+        Some(Commands::Status { revision }) => {
+            eprintln!("⚠️  Notice: 'lgtm status' is deprecated. Use 'lgtm' or 'lgtm diff'.");
+            let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+            if let Err(e) = run_tui(
+                repo_path,
+                cli.agent_pane,
+                cli.agent_sink,
+                cli.debounce,
+                cli.pr,
+                revision,
+                None,
+            ) {
+                eprintln!("Error running lgtm: {}", e);
+                return ExitCode::from(1);
+            }
+            ExitCode::SUCCESS
+        }
+        Some(Commands::Diff { revision }) => {
             let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
             if let Err(e) = run_tui(
                 repo_path,
@@ -506,6 +512,30 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
             ExitCode::SUCCESS
+        }
+    }
+}
+
+fn list_prs_cli(repo: &Path, state: &str) -> ExitCode {
+    match lgtm_core::forge::open(
+        &std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf()),
+    )
+    .list_prs_state(pr::PullRequestState::parse(state).expect("validated PR state"))
+    {
+        Ok(prs) => {
+            println!("📋 {} pull requests ({} total):\n", state, prs.len());
+            for pr in prs {
+                println!(
+                    "  \x1b[1;34m#{}\x1b[0m {} \x1b[33mby @{}\x1b[0m (\x1b[32m+{}\x1b[0m/\x1b[31m-{}\x1b[0m) [\x1b[36m{}\x1b[0m] ({})",
+                    pr.number, pr.title, pr.author.login, pr.additions, pr.deletions, pr.head_ref_name, pr.state
+                );
+            }
+            println!("\nRun `lgtm pr <num>` to review a PR.");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("Error listing PRs: {}", e);
+            ExitCode::from(1)
         }
     }
 }

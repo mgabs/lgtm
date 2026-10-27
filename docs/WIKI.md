@@ -598,7 +598,7 @@ Inputs: `version` (required), `base`, `strict`, `upload-sarif`. Outputs: `exit-c
 **GitLab CI** (any runner: install the release tarball, then run):
 
 ```bash
-lgtm ci --rev "origin/${TARGET_BRANCH}...HEAD" -f markdown
+lgtm check --rev "origin/${TARGET_BRANCH}...HEAD" -f markdown
 ```
 
 **Azure Pipelines** (needs `fetchDepth: 0`; findings appear as `##vso[task.logissue]` annotations, auto-selected when `TF_BUILD` is set or with `-f azure`):
@@ -609,7 +609,7 @@ steps:
     fetchDepth: 0
   - script: |
       # install the lgtm release tarball, then:
-      lgtm ci --rev "origin/$(System.PullRequest.TargetBranch)...HEAD" -f azure
+      lgtm check --rev "origin/$(System.PullRequest.TargetBranch)...HEAD" -f azure
     displayName: lgtm
 ```
 
@@ -628,7 +628,7 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 
 | Works | Not yet (planned) |
 |---|---|
-| `:prs open/closed/all`, `lgtm prs --state open/closed/all`: list PRs by state (default open) | |
+| `:prs open/closed/all`, `lgtm pr list --state open/closed/all`: list PRs by state (default open; alias `lgtm prs`) | |
 | `:pr <n>`, `lgtm pr <n>`: reads fresh metadata through REST with cached authentication and CLI fallback; uses recorded commits before probing refs, including completed/abandoned PRs | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
@@ -731,8 +731,8 @@ path = ".lgtm-baseline.json"
 | `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
 | `lgtm init` / `--init` | Create `.lgtm.toml` |
 | `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via Git/API/`gh`, Azure DevOps via `az`) |
-| `lgtm prs --state open/closed/all` | List and pick PRs by state (default open) |
-| `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
+| `lgtm pr list [--state open\|closed\|all]` | List and pick PRs by state (default open; alias: `lgtm prs`) |
+| `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too; alias: `lgtm ci`) |
 | `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
 | `lgtm ci [--strict] [--rev <spec>] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF. `--rev origin/main...HEAD` checks a committed range. Exit 0 pass, 1 blocking findings, 2 tool error (also on `check`) |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
