@@ -37,6 +37,8 @@ pub fn command_description(cmd: &str) -> &'static str {
         "clear-resolved" => "Remove all resolved review directives",
         "resolve" | "res" => "Resolve directive on current line (or `:resolve all`)",
         "unresolve" => "Mark directive on current line active (or `:unresolve all`)",
+        "next" | "n" => "Jump to next file (or next issue in Audit mode)",
+        "prev" | "p" => "Jump to previous file (or previous issue in Audit mode)",
         "prompt" | "context" => "Open agent prompt / gate context modal",
         "approve" | "lgtm" => "Approve agent breakpoint gate",
         "reject" => "Reject hunk under cursor and re-prompt agent with reason",
