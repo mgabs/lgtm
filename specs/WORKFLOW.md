@@ -25,7 +25,15 @@ specs/
 - All proposal, specs, design, tasks, and vertical slice work commits to this feature branch.
 
 ### Rule 2: Multi-Agent Parallel Streams via Git Worktrees
-- When tasks/slices have **no mutual dependencies** (orthogonal modules, distinct capabilities, or decoupled tests):
+- **Always Use a Worktree When Another Agent is Running**:
+  - Whenever an agent or subagent is active, any concurrent stream MUST operate in an isolated Git worktree (`Workspace: 'share'` or `.worktrees/<feature>-<stream>`).
+  - Multiple agents must **never** share or mutate the same working directory or git index simultaneously.
+- **No Force-Remove Protocol (Clean Lifecycle)**:
+  - Worktrees must **never** be forcefully removed (`git worktree remove --force` or raw directory deletion).
+  - Every agent stream MUST finish its work cleanly: commit all tracked changes, clean transient scratch files, and leave a clean git status before signaling completion.
+  - The Lead Orchestrator fast-forward merges the branch (`git merge --ff-only`), then prunes the worktree cleanly with standard `rtk git worktree remove <path>`.
+  - Stale worktree metadata is cleaned with `rtk git worktree prune`.
+- **Parallel Stream Protocol**:
   1. Ensure `.worktrees/` is present in `.gitignore`.
   2. For each independent task stream, spawn an isolated Git worktree:
      ```bash
