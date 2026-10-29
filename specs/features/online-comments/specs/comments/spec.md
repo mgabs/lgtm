@@ -75,3 +75,26 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 - Outdated/lineless threads (`line: None`) are listed under their path, reply/resolve still work.
 - Multi-line body, unicode, very long body (> provider limit) → validated/reported before sending.
 - Forge returns resolved-by-others thread → shown resolved; unresolve allowed.
+
+### 5. TUI Command & Key Surface
+
+#### REQ-OC-10
+Replaces `:c/:comments/:directives/:todo`, `:threads`, `:post`, `:clear`, `:clear-resolved`, and the old `:reply/:resolve/:unresolve` (directive-scoped) commands.
+
+| Key | Command | Action |
+|-----|---------|--------|
+| `c` | `:comment [text]` | Draft a new thread at cursor line (opens inline prompt if no text) |
+| `r` | `:reply [text]` | Draft a reply to the thread at cursor / focused in the view |
+| `x` | `:resolve` | Draft resolve of the thread at cursor (toggles to `:unresolve` if resolved) |
+| — | `:unresolve` | Draft unresolve of the thread at cursor |
+| `C` | `:comments` | Open the single comments view (live threads + drafts) |
+| `]c` / `[c` | — | Next / previous thread or draft |
+| — | `:submit` | Review and send the draft batch (REQ-OC-06b) |
+| — | `:discard [id\|all]` | Discard one draft or all drafts for this PR |
+| — | `:refresh` | Re-fetch live threads |
+
+- `:resolve all` / `:unresolve all` are dropped (YAGNI); thread targeting is cursor/focus only.
+- Inside the comments view: `j/k` move, `Enter` expand thread, `r` reply, `x` resolve/unresolve, `e` edit draft, `d` discard draft, `s` submit, `Esc` close.
+- Without a loaded PR, `:comment/:reply/:resolve/:submit/:refresh` show "Comments require a PR" and do nothing.
+- Help screen and command palette MUST list only these commands; removed commands are deleted, not aliased.
+- Agent-directive keys (blast to tmux via `Enter` / `Ctrl-s`) and the `#ref` channel remain unchanged; no key collides with them (**confirm**: `c` currently creates local directives and is reassigned to PR comment drafts).
