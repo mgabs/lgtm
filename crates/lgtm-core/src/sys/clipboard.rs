@@ -42,7 +42,7 @@ pub fn copy_via_clip_exe(text: &str) -> io::Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(io::Error::new(io::ErrorKind::Other, "clip.exe failed"))
+        Err(io::Error::other("clip.exe failed"))
     }
 }
 
@@ -73,10 +73,7 @@ pub fn copy_via_powershell(text: &str) -> io::Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "powershell Set-Clipboard failed",
-        ))
+        Err(io::Error::other("powershell Set-Clipboard failed"))
     }
 }
 
