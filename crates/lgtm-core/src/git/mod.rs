@@ -553,9 +553,8 @@ pub fn apply_patch(repo_path: &Path, patch: &str, cached: bool, reverse: bool) -
 
 pub fn parse_worktrees_porcelain(output: &str, current_repo_path: &Path) -> Vec<WorktreeInfo> {
     let mut worktrees = Vec::new();
-    let norm_current = current_repo_path
-        .canonicalize()
-        .unwrap_or_else(|_| current_repo_path.to_path_buf());
+    let norm_current = crate::sys::canonicalize_clean(current_repo_path)
+        .unwrap_or_else(|_| crate::sys::strip_verbatim_prefix(current_repo_path.to_path_buf()));
 
     let mut cur_path: Option<PathBuf> = None;
     let mut cur_head = String::new();
@@ -568,10 +567,12 @@ pub fn parse_worktrees_porcelain(output: &str, current_repo_path: &Path) -> Vec<
                  bare: bool,
                  worktrees: &mut Vec<WorktreeInfo>| {
         if let Some(p) = path {
-            let is_current = p.canonicalize().unwrap_or_else(|_| p.clone()) == norm_current
-                || p == current_repo_path;
+            let p_norm = crate::sys::canonicalize_clean(&p)
+                .unwrap_or_else(|_| crate::sys::strip_verbatim_prefix(p.clone()));
+            let is_current = p_norm == norm_current || p == current_repo_path;
+            let p_clean = crate::sys::strip_verbatim_prefix(p);
             worktrees.push(WorktreeInfo {
-                path: p,
+                path: p_clean,
                 head,
                 branch,
                 is_bare: bare,

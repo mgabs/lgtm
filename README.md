@@ -31,8 +31,11 @@
 # macOS & Linux (Homebrew)
 brew install mgabs/tap/lgtm
 
-# Cargo (from GitHub)
+# Windows, macOS & Linux (Cargo from GitHub)
 cargo install --git https://github.com/mgabs/lgtm.git
+
+# Windows (Pre-compiled zip)
+# Download lgtm-v*-windows-x86_64.zip from GitHub Releases and extract to PATH.
 ```
 
 ### 30-Second Cheat Sheet

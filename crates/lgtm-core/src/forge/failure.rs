@@ -197,7 +197,8 @@ pub fn operation(program: &str, args: &[&str]) -> &'static str {
 pub fn run(repo: &Path, program: &str, args: &[&str]) -> Result<String> {
     let operation = operation(program, args);
     crate::debug::measure(operation, || {
-        let mut command = Command::new(program);
+        let resolved = crate::sys::resolve_program(program);
+        let mut command = Command::new(resolved.as_ref());
         if program == "curl" {
             command.args(["--connect-timeout", "10", "--max-time", "30"]);
         }
