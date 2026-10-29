@@ -37,6 +37,7 @@ struct Fake {
     /// Calls whose write lands on the forge but whose reply is lost.
     land_then_timeout: RefCell<Vec<String>>,
     sha: Option<String>,
+    head_calls: std::cell::Cell<u32>,
 }
 
 impl Fake {
@@ -58,6 +59,7 @@ impl PrDiscussion for Fake {
         Ok(self.threads.borrow().clone())
     }
     fn head_sha(&self, _pr: u64) -> Result<String> {
+        self.head_calls.set(self.head_calls.get() + 1);
         self.sha.clone().ok_or_else(|| anyhow::anyhow!("no head"))
     }
     fn post_inline(
@@ -350,11 +352,16 @@ fn remediation_covers_every_failure_class() {
         (f(Kind::Http, Some(500)), "fix the cause"),
         (anyhow::anyhow!("API rate limit exceeded"), "rate limit"),
         (anyhow::anyhow!("HTTP 404 Not Found"), "thread is gone"),
+        (anyhow::anyhow!("HTTP 404"), "thread is gone"),
+        (anyhow::anyhow!("thread not found"), "thread is gone"),
         (
             anyhow::anyhow!("not supported by this provider"),
             "does not support",
         ),
         (anyhow::anyhow!("Unprocessable Entity"), "PR diff"),
+        (anyhow::anyhow!("HTTP 422"), "PR diff"),
+        (anyhow::anyhow!("request timed out"), "connectivity"),
+        (anyhow::anyhow!("gateway timeout"), "connectivity"),
         (anyhow::anyhow!("boom"), "fix the cause"),
     ];
     for (err, want) in cases {
@@ -403,4 +410,22 @@ fn store_save_reports_unwritable_location() {
     let dirpath = dir.path().join("x");
     std::fs::create_dir_all(dirpath.join(".lgtm/drafts/pr-1.json/inner")).unwrap();
     assert!(store::save(&dirpath, 1, "r", &DraftSet::default()).is_err());
+}
+
+#[test]
+fn head_is_only_fetched_for_sendable_inline_drafts() {
+    let fake = Fake::default();
+    let mut s = DraftSet::default();
+    s.add(DraftKind::General, "g").unwrap();
+    s.add(reply_kind("gone"), "r").unwrap();
+    submit(&fake, 1, &mut s).unwrap();
+    assert_eq!(*fake.calls.borrow(), vec!["general"]);
+    assert_eq!(fake.head_calls.get(), 0);
+}
+
+#[test]
+fn draft_errors_have_readable_messages() {
+    assert_eq!(DraftError::EmptyBody.to_string(), "Comment body is empty");
+    assert!(DraftError::InvalidLine.to_string().contains("diff hunk"));
+    assert!(DraftError::NoBody.to_string().contains("no text"));
 }
