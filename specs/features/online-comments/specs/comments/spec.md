@@ -6,11 +6,11 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 
 ### 1. Requirements
 
-#### REQ-OC-01 (Removal of local comment store)
-- `.lgtm/comments.jsonl` MUST NOT be read or written; `comment` store, `CommentAnchor` persistence, PR association/binding, and `post::plan`/preview pipeline MUST be deleted.
-- `:c` and `:threads` MUST collapse into one `:comments` view backed only by forge threads.
-- All `comments.jsonl` dead code MUST be deleted, not left disabled: the `comment` module and its types, jsonl (de)serialization, watcher hooks, MCP/review/`github::post` references, related tests and BDD steps, the `lgtm pr post` CLI subcommand and TUI commands, docs, `.gitignore` entries, and the tracked `.lgtm/comments.jsonl`. Verified by `grep -rn "comments.jsonl"` returning nothing outside `CHANGELOG.md`/`specs/archive/`, and a clean `cargo clippy` with no `dead_code` allowances added.
-- Agent directives (`#ref file:line`, `.lgtm/reviews/`, MCP review inbox) are unaffected.
+#### REQ-OC-01 (Split PR comments from local directives)
+- Local review directives (agent-steering channel: `:c`/`:directives` and `c` key, MCP `lgtm_list_directives`, watcher, tmux blast, `#ref`) are KEPT but move from `.lgtm/comments.jsonl` to `.lgtm/directives.jsonl`. A legacy `comments.jsonl`, if present, is read once on load, migrated to `directives.jsonl`, and removed.
+- All PR-sync coupling is DELETED, not disabled: `pr_number`, `remote_id`, `orphaned`-vs-PR sync, `associate_directives`, `post::plan/post/reconcile/clear_uncertain`, the `lgtm pr post` CLI, `:post`, `:threads`-as-separate-from-drafts logic, directive-scoped remote `:reply`/`:resolve` paths, and their tests, BDD steps and docs.
+- Verified by: `grep -rn "comments.jsonl"` returning only the one-time migration code/tests, `CHANGELOG.md` and `specs/archive/`; `grep -rn "remote_id\|associate_directives\|post::plan"` empty; clippy clean with no `dead_code` allowances added.
+- Directives never carry or sync to PR state; PR threads never read or write the directive store.
 
 #### REQ-OC-02 (Live thread listing)
 - Opening the comments view or running `:refresh` MUST fetch threads live from the forge (`threads(pr)`), off the main loop.
@@ -79,22 +79,18 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 ### 5. TUI Command & Key Surface
 
 #### REQ-OC-10
-Replaces `:c/:comments/:directives/:todo`, `:threads`, `:post`, `:clear`, `:clear-resolved`, and the old `:reply/:resolve/:unresolve` (directive-scoped) commands.
+Local-directive commands/keys (`c`, `:c`, `:directives`, directive-scoped `:resolve/:unresolve/:reply` as today) are unchanged. PR comment work is namespaced under `:thread` so the two never collide; the old `:threads`, `:post`, and PR-aware paths of `:reply/:resolve/:unresolve` are removed.
 
-| Key | Command | Action |
-|-----|---------|--------|
-| `c` | `:comment [text]` | Draft a new thread at cursor line (opens inline prompt if no text) |
-| `r` | `:reply [text]` | Draft a reply to the thread at cursor / focused in the view |
-| `x` | `:resolve` | Draft resolve of the thread at cursor (toggles to `:unresolve` if resolved) |
-| — | `:unresolve` | Draft unresolve of the thread at cursor |
-| `C` | `:comments` | Open the single comments view (live threads + drafts) |
-| `]c` / `[c` | — | Next / previous thread or draft |
-| — | `:submit` | Review and send the draft batch (REQ-OC-06b) |
-| — | `:discard [id\|all]` | Discard one draft or all drafts for this PR |
-| — | `:refresh` | Re-fetch live threads |
+| Command | Action |
+|---|---|
+| `:threads` | Open the single PR comments view (live threads + drafts) |
+| `:thread comment [text]` | Draft a new thread at the cursor line (inline prompt if no text) |
+| `:thread reply [text]` | Draft a reply to the thread at cursor / focused in the view |
+| `:thread resolve` / `:thread unresolve` | Draft resolve / unresolve of the thread at cursor |
+| `:thread submit` | Review and send the draft batch (REQ-OC-06b) |
+| `:thread discard [id\|all]` | Discard one draft or all drafts for this PR |
+| `:thread refresh` | Re-fetch live threads |
 
-- `:resolve all` / `:unresolve all` are dropped (YAGNI); thread targeting is cursor/focus only.
-- Inside the comments view: `j/k` move, `Enter` expand thread, `r` reply, `x` resolve/unresolve, `e` edit draft, `d` discard draft, `s` submit, `Esc` close.
-- Without a loaded PR, `:comment/:reply/:resolve/:submit/:refresh` show "Comments require a PR" and do nothing.
-- Help screen and command palette MUST list only these commands; removed commands are deleted, not aliased.
-- Agent-directive keys (blast to tmux via `Enter` / `Ctrl-s`) and the `#ref` channel remain unchanged; no key collides with them (**confirm**: `c` currently creates local directives and is reassigned to PR comment drafts).
+- Inside the view: `j/k` move, `Enter` expand, `c` comment, `r` reply, `x` resolve/unresolve, `e` edit draft, `d` discard draft, `s` submit, `Esc` close. Keys are scoped to the view; no global key is added or reassigned. Existing `]t/[t`-style navigation is kept.
+- Without a loaded PR, `:thread *` shows "Comments require a PR".
+- Help and palette list only these commands; removed commands are deleted, not aliased.

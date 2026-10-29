@@ -18,7 +18,8 @@ Reuses the existing pattern: background thread does I/O, then sends `Box<dyn FnO
 ### Crate layout
 | Crate | Content |
 |---|---|
-| `lgtm_core::discussion` (new, replaces `comment/`, `github/post/`) | Pure types and logic: `Draft`, `DraftSet`, `ThreadIndex`, `validate`, `plan_submit`, `reconcile`, `SubmitReport`. No I/O. |
+| `lgtm_core::comment` (kept, trimmed) | Local agent directives only; store file `.lgtm/directives.jsonl`; PR fields removed; one-time legacy migration. |
+| `lgtm_core::discussion` (new, replaces `github/post/`) | Pure types and logic: `Draft`, `DraftSet`, `ThreadIndex`, `validate`, `plan_submit`, `reconcile`, `SubmitReport`. No I/O. |
 | `lgtm_core::forge` (extended) | Keep `PrDiscussion`. Add `post_review(pr, sha, &[InlineDraft]) -> Result<Vec<u64>>` (GitHub: one review; Azure default: loop `post_inline`). |
 | `lgtm_core::drafts_store` (new, small) | Load/save `.lgtm/drafts/pr-<N>.json` (atomic temp+rename). The only file I/O for comments; lives outside the pure `discussion` module. |
 | `src/app/comments.rs` | App wiring: fetch, draft commands, submit job, view state. |
@@ -67,7 +68,7 @@ Rust, ratatui/crossterm, `serde_json` (already in the workspace), `crossbeam_cha
 - `lgtm_core::discussion` has zero I/O/network deps; `drafts_store` and `forge` own all I/O.
 - No ratatui/crossterm in core or MCP (`scripts/check-boundaries.sh`).
 - `lgtm-mcp` and watcher read live threads via the `Forge` trait; they never read drafts.
-- Deletion scope (REQ-OC-01): `crates/lgtm-core/src/comment/`, `github/post/`, `outcome/` pieces tied to comments.jsonl, `src/app/comments.rs` local-directive code, `lgtm pr post` CLI and `headless.rs` post paths, `.lgtm/comments.jsonl`, BDD/test fixtures, docs, `.gitignore` entries.
+- Deletion scope (REQ-OC-01): `github/post/`, PR fields/logic in `comment/` and `outcome/`, PR-sync code in `src/app/comments.rs`, `lgtm pr post` CLI and `headless.rs` post paths, old PR commands, tracked `.lgtm/comments.jsonl`, related tests/BDD/docs. Rename store to `directives.jsonl` (MCP, watcher, docs updated).
 
 ## 7. Performance, Concurrency & Main-Loop Invariants
 - **Main loop budget**: render < 16ms. Rendering reads a prebuilt `ThreadIndex` + `DraftSet` index (`HashMap<(path,line),_>`); no scans per frame. Index rebuilt only in the fetch/draft job on the event loop (O(threads), 200 threads ≪ 1ms).

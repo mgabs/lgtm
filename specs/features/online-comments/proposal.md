@@ -1,12 +1,12 @@
 # Feature Proposal: Online Comments (Forge as Source of Truth)
 
 ## Intent
-Strip the local-first commenting engine (`.lgtm/comments.jsonl`, plan/post pipeline) and rebuild it as an online, robust flow: comment threads live on the forge (GitHub / Azure DevOps), are fetched live, and users can open a thread, reply, and resolve/unresolve directly from the TUI. Supersedes `comments-workflow`.
+Strip the local-first PR commenting engine (plan/post/associate/reconcile pipeline; local directives are kept and move to `.lgtm/directives.jsonl`) and rebuild it as an online, robust flow: comment threads live on the forge (GitHub / Azure DevOps), are fetched live, and users can open a thread, reply, and resolve/unresolve directly from the TUI. Supersedes `comments-workflow`.
 
 ## Scope
 
 ### In-Scope
-- Remove local comment store, association/binding, plan/preview/post pipeline, and `:c` vs `:threads` split.
+- Remove PR-sync coupling of the local store (association/binding, plan/preview/post pipeline, `remote_id`/`pr_number`) and the `:c` vs `:threads` split; rename the agent directive store to `.lgtm/directives.jsonl` with one-time migration.
 - Live fetch of PR review threads (with refresh) as the single comments view.
 - Open (create) a thread on a diff line/side, reply to a thread, resolve / unresolve a thread — each executed immediately against the forge.
 - Robust errors: per-operation actionable failure (auth, 422 line mismatch, rate limit, offline), retry-safe (no duplicate posts on ambiguous timeout).
@@ -19,7 +19,7 @@ Strip the local-first commenting engine (`.lgtm/comments.jsonl`, plan/post pipel
 - Autonomous bot posting.
 
 ## Success Metrics
-- 0 reads or writes of `comments.jsonl`; drafts only in `.lgtm/drafts/`.
+- `comments.jsonl` only appears in one-time migration code; drafts only in `.lgtm/drafts/`.
 - Draft → submit batch (open, reply, resolve) verified against both forges (mocked + live provider test).
 - 0 duplicate comments on retried/timeout requests.
 - Every failure reports file, line, reason, remediation.
