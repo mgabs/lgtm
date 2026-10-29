@@ -9,7 +9,7 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 #### REQ-OC-01 (Removal of local comment store)
 - `.lgtm/comments.jsonl` MUST NOT be read or written; `comment` store, `CommentAnchor` persistence, PR association/binding, and `post::plan`/preview pipeline MUST be deleted.
 - `:c` and `:threads` MUST collapse into one `:comments` view backed only by forge threads.
-- All `comments.jsonl` dead code MUST be deleted, not left disabled: the `comment` module and its types, jsonl (de)serialization, watcher hooks, MCP/review/`github::post` references, related tests and BDD steps, CLI/TUI commands, docs, `.gitignore` entries, and the tracked `.lgtm/comments.jsonl`. Verified by `grep -rn "comments.jsonl"` returning nothing outside `CHANGELOG.md`/`specs/archive/`, and a clean `cargo clippy` with no `dead_code` allowances added.
+- All `comments.jsonl` dead code MUST be deleted, not left disabled: the `comment` module and its types, jsonl (de)serialization, watcher hooks, MCP/review/`github::post` references, related tests and BDD steps, the `lgtm pr post` CLI subcommand and TUI commands, docs, `.gitignore` entries, and the tracked `.lgtm/comments.jsonl`. Verified by `grep -rn "comments.jsonl"` returning nothing outside `CHANGELOG.md`/`specs/archive/`, and a clean `cargo clippy` with no `dead_code` allowances added.
 - Agent directives (`#ref file:line`, `.lgtm/reviews/`, MCP review inbox) are unaffected.
 
 #### REQ-OC-02 (Live thread listing)
@@ -22,13 +22,12 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 - User can draft any number of new inline threads at the cursor line; side MUST be `LEFT` for deletions, `RIGHT` for additions/context. Drafting makes no network call.
 - Empty/whitespace body MUST be rejected; lines outside a diff hunk MUST be rejected with a message naming file and line.
 - A draft general PR conversation comment is also supported.
-- CLI: `lgtm pr comment <PATH>:<LINE> [--side left|right] <TEXT> [--pr N]` adds a draft.
 
 #### REQ-OC-04 (Draft a reply)
-- User can draft multiple replies to focused threads (`thread_id` + target `comment_id`). CLI: `lgtm pr reply <THREAD_ID> <TEXT> [--pr N]`.
+- User can draft multiple replies to focused threads (`thread_id` + target `comment_id`).
 
 #### REQ-OC-05 (Draft resolve / unresolve)
-- User can draft resolve/unresolve of a focused thread; the last draft per thread wins. CLI: `lgtm pr resolve|unresolve <THREAD_ID> [--pr N]`.
+- User can draft resolve/unresolve of a focused thread; the last draft per thread wins.
 - Applying to an already-resolved (or unresolved) thread is an idempotent success.
 
 #### REQ-OC-06 (Draft store)
@@ -37,11 +36,11 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 - The store holds drafts only: never fetched remote threads.
 
 #### REQ-OC-06b (Review and submit)
-- `:submit` / `lgtm pr submit [--pr N]` first shows the full batch (count by kind, file:line, body) for confirmation in the TUI; CLI requires `--yes`, otherwise prints the batch and exits `0` without sending.
+- `:submit` first shows the full batch (count by kind, file:line, body) for confirmation in the TUI; nothing is sent until confirmed.
 - Submit applies items in order: new threads, replies, then resolves. On GitHub, inline threads are sent as a single review (`COMMENT` event); on Azure each item is sent individually.
 - Each item succeeds or fails independently: a succeeded item is removed from the store immediately; a failed item stays with its error. Re-running submit sends only what remains.
-- After submit, live threads are refreshed. Exit `0` all applied, `1` any failed (partial listed), `2` usage/ambiguous PR.
-- Omitted `--pr` resolves via the forge's branch association; ambiguity exits `2`.
+- After submit, live threads are refreshed and a per-item result summary is shown.
+- The target PR is the one loaded in the TUI.
 
 #### REQ-OC-07 (Robust failures)
 - Every failure reports operation, file:line (if any), reason, and remediation, covering: auth, HTTP 422 line mismatch, rate limit, network/offline, thread not found.

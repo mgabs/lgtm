@@ -1,7 +1,7 @@
 # Feature Proposal: Online Comments (Forge as Source of Truth)
 
 ## Intent
-Strip the local-first commenting engine (`.lgtm/comments.jsonl`, plan/post pipeline) and rebuild it as an online, robust flow: comment threads live on the forge (GitHub / Azure DevOps), are fetched live, and users can open a thread, reply, and resolve/unresolve directly from the TUI and CLI. Supersedes `comments-workflow`.
+Strip the local-first commenting engine (`.lgtm/comments.jsonl`, plan/post pipeline) and rebuild it as an online, robust flow: comment threads live on the forge (GitHub / Azure DevOps), are fetched live, and users can open a thread, reply, and resolve/unresolve directly from the TUI. Supersedes `comments-workflow`.
 
 ## Scope
 
@@ -10,7 +10,7 @@ Strip the local-first commenting engine (`.lgtm/comments.jsonl`, plan/post pipel
 - Live fetch of PR review threads (with refresh) as the single comments view.
 - Open (create) a thread on a diff line/side, reply to a thread, resolve / unresolve a thread — each executed immediately against the forge.
 - Robust errors: per-operation actionable failure (auth, 422 line mismatch, rate limit, offline), retry-safe (no duplicate posts on ambiguous timeout).
-- CLI parity: `lgtm pr comment | reply | resolve`.
+- No headless CLI for comments: all comment work is TUI-only (`lgtm pr post|reply|resolve` subcommands are removed).
 - Update MCP surface (`lgtm-mcp`) and watcher to read live threads instead of the jsonl.
 
 ### Out-of-Scope
