@@ -18,32 +18,36 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 - Gutter markers in the diff derive from the fetched threads only.
 - With no PR/forge target, the view MUST show "Comments require a PR" and no create/reply/resolve actions.
 
-#### REQ-OC-03 (Open thread)
-- User can open a new inline thread at the cursor line; side MUST be `LEFT` for deletions, `RIGHT` for additions/context.
-- Submit calls `post_inline(pr, head_sha, path, line, side, body)` immediately; on success the thread list is refreshed and the new thread focused.
-- Empty/whitespace body MUST be rejected locally without a request.
-- Lines outside a diff hunk MUST be rejected locally with a message naming file and line.
-- A general PR conversation comment is available via `post_general`.
+#### REQ-OC-03 (Draft a thread)
+- User can draft any number of new inline threads at the cursor line; side MUST be `LEFT` for deletions, `RIGHT` for additions/context. Drafting makes no network call.
+- Empty/whitespace body MUST be rejected; lines outside a diff hunk MUST be rejected with a message naming file and line.
+- A draft general PR conversation comment is also supported.
+- CLI: `lgtm pr comment <PATH>:<LINE> [--side left|right] <TEXT> [--pr N]` adds a draft.
 
-#### REQ-OC-04 (Reply)
-- User can reply to a focused thread; calls `reply(pr, thread_id, comment_id, body)` immediately, then refreshes that thread via `thread(pr, id)`.
-- CLI: `lgtm pr reply <THREAD_ID> <TEXT> [--pr N]`.
+#### REQ-OC-04 (Draft a reply)
+- User can draft multiple replies to focused threads (`thread_id` + target `comment_id`). CLI: `lgtm pr reply <THREAD_ID> <TEXT> [--pr N]`.
 
-#### REQ-OC-05 (Resolve / unresolve)
-- User can resolve and unresolve a focused thread via `set_resolved`; badge updates after the thread refresh.
-- Resolving an already-resolved thread (or the reverse) is an idempotent success.
-- CLI: `lgtm pr resolve|unresolve <THREAD_ID> [--pr N]`.
+#### REQ-OC-05 (Draft resolve / unresolve)
+- User can draft resolve/unresolve of a focused thread; the last draft per thread wins. CLI: `lgtm pr resolve|unresolve <THREAD_ID> [--pr N]`.
+- Applying to an already-resolved (or unresolved) thread is an idempotent success.
 
-#### REQ-OC-06 (CLI)
-- `lgtm pr comment <PATH>:<LINE> [--side left|right] <TEXT> [--pr N]` opens a thread.
-- Operations execute immediately (no `--yes`, no dry-run); exit `0` on success, `1` on forge failure, `2` on usage/ambiguous PR.
+#### REQ-OC-06 (Draft store)
+- Drafts persist in `.lgtm/drafts/pr-<N>.json` (distinct from the deleted `comments.jsonl`), written atomically, survive restart, and are scoped per PR and forge repo.
+- Drafts are visible in the comments view as pending items (badge `DRAFT`) alongside live threads; each can be edited or discarded individually (`:discard <id>`) or all at once.
+- The store holds drafts only: never fetched remote threads.
+
+#### REQ-OC-06b (Review and submit)
+- `:submit` / `lgtm pr submit [--pr N]` first shows the full batch (count by kind, file:line, body) for confirmation in the TUI; CLI requires `--yes`, otherwise prints the batch and exits `0` without sending.
+- Submit applies items in order: new threads, replies, then resolves. On GitHub, inline threads are sent as a single review (`COMMENT` event); on Azure each item is sent individually.
+- Each item succeeds or fails independently: a succeeded item is removed from the store immediately; a failed item stays with its error. Re-running submit sends only what remains.
+- After submit, live threads are refreshed. Exit `0` all applied, `1` any failed (partial listed), `2` usage/ambiguous PR.
 - Omitted `--pr` resolves via the forge's branch association; ambiguity exits `2`.
 
 #### REQ-OC-07 (Robust failures)
 - Every failure reports operation, file:line (if any), reason, and remediation, covering: auth, HTTP 422 line mismatch, rate limit, network/offline, thread not found.
-- On timeout/ambiguous outcome, the client MUST re-fetch threads and check for the body (same author) before any retry, so a retry never duplicates a comment.
-- The user's typed body MUST be preserved in the prompt after a failure.
-- Failures are never silently swallowed or downgraded to a different operation (e.g. inline → general).
+- On timeout/ambiguous outcome, submit MUST re-fetch threads and match (same author, body, path, line, or reply body) before retrying that item, so a retry never duplicates a comment.
+- Draft bodies are never lost on failure; failures are never silently swallowed or downgraded to a different operation (e.g. inline → general).
+- A draft whose thread is gone or whose line left the diff is marked `STALE` with the reason and is not sent until edited or discarded.
 
 #### REQ-OC-08 (Provider parity)
 - REQ-OC-02..05 hold identically on GitHub and Azure DevOps (`leftFileStart` vs `rightFileStart` on Azure; `side` on GitHub). Unsupported capabilities return an explicit error.
@@ -60,10 +64,11 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 - NFR-OC-05: Coverage ≥ 95%, 100% mutation kill on new/changed core logic.
 
 ### 3. Assumptions
-- ASM-OC-01: A PR and authenticated forge CLI/token are present; no offline queue (per ASM-GEN-1).
-- ASM-OC-02: Existing local `comments.jsonl` content is discarded; a one-line notice is shown if the file exists.
+- ASM-OC-01: A PR and authenticated forge CLI/token are present to list and submit; drafting itself works offline.
+- ASM-OC-02: Existing local `comments.jsonl` content is discarded (not migrated); a one-line notice is shown if the file exists.
 - ASM-OC-03: Duplicate detection uses (author, body, path, line) from fresh threads.
-- ASM-OC-04: Refresh is manual (`:refresh`) plus after every mutation; no background polling.
+- ASM-OC-04: Refresh is manual (`:refresh`) plus after submit; no background polling.
+- ASM-OC-05: `.lgtm/drafts/` is gitignored; GitHub inline drafts are batched in one review, but are NOT stored as a server-side pending review (identical behaviour on both forges).
 
 ### 4. Edge Cases & Errors
 - Thread deleted remotely between list and reply → "thread not found", list refreshed.
