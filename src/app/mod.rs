@@ -170,8 +170,6 @@ pub struct App {
     thread_reconcile: std::collections::HashSet<(u64, String)>,
     thread_jobs:
         std::collections::HashMap<(u64, String), std::collections::VecDeque<comments::ThreadJob>>,
-    posting_prs: std::collections::HashSet<u64>,
-    pub posting_comments: std::collections::HashSet<String>,
     review_posting_prs: std::collections::HashSet<u64>,
     reply_drafts: std::collections::HashMap<(u64, String), String>,
     uncertain_replies: std::collections::HashMap<(u64, String), String>,
@@ -301,8 +299,6 @@ impl App {
             thread_revision: 0,
             thread_reconcile: Default::default(),
             thread_jobs: Default::default(),
-            posting_prs: Default::default(),
-            posting_comments: Default::default(),
             review_posting_prs: Default::default(),
             reply_drafts: Default::default(),
             uncertain_replies: Default::default(),
@@ -361,7 +357,7 @@ impl App {
                     watcher_changed_view |= paths.iter().any(|path| {
                         lgtm_core::watcher::affects_diff(&self.git_engine.repo_path, path)
                             || [
-                                ".lgtm/comments.jsonl",
+                                ".lgtm/directives.jsonl",
                                 ".lgtm/gate.json",
                                 ".lgtm/state.json",
                                 ".lgtm/prompt.txt",
@@ -378,7 +374,7 @@ impl App {
                     }
                     // PR snapshots describe remote commits; workspace edits cannot change them.
                     // Still pick up directives written by MCP/other lgtm processes.
-                    if paths.iter().any(|p| p.ends_with(".lgtm/comments.jsonl")) {
+                    if paths.iter().any(|p| p.ends_with(".lgtm/directives.jsonl")) {
                         self.comments = self.comment_store.load_comments();
                     }
                     reload_needed |= (self.pr.current_number.is_none()
@@ -468,7 +464,6 @@ impl App {
 
     fn has_pending_writes(&self) -> bool {
         self.audit_exports_pending()
-            || !self.posting_prs.is_empty()
             || !self.review_posting_prs.is_empty()
             || !self.thread_jobs.is_empty()
     }
@@ -617,9 +612,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         });
 
@@ -652,9 +645,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         });
 

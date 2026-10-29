@@ -8,7 +8,7 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 
 #### REQ-OC-01 (Split PR comments from local directives)
 - Local review directives (agent-steering channel: `:c`/`:directives` and `c` key, MCP `lgtm_list_directives`, watcher, tmux blast, `#ref`) are KEPT but move from `.lgtm/comments.jsonl` to `.lgtm/directives.jsonl`. A legacy `comments.jsonl`, if present, is read once on load, migrated to `directives.jsonl`, and removed.
-- All PR-sync coupling is DELETED, not disabled: `pr_number`, `remote_id`, `orphaned`-vs-PR sync, `associate_directives`, `post::plan/post/reconcile/clear_uncertain`, the `lgtm pr post` CLI, `:post`, `:threads`-as-separate-from-drafts logic, directive-scoped remote `:reply`/`:resolve` paths, and their tests, BDD steps and docs.
+- All PR-sync coupling is DELETED, not disabled: `remote_id`, `side`, `remote_uncertain` (`pr_number` is retained as the local PR scope of directives), `orphaned`-vs-PR sync, `associate_directives`, `post::plan/post/reconcile/clear_uncertain`, the `lgtm pr post` CLI, `:post`, `:threads`-as-separate-from-drafts logic, directive-scoped remote `:reply`/`:resolve` paths, and their tests, BDD steps and docs.
 - Verified by: `grep -rn "comments.jsonl"` returning only the one-time migration code/tests, `CHANGELOG.md` and `specs/archive/`; `grep -rn "remote_id\|associate_directives\|post::plan"` empty; clippy clean with no `dead_code` allowances added.
 - Directives never carry or sync to PR state; PR threads never read or write the directive store.
 

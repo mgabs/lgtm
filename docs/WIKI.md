@@ -199,7 +199,7 @@ Folds use a visible-rows indirection for cursor motion (`j`, `k`, `G`, `gg`, `Ct
 #### 1. Adding Directives
 - Press `c` on any line to open the directive input modal.
 - Type your feedback (e.g. `Use parameter binding here rather than string concatenation`) and press `Enter`.
-- Directives are immediately persisted to `.lgtm/comments.jsonl`.
+- Directives are immediately persisted to `.lgtm/directives.jsonl`.
 
 #### 2. Quick Steering Chords (2-Key Templates)
 To minimize typing during fast pairing sessions, use instant directive chords:
@@ -416,7 +416,6 @@ az login # or az devops login
 | `:pr <n>` | Reads metadata via REST with cached auth and CLI fallback |
 | `:checks` | Displays branch policy status as pass / fail / pending |
 | `:threads` | PR threads via `az devops invoke`; system/deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved |
-| `:pr post --yes` | Directives on diff lines post as inline threads; rest post to combined general thread; `:thread reply`, `resolve` (`fixed`), `unresolve` (`active`) |
 | Review submit | `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` posts body as discussion thread |
 
 Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queries reuse one `az account get-access-token` per session (~30m, memory-only, passed to curl via private temporary file). Results are cached for 5 minutes; writes invalidate cache.
@@ -437,16 +436,12 @@ Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queri
   - `gone`: file left the diff.
   - `orphaned`: commented code no longer found in file.
   - Agent claims via MCP (`lgtm_resolve_directive`) are tracked separately; unverified claims show `[claimed but not changed]` in red.
-- **Posting Directives**:
-  - `:pr post` previews comment count (inline vs general).
-  - `:pr post --yes` dispatches comments to the remote forge.
-  - Each comment's `remote_id` is recorded immediately so interrupted runs resume without duplication.
 
 #### Durable Review State and Comment Re-pinning
 
 - **Hunk & File Review Marks**: Press `M` to mark/unmark the current hunk as reviewed, or `v` to mark the entire file. Marks persist per review target in `.lgtm/reviews/<target>.json` and survive code changes above the hunk.
 - **Export & Import**: `lgtm review export [target]` outputs state JSON; `lgtm review import <file>` merges marks and directives.
-- **Comment Re-pinning & Orphans**: On reload, comments in `.lgtm/comments.jsonl` re-pin using fuzzy content matching around neighboring lines. If code is deleted, the comment is preserved as `⚠ Orphaned` (viewable in `:c`, manageable via `:directives orphans repin <n>` or `:directives orphans drop`).
+- **Comment Re-pinning & Orphans**: On reload, comments in `.lgtm/directives.jsonl` re-pin using fuzzy content matching around neighboring lines. If code is deleted, the comment is preserved as `⚠ Orphaned` (viewable in `:c`, manageable via `:directives orphans repin <n>` or `:directives orphans drop`).
 
 ---
 
@@ -513,7 +508,7 @@ Or start Aider in one tmux/zellij/wezterm pane and `lgtm` in the other for real-
 |---|---|---|
 | `lgtm_diff` | Get structured diff snapshot with file-by-file stats | `rev_spec` (optional string, e.g. `main..feat`) |
 | `lgtm_security_scan` | Run static analysis guardrails for OWASP leaks, complexity spikes, and test neutering | `strict` (boolean, flag only Critical/High) |
-| `lgtm_list_directives` | Read all human review directives from `.lgtm/comments.jsonl` | *(None)* |
+| `lgtm_list_directives` | Read all human review directives from `.lgtm/directives.jsonl` | *(None)* |
 | `lgtm_add_directive` | Anchor a review directive to a specific file and line | `file` (string), `line` (integer), `content` (string) |
 | `lgtm_directive_status` | Directives with 1-based `id`, outcome, claim and verdict | *(None)* |
 | `lgtm_review_state` | Reviewed hunk count and directive counts | *(None)* |
@@ -698,7 +693,6 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 | `:pr <n>`, `lgtm pr <n>`: reads fresh metadata through REST with cached authentication and CLI fallback; uses recorded commits before probing refs, including completed/abandoned PRs | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
-| `:pr post --yes`: inline comments become threads on the new-side line, the rest one general thread; `:thread reply`, `resolve` (status `fixed`), `unresolve` (`active`) | |
 | Review submit: `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` only comments (body posted as a thread) | |
 
 After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line. Jump between thread lines with `]t`/`[t`, and trigger inline reply or toggle resolution directly on the marked line with `r` or `R`.
@@ -718,7 +712,7 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:audit` | — | Audit the whole codebase (issues only, no diff) |
 | `:scan [repo]` | `:issues` | Scan changed files; `:scan repo` audits the whole codebase |
 | `:export [path]` | — | Export audit scorecard report to Markdown (default: `lgtm-report.md`) |
-| `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/comments.jsonl` |
+| `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/directives.jsonl` |
 | `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load a range, e.g. `:diff main..feat`; a bare branch name means `<branch>...HEAD`, audited on load) |
 | `:q` | `:quit` | Quit `lgtm` (`:q!` force quit without saving) |
 | `:wq` | `:x`, `:exit` | Save directives and quit |

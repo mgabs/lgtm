@@ -192,13 +192,8 @@ impl App {
         }
         self.marks = completion.marks;
         self.invalidate_diff_folds();
-        let associated = lgtm_core::github::post::associate_directives(
-            &mut self.comments,
-            &self.snapshot.files,
-            pr,
-        );
         let mut persisted = true;
-        if completion.changed || associated > 0 {
+        if completion.changed {
             // Retain the UI-owned durable write boundary used by remote posting receipts.
             let _timing = lgtm_core::debug::Span::new("review.persist_pr_directives");
             if let Err(error) = self.comment_store.save_comments(&self.comments) {
@@ -297,7 +292,7 @@ mod tests {
         tx.send(WatcherMessage::FilesChanged(vec![app
             .git_engine
             .repo_path
-            .join(".lgtm/comments.jsonl")]))
+            .join(".lgtm/directives.jsonl")]))
             .unwrap();
         app.handle_background_events();
         assert_eq!(app.status_message.as_deref(), Some("unchanged"));
@@ -574,70 +569,12 @@ mod tests {
     }
 
     #[test]
-    fn background_post_preserves_edits_and_success_before_later_failure() {
-        let mut app = create_test_app();
-        app.pr.current_number = Some(42);
-        app.snapshot = lgtm_core::pr::PrEngine::parse_unified_diff(
-            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,2 @@\n+first\n+second\n",
-        )
-        .unwrap();
-        app.comments = vec![directive("first", 1), directive("second", 2)];
-        app.post_pr_comments_job(true, || {
-            Box::new(lgtm_core::github::FakeClient {
-                fail_post_after: Some(1),
-                ..Default::default()
-            })
-        });
-        app.post_pr_comments_job(true, || panic!("duplicate batch executed"));
-        assert!(app
-            .status_message
-            .as_deref()
-            .unwrap()
-            .contains("already being posted"));
-        app.comments[0].add_reply("edited while posting");
-        app.comments.push(directive("new draft", 3));
-        app.comments.swap(0, 1);
-        apply_next(&mut app); // receipt is merged by identity, not the old list index
-        assert!(app.comments[1].remote_id.is_some());
-        assert_eq!(app.comments[1].replies, ["edited while posting"]);
-        apply_next(&mut app); // later post fails; first receipt is already durable
-        assert!(app.comments[0].remote_id.is_none());
-        assert!(app.comments[2].remote_id.is_none());
-        assert!(app
-            .status_message
-            .as_deref()
-            .unwrap()
-            .starts_with("1 of 2 posted; stopped"));
-        assert!(app.posting_prs.is_empty());
-        assert!(app.posting_comments.is_empty());
-        let stored = app.comment_store.load_comments();
-        assert_eq!(stored, app.comments);
-        let retry = lgtm_core::github::post::plan(&app.comments, &app.snapshot.files, 42);
-        assert_eq!(retry.total(), 2);
-    }
-
-    #[test]
-    fn normal_quit_waits_for_successful_post_receipt_to_be_saved() {
-        let mut app = create_test_app();
-        app.pr.current_number = Some(42);
-        app.comments = vec![directive("general comment", 1)];
-        app.post_pr_comments_job(true, || Box::new(lgtm_core::github::FakeClient::default()));
-        app.request_quit();
-        assert!(!app.should_quit);
-        apply_next(&mut app);
-        assert!(app.comment_store.load_comments()[0].remote_id.is_some());
-        apply_next(&mut app);
-        app.handle_background_events();
-        assert!(app.should_quit);
-    }
-
-    #[test]
     fn local_reply_save_failure_keeps_the_input_open() {
         let mut app = create_test_app();
         app.comments = vec![directive("comment", 1)];
         app.start_reply_to_comment(0);
         app.comment_reply_input = "draft reply".into();
-        std::fs::create_dir(app.git_engine.repo_path.join(".lgtm/comments.jsonl")).unwrap();
+        std::fs::create_dir(app.git_engine.repo_path.join(".lgtm/directives.jsonl")).unwrap();
         app.handle_comment_reply_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(app.active_view, ActiveView::CommentReply);
         assert_eq!(app.comment_reply_input, "draft reply");
@@ -791,37 +728,5 @@ mod tests {
         assert!(!app.reply_drafts.contains_key(&(42, "first".into())));
         assert_eq!(app.threads[0].comments.len(), 1);
         assert_eq!(app.threads[0].comments[0].body, "maybe accepted");
-    }
-
-    #[test]
-    fn bdd_ui_010_restart_after_failed_receipt_save_reconciles_against_remote_threads_without_duplicate_post(
-    ) {
-        let mut app = create_test_app();
-        app.pr.current_number = Some(42);
-        let c1 = directive("persisted remote", 3);
-        let c2 = directive("new comment", 4);
-
-        app.comments = vec![c1, c2];
-        app.comment_store.save_comments(&app.comments).unwrap();
-
-        // Threads refreshed from remote provider contain the comment whose local receipt save had failed.
-        let mut remote_thread = thread("thread-1");
-        remote_thread.path = "a.rs".into();
-        remote_thread.line = Some(3);
-        remote_thread
-            .comments
-            .push(lgtm_core::github::ThreadComment {
-                id: 888,
-                author: "reviewer".into(),
-                body: "persisted remote".into(),
-            });
-        app.apply_threads(Ok(vec![remote_thread]));
-
-        // Comment is reconciled with its remote ID and persisted to the comment store.
-        assert_eq!(app.comments[0].remote_id, Some(888));
-        assert_eq!(app.comments[1].remote_id, None);
-        let on_disk = app.comment_store.load_comments();
-        assert_eq!(on_disk[0].remote_id, Some(888));
-        assert_eq!(on_disk[1].remote_id, None);
     }
 }

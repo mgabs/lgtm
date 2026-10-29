@@ -518,9 +518,6 @@ impl App {
                     for thread in &t {
                         self.reconcile_uncertain_reply(pr, thread);
                     }
-                    if lgtm_core::github::post::reconcile(&mut self.comments, &t, pr) > 0 {
-                        let _ = self.comment_store.save_comments(&self.comments);
-                    }
                 }
                 let open: Vec<String> = t
                     .iter()
@@ -554,220 +551,6 @@ impl App {
             }
             Err(e) => e.to_string(),
         });
-    }
-
-    /// `:pr post`: preview unless `confirmed` (`--yes`); nothing is sent without it.
-    #[cfg(test)]
-    pub fn post_pr_comments(
-        &mut self,
-        client: &dyn lgtm_core::github::GithubClient,
-        confirmed: bool,
-    ) {
-        use lgtm_core::github::post;
-        let Some(pr) = self.pr.current_number else {
-            self.status_message = Some("Open a PR first (:pr <n>)".to_string());
-            return;
-        };
-        let associated = post::associate_directives(&mut self.comments, &self.snapshot.files, pr);
-        if associated > 0 {
-            let _ = self.comment_store.save_comments(&self.comments);
-        }
-        let plan = post::plan(&self.comments, &self.snapshot.files, pr);
-        if plan.total() == 0 {
-            self.status_message = Some("No unposted comments for this PR".to_string());
-            return;
-        }
-        if !confirmed {
-            self.status_message = Some(format!(
-                "Would post {} inline + {} general comment(s) to PR #{}; run `:pr post --yes` to send",
-                plan.inline.len(),
-                plan.general.len(),
-                pr
-            ));
-            return;
-        }
-        let store = &self.comment_store;
-        let report = post::post(
-            client,
-            pr,
-            &mut self.comments,
-            &plan,
-            std::time::Duration::from_millis(500),
-            |c| store.save_comments(c),
-        );
-        self.status_message = Some(report.summary());
-    }
-
-    pub fn post_pr_comments_async(&mut self, confirmed: bool) {
-        let repo = self.git_engine.repo_path.clone();
-        let factory = self.forge_factory;
-        self.post_pr_comments_job(confirmed, move || {
-            // Trait upcasting keeps the provider client inside its worker thread.
-            factory(&repo) as Box<dyn lgtm_core::github::GithubClient>
-        });
-    }
-
-    pub(crate) fn post_pr_comments_job(
-        &mut self,
-        confirmed: bool,
-        client: impl FnOnce() -> Box<dyn lgtm_core::github::GithubClient> + Send + 'static,
-    ) {
-        use lgtm_core::github::post;
-        let Some(pr) = self.pr.current_number else {
-            self.status_message = Some("Open a PR first (:pr <n>)".into());
-            return;
-        };
-        if self.posting_prs.contains(&pr) {
-            self.status_message = Some("Comments for this PR are already being posted".into());
-            return;
-        }
-        if !self.threads.is_empty() {
-            let confirmed = post::reconcile(&mut self.comments, &self.threads, pr);
-            if confirmed > 0 {
-                let _ = self.comment_store.save_comments(&self.comments);
-            }
-        }
-        let associated = post::associate_directives(&mut self.comments, &self.snapshot.files, pr);
-        if associated > 0 {
-            let _ = self.comment_store.save_comments(&self.comments);
-        }
-        let plan = post::plan(&self.comments, &self.snapshot.files, pr);
-        if plan.total() == 0 {
-            self.status_message = Some("No unposted comments for this PR".into());
-            return;
-        }
-        if !confirmed {
-            self.status_message = Some(format!("Would post {} inline + {} general comment(s) to PR #{}; run `:pr post --yes` to send", plan.inline.len(), plan.general.len(), pr));
-            return;
-        }
-        for comment in &mut self.comments {
-            if comment.id.is_empty() {
-                comment.id = lgtm_core::comment::new_id();
-            }
-        }
-        if let Err(error) = self.comment_store.save_comments(&self.comments) {
-            self.status_message = Some(format!("Comments were not posted: {error}"));
-            return;
-        }
-        let ids: Vec<String> = plan
-            .inline
-            .iter()
-            .chain(&plan.general)
-            .map(|&i| self.comments[i].id.clone())
-            .collect();
-        self.posting_comments.extend(ids.iter().cloned());
-        self.posting_prs.insert(pr);
-        let mut comments = self.comments.clone();
-        let planned_ids: std::collections::HashSet<_> = ids.iter().cloned().collect();
-        let progress = self.jobs_tx.clone();
-        let plan_files = self.snapshot.files.clone();
-        self.spawn_job(
-            "Posting PR comments",
-            move || {
-                let cl = client();
-                let mut active_plan = plan;
-                if let Ok(threads) = cl.threads(pr) {
-                    let reconciled = post::reconcile(&mut comments, &threads, pr);
-                    if reconciled > 0 {
-                        let receipts: Vec<(String, u64)> = comments
-                            .iter()
-                            .filter(|c| planned_ids.contains(&c.id))
-                            .filter_map(|c| c.remote_id.map(|id| (c.id.clone(), id)))
-                            .collect();
-                        if !receipts.is_empty() {
-                            let (tx, rx) = crossbeam_channel::bounded(1);
-                            let _ = progress.send(Box::new(move |app| {
-                                let _ = app.save_post_receipts(&receipts, &[]);
-                                let _ = tx.send(());
-                            }));
-                            let _ = rx.recv();
-                        }
-                        active_plan = post::plan(&comments, &plan_files, pr);
-                    }
-                }
-                if active_plan.total() == 0 {
-                    return post::Report {
-                        total: 0,
-                        posted: 0,
-                        error: None,
-                    };
-                }
-                post::post(
-                    &*cl,
-                    pr,
-                    &mut comments,
-                    &active_plan,
-                    std::time::Duration::from_millis(500),
-                    |posted| {
-                        // Only the UI owns mutable local state. Merge receipts there and wait for the
-                        // durable save before sending another remote comment.
-                        let receipts: Vec<(String, u64)> = posted
-                            .iter()
-                            .filter(|c| planned_ids.contains(&c.id))
-                            .filter_map(|c| c.remote_id.map(|id| (c.id.clone(), id)))
-                            .collect();
-                        let uncertain: Vec<String> = posted
-                            .iter()
-                            .filter(|c| planned_ids.contains(&c.id) && c.is_remote_uncertain())
-                            .map(|c| c.id.clone())
-                            .collect();
-                        let (tx, rx) = crossbeam_channel::bounded(1);
-                        progress
-                            .send(Box::new(move |app| {
-                                let result = app.save_post_receipts(&receipts, &uncertain);
-                                if app.pr.current_number == Some(pr) {
-                                    app.status_message = Some(format!(
-                                        "Posting PR #{pr} comments… ({} saved)",
-                                        receipts.len()
-                                    ));
-                                }
-                                let _ = tx.send(result);
-                            }))
-                            .map_err(|_| {
-                                anyhow::anyhow!("review closed before progress could be saved")
-                            })?;
-                        rx.recv().map_err(|_| {
-                            anyhow::anyhow!("review closed before progress could be saved")
-                        })?
-                    },
-                )
-            },
-            move |app, report| {
-                app.posting_prs.remove(&pr);
-                if report.error.is_some() {
-                    app.quit_after_jobs = false;
-                }
-                for id in &ids {
-                    app.posting_comments.remove(id);
-                }
-                if app.pr.current_number == Some(pr) {
-                    app.status_message = Some(report.summary());
-                }
-            },
-        );
-    }
-
-    pub(crate) fn save_post_receipts(
-        &mut self,
-        receipts: &[(String, u64)],
-        uncertain: &[String],
-    ) -> anyhow::Result<()> {
-        for (local_id, remote_id) in receipts {
-            if let Some(comment) = self.comments.iter_mut().find(|c| &c.id == local_id) {
-                comment.remote_id = Some(*remote_id);
-                comment.set_remote_uncertain(false);
-            }
-            self.posting_comments.remove(local_id);
-        }
-        for local_id in uncertain {
-            if let Some(comment) = self.comments.iter_mut().find(|c| &c.id == local_id) {
-                if comment.remote_id.is_none() {
-                    comment.set_remote_uncertain(true);
-                }
-            }
-            self.posting_comments.remove(local_id);
-        }
-        self.comment_store.save_comments(&self.comments)
     }
 
     /// `:thread reply <n> <text> --yes` / `:thread resolve|unresolve <n> --yes`; `n` is the 1-based
@@ -1069,9 +852,7 @@ impl App {
                 created_at_turn: turn_state.current_turn,
                 is_resolved: false,
                 pr_number: self.pr.current_number,
-                remote_id: None,
                 orphaned: false,
-                side: lgtm_core::comment::CommentSide::Right,
                 track: lgtm_core::outcome::Tracking {
                     hunk_hash: lgtm_core::review::hunk_hash_at(
                         &self.snapshot.files,
@@ -1093,7 +874,7 @@ impl App {
                     Some(format!("Comment on finding added to PR #{} review", pr_num));
             } else {
                 self.status_message =
-                    Some("Comment on finding added to .lgtm/comments.jsonl".to_string());
+                    Some("Comment on finding added to .lgtm/directives.jsonl".to_string());
             }
             return true;
         }
@@ -1103,17 +884,14 @@ impl App {
             let mut target_line_no = 1;
             let mut target_code = String::new();
             let mut line_counter = 0;
-            let mut side = lgtm_core::comment::CommentSide::Right;
 
             for hunk in &file.hunks {
                 for line in &hunk.lines {
                     if line_counter == self.cursor_line_idx {
                         if line.line_type == lgtm_core::model::LineType::Deletion {
                             target_line_no = line.old_line_num.unwrap_or(1);
-                            side = lgtm_core::comment::CommentSide::Left;
                         } else {
                             target_line_no = line.new_line_num.or(line.old_line_num).unwrap_or(1);
-                            side = lgtm_core::comment::CommentSide::Right;
                         }
                         target_code = line.content.clone();
                         break;
@@ -1135,9 +913,7 @@ impl App {
                 created_at_turn: turn_state.current_turn,
                 is_resolved: false,
                 pr_number: self.pr.current_number,
-                remote_id: None,
                 orphaned: false,
-                side,
                 track: lgtm_core::outcome::Tracking {
                     hunk_hash: lgtm_core::review::hunk_hash_at(
                         &self.snapshot.files,
@@ -1156,7 +932,8 @@ impl App {
                 if let Some(pr_num) = self.pr.current_number {
                     self.status_message = Some(format!("Comment added to PR #{} review", pr_num));
                 } else {
-                    self.status_message = Some("Comment added to .lgtm/comments.jsonl".to_string());
+                    self.status_message =
+                        Some("Comment added to .lgtm/directives.jsonl".to_string());
                 }
                 return true;
             }
@@ -1268,9 +1045,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         app.comments.push(anchor);
@@ -1332,9 +1107,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         let _ = app.comment_store.add_comment(&second_anchor); // lgtm:ignore
@@ -1429,9 +1202,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: Some(42),
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         app.comments.push(anchor);

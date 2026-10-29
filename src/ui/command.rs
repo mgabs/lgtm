@@ -2,7 +2,7 @@ use super::*;
 
 pub fn command_description(cmd: &str) -> &'static str {
     match cmd {
-        "w" | "write" => "Save directives to .lgtm/comments.jsonl",
+        "w" | "write" => "Save directives to .lgtm/directives.jsonl",
         "q" | "quit" => "Quit lgtm",
         "wq" | "x" | "exit" => "Save directives and quit",
         "h" | "help" | "?" => "Open help modal",
@@ -138,7 +138,7 @@ mod tests {
     fn test_command_descriptions() {
         assert_eq!(
             command_description("w"),
-            "Save directives to .lgtm/comments.jsonl"
+            "Save directives to .lgtm/directives.jsonl"
         );
         assert_eq!(command_description("q"), "Quit lgtm");
         assert_eq!(

@@ -187,7 +187,6 @@ pub(super) fn annotation_signature(app: &App) -> u64 {
             c.target_line_no,
             c.orphaned,
             c.is_resolved,
-            c.remote_id,
             &c.comment_text,
             &c.replies,
         )

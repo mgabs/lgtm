@@ -49,8 +49,6 @@ fn anchor(path: &str, ln: u32, code: &str) -> CommentAnchor {
         created_at_turn: 1,
         is_resolved: false,
         pr_number: None,
-        side: Default::default(),
-        remote_id: None,
         orphaned: false,
         track: Default::default(),
     }
@@ -254,8 +252,8 @@ fn open_preserves_comments_jsonl() {
     let s = ReviewStore::open(d.path(), "main").unwrap();
     assert!(s.load().unwrap().comments.is_empty());
     assert_eq!(store.load_comments().len(), 1);
-    assert!(d.path().join(".lgtm/comments.jsonl").is_file());
-    assert!(!d.path().join(".lgtm/comments.jsonl.bak").exists());
+    assert!(d.path().join(".lgtm/directives.jsonl").is_file());
+    assert!(!d.path().join(".lgtm/directives.jsonl.bak").exists());
 }
 
 #[test]
@@ -325,7 +323,7 @@ fn marks_only_leaves_legacy_comments() {
         .add_comment(&anchor("a.rs", 1, "p"))
         .unwrap();
     ReviewStore::open_marks_only(d.path(), "main").unwrap();
-    assert!(d.path().join(".lgtm/comments.jsonl").is_file());
+    assert!(d.path().join(".lgtm/directives.jsonl").is_file());
 }
 
 #[test]

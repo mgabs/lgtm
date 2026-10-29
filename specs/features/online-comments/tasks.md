@@ -21,9 +21,9 @@ flowchart TD
 
 - **T0** Move `specs/features/comments-workflow/` → `specs/archive/comments-workflow/`.
 - **T1 Strip & split** (REQ-OC-01)
-  - T1.1 Red: tests for migration (`comments.jsonl` → `directives.jsonl`, one-time, then removed) and that directives serialize without `pr_number`/`remote_id`.
+  - T1.1 Red: tests for migration (`comments.jsonl` → `directives.jsonl`, one-time, then removed) and that directives serialize without `remote_id`/`side`/`remote_uncertain`.
   - T1.2 Rename store to `.lgtm/directives.jsonl` across core, MCP, watcher, docs; add migration.
-  - T1.3 Delete PR-sync: `github/post/`, `associate_directives`, `plan/post/reconcile/clear_uncertain`, `pr_number`/`remote_id`, `lgtm pr post` CLI + `headless.rs` post paths, `:post`, PR paths of `:reply/:resolve/:unresolve`, related tests/BDD, `.gitignore` entry, tracked `.lgtm/comments.jsonl`.
+  - T1.3 Delete PR-sync: `github/post/`, `associate_directives`, `plan/post/reconcile/clear_uncertain`, `remote_id`/`side`/`remote_uncertain` (`pr_number` kept as local PR scope), `lgtm pr post` CLI + `headless.rs` post paths, `:post`, PR paths of `:reply/:resolve/:unresolve`, related tests/BDD, `.gitignore` entry, tracked `.lgtm/comments.jsonl`.
   - T1.4 Keep `CommentSide`, `PrDiscussion`, `Thread`, `#ref` channel and local directive UX intact; stub the threads view to compile.
   - T1.5 Green: `cargo build && cargo test && cargo clippy` clean, no `dead_code` allowances; grep checks from REQ-OC-01 pass.
 

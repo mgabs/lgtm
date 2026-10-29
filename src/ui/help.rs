@@ -510,7 +510,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 )]),
                 Line::from(vec![
                     Span::styled("  :w, :write           ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Save active directives to .lgtm/comments.jsonl"),
+                    Span::raw("Save active directives to .lgtm/directives.jsonl"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :q, :quit            ", Style::default().fg(Color::Cyan)),
@@ -551,10 +551,6 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 Line::from(vec![
                     Span::styled("  :pr <number>         ", Style::default().fg(Color::Cyan)),
                     Span::raw("Load PR in background; close drafts and visual selections to switch"),
-                ]),
-                Line::from(vec![
-                    Span::styled("  :pr post [--yes]     ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Post pending review comments to GitHub/Azure PR"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :prs [open|closed|all]", Style::default().fg(Color::Cyan)),

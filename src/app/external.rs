@@ -463,9 +463,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         });
         app.inject_reference_to_agent();
@@ -499,9 +497,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         });
         app.inject_reference_to_agent();

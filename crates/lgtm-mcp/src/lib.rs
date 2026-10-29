@@ -34,7 +34,7 @@ impl McpServer {
         }
         for p in paths {
             let s = p.to_string_lossy();
-            if s.contains("comments.jsonl") || s.contains("directives") {
+            if s.contains("directives.jsonl") || s.contains("directives") {
                 affected.insert("lgtm://directives");
             }
             if s.contains(".lgtm") || s.contains("state.json") || s.contains("reviews") {
@@ -411,7 +411,7 @@ impl McpServer {
                 Ok(report)
             }
             "lgtm_list_directives" => {
-                let comments_file = self.git_engine.repo_path.join(".lgtm/comments.jsonl");
+                let comments_file = self.git_engine.repo_path.join(".lgtm/directives.jsonl");
                 if !comments_file.exists() {
                     return Ok("No active review directives found.".to_string());
                 }
@@ -446,9 +446,7 @@ impl McpServer {
                         created_at_turn: self.turn(),
                         is_resolved: false,
                         pr_number: None,
-                        remote_id: None,
                         orphaned: false,
-                        side: lgtm_core::comment::CommentSide::Right,
                         track: lgtm_core::outcome::Tracking {
                             hunk_hash: self.git_engine.compute_diff_snapshot().ok().and_then(|s| {
                                 lgtm_core::review::hunk_hash_at(&s.files, file, line)
@@ -497,7 +495,7 @@ impl McpServer {
             .current_turn
     }
 
-    /// Directive ids are 1-based positions in `.lgtm/comments.jsonl`.
+    /// Directive ids are 1-based positions in `.lgtm/directives.jsonl`.
     fn directive_status(&self) -> Result<String> {
         let comments = self.store().load_comments();
         let items: Vec<Value> = comments
@@ -837,7 +835,7 @@ mod tests {
         assert!(aff1.contains(&"lgtm://diff"));
         assert!(aff1.contains(&"lgtm://findings"));
 
-        let comments_path = PathBuf::from(".lgtm/comments.jsonl");
+        let comments_path = PathBuf::from(".lgtm/directives.jsonl");
         let aff2 = McpServer::affected_resources(&[comments_path]);
         assert!(aff2.contains(&"lgtm://directives"));
         assert!(aff2.contains(&"lgtm://review-state"));

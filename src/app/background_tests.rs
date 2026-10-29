@@ -131,7 +131,7 @@ fn callbacks_see_durable_directives_even_when_notification_is_beyond_budget() {
     tx.send(WatcherMessage::FilesChanged(vec![app
         .git_engine
         .repo_path
-        .join(".lgtm/comments.jsonl")]))
+        .join(".lgtm/directives.jsonl")]))
         .unwrap();
     app.jobs_tx
         .send(Box::new(|app| {

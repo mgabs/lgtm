@@ -928,19 +928,11 @@ fn prepare_diff(
                                     )
                                 };
 
-                                let mut comment_spans = vec![
+                                let comment_spans = vec![
                                     Span::raw("        │ "),
                                     Span::styled(badge, b_style),
                                     Span::styled(format!("\"{}\"", comment.comment_text), t_style),
                                 ];
-                                if comment.remote_id.is_some() {
-                                    comment_spans.push(Span::styled(
-                                        " [↑]",
-                                        Style::default()
-                                            .fg(Color::Green)
-                                            .add_modifier(Modifier::BOLD),
-                                    ));
-                                }
                                 lines.push(Line::from(comment_spans));
 
                                 for (r_idx, reply) in comment.replies.iter().enumerate() {

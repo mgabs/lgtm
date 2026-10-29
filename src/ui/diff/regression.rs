@@ -300,11 +300,9 @@ fn annotation_changes_refresh_rows_without_recomputing_word_differences() {
     assert!(after.contains("◇"));
     assert!(!after.contains("◆"));
     app.comments[0].is_resolved = true;
-    app.comments[0].remote_id = Some(42);
     app.comments[0].replies.push("a newer reply".into());
     let after = screen(&mut app, 96, 30);
     assert!(after.contains("RESOLVED DIRECTIVE"));
-    assert!(after.contains("[↑]"));
     assert!(after.contains("a newer reply"));
     app.comments[0].orphaned = true;
     app.alerts[0].title = "a newer finding".into();
