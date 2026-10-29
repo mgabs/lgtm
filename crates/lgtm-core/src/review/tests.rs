@@ -66,6 +66,14 @@ fn hash_ignores_whitespace_and_line_numbers() {
 }
 
 #[test]
+fn hash_invariant_to_crlf_endings() {
+    let lf = hunk(1, &["let x = 10;", "let y = 20;"]);
+    let crlf = hunk(1, &["let x = 10;\r", "let y = 20;\r"]);
+    assert_eq!(hunk_hash(&lf), hunk_hash(&crlf));
+    assert_eq!(hunk_hash_u64(&lf), hunk_hash_u64(&crlf));
+}
+
+#[test]
 fn hash_distinguishes_sign() {
     let mut d = hunk(1, &["a"]);
     d.lines[0].line_type = LineType::Deletion;

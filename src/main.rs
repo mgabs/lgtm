@@ -24,6 +24,10 @@ mod headless;
 use cli::{AuditStartMode, Cli, Commands};
 use headless::{run_ci_audit, run_git_passthrough, run_init_config, run_risk_audit};
 
+fn canonicalize_clean(path: &Path) -> PathBuf {
+    lgtm_core::sys::canonicalize_clean(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
 fn run_check(
     target: PathBuf,
     format: &str,
@@ -33,7 +37,7 @@ fn run_check(
     no_user_config: bool,
     rev: Option<&str>,
 ) -> ExitCode {
-    let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+    let repo_path = canonicalize_clean(&target);
     match run_ci_audit(
         &repo_path,
         format,
@@ -104,7 +108,7 @@ fn main() -> ExitCode {
     }
 
     if cli.init {
-        let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+        let repo_path = canonicalize_clean(&cli.repo);
         if let Err(e) = run_init_config(&repo_path) {
             eprintln!("Error initializing config: {}", e);
             return ExitCode::from(1);
@@ -119,7 +123,7 @@ fn main() -> ExitCode {
             message,
         }) => {
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             match headless::run_gate(&repo_path, timeout, message.as_deref()) {
                 Ok(code) => ExitCode::from(code as u8),
                 Err(e) => {
@@ -130,7 +134,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Risk { repo }) => {
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             match run_risk_audit(&repo_path) {
                 Ok(code) => ExitCode::from(code as u8),
                 Err(e) => {
@@ -145,7 +149,7 @@ fn main() -> ExitCode {
             ..
         }) => {
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             let user = lgtm_core::config::user_config_path(no_user_config);
             match lgtm_core::config::LgtmConfig::load(&repo_path, user.as_deref()) {
                 Ok(c) => {
@@ -160,7 +164,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Init { repo }) => {
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             if let Err(e) = run_init_config(&repo_path) {
                 eprintln!("Error initializing config: {}", e);
                 return ExitCode::from(1);
@@ -169,7 +173,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Mcp { repo }) => {
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             let server = mcp::McpServer::new(&repo_path);
             if let Err(e) = server.run_stdio() {
                 eprintln!("MCP server error: {}", e);
@@ -180,7 +184,7 @@ fn main() -> ExitCode {
         Some(Commands::Serve { mcp, repo }) => {
             eprintln!("⚠️  Notice: 'lgtm serve --mcp' is deprecated. Use 'lgtm mcp'.");
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             if mcp {
                 let server = mcp::McpServer::new(&repo_path);
                 if let Err(e) = server.run_stdio() {
@@ -192,7 +196,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::External(ext_args)) => {
             let first = ext_args.first().map(|s| s.as_str()).unwrap_or("");
-            let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo.clone());
+            let repo_path = canonicalize_clean(&cli.repo);
             let git_engine = git::GitEngine::new(&repo_path);
             let expanded = git_engine.expand_branch_spec(first);
             let is_branch_or_rev = first.contains("..")
@@ -225,7 +229,7 @@ fn main() -> ExitCode {
             }
         }
         Some(Commands::Pr { action, number }) => {
-            let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+            let repo_path = canonicalize_clean(&cli.repo);
             match action {
                 Some(cli::PrSubcommand::Post { pr, yes }) => {
                     match headless::run_pr_post(&repo_path, pr.or(number), yes) {
@@ -324,7 +328,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Baseline { prune, repo, .. }) => {
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             match headless::run_baseline_update(&repo_path, prune) {
                 Ok(code) => ExitCode::from(code as u8),
                 Err(e) => {
@@ -339,7 +343,7 @@ fn main() -> ExitCode {
             repo,
         }) => {
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             match headless::run_review(&repo_path, &action, arg.as_deref()) {
                 Ok(code) => ExitCode::from(code as u8),
                 Err(e) => {
@@ -350,7 +354,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Audit { repo }) => {
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             if let Err(e) = run_tui(
                 repo_path,
                 cli.agent_pane,
@@ -386,7 +390,7 @@ fn main() -> ExitCode {
             }
 
             let repo_target = resolved_repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&repo_target).unwrap_or(repo_target);
+            let repo_path = canonicalize_clean(&repo_target);
 
             if open_tui {
                 eprintln!("⚠️  Notice: 'lgtm scan --tui' is deprecated. Use 'lgtm audit'.");
@@ -455,7 +459,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Hook { action, repo }) => {
             let target = repo.unwrap_or(cli.repo);
-            let repo_path = std::fs::canonicalize(&target).unwrap_or(target);
+            let repo_path = canonicalize_clean(&target);
             match headless::run_hook_command(&repo_path, &action) {
                 Ok(code) => ExitCode::from(code as u8),
                 Err(e) => {
@@ -466,7 +470,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Status { revision }) => {
             eprintln!("⚠️  Notice: 'lgtm status' is deprecated. Use 'lgtm' or 'lgtm diff'.");
-            let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+            let repo_path = canonicalize_clean(&cli.repo);
             if let Err(e) = run_tui(
                 repo_path,
                 cli.agent_pane,
@@ -482,7 +486,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some(Commands::Diff { revision }) => {
-            let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+            let repo_path = canonicalize_clean(&cli.repo);
             if let Err(e) = run_tui(
                 repo_path,
                 cli.agent_pane,
@@ -498,7 +502,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some(Commands::Review { .. }) | None => {
-            let repo_path = std::fs::canonicalize(&cli.repo).unwrap_or(cli.repo);
+            let repo_path = canonicalize_clean(&cli.repo);
             if let Err(e) = run_tui(
                 repo_path,
                 cli.agent_pane,
@@ -517,10 +521,8 @@ fn main() -> ExitCode {
 }
 
 fn list_prs_cli(repo: &Path, state: &str) -> ExitCode {
-    match lgtm_core::forge::open(
-        &std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf()),
-    )
-    .list_prs_state(pr::PullRequestState::parse(state).expect("validated PR state"))
+    match lgtm_core::forge::open(&canonicalize_clean(repo))
+        .list_prs_state(pr::PullRequestState::parse(state).expect("validated PR state"))
     {
         Ok(prs) => {
             println!("📋 {} pull requests ({} total):\n", state, prs.len());
