@@ -9,6 +9,7 @@ Builds on the existing `PrDiscussion` trait (`threads`, `post_inline`, `post_gen
 #### REQ-OC-01 (Removal of local comment store)
 - `.lgtm/comments.jsonl` MUST NOT be read or written; `comment` store, `CommentAnchor` persistence, PR association/binding, and `post::plan`/preview pipeline MUST be deleted.
 - `:c` and `:threads` MUST collapse into one `:comments` view backed only by forge threads.
+- All `comments.jsonl` dead code MUST be deleted, not left disabled: the `comment` module and its types, jsonl (de)serialization, watcher hooks, MCP/review/`github::post` references, related tests and BDD steps, CLI/TUI commands, docs, `.gitignore` entries, and the tracked `.lgtm/comments.jsonl`. Verified by `grep -rn "comments.jsonl"` returning nothing outside `CHANGELOG.md`/`specs/archive/`, and a clean `cargo clippy` with no `dead_code` allowances added.
 - Agent directives (`#ref file:line`, `.lgtm/reviews/`, MCP review inbox) are unaffected.
 
 #### REQ-OC-02 (Live thread listing)
