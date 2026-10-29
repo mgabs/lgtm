@@ -30,12 +30,30 @@ pub struct MarkdownPreviewState {
     pub rendered_rows: Vec<RenderedMarkdownRow>,
     pub cached_file_idx: Option<usize>,
     pub cached_width: u16,
+    /// Rows visible in the last render; scrolling clamps against it.
+    pub viewport_height: usize,
+    /// Screen lines per row (the row plus its directives), set by the renderer.
+    pub row_heights: Vec<usize>,
 }
 
 impl MarkdownPreviewState {
+    fn height(&self, row: usize) -> usize {
+        self.row_heights.get(row).copied().unwrap_or(1)
+    }
+
+    /// Largest offset that still fills the viewport, counting directive rows under each line.
+    pub fn max_scroll(&self, viewport_height: usize) -> usize {
+        let mut used = 0;
+        let mut first = self.rendered_rows.len();
+        while first > 0 && used + self.height(first - 1) <= viewport_height {
+            first -= 1;
+            used += self.height(first);
+        }
+        first
+    }
+
     pub fn scroll_down(&mut self, amount: usize, viewport_height: usize) {
-        let max_scroll = self.rendered_rows.len().saturating_sub(viewport_height);
-        self.scroll_offset = (self.scroll_offset + amount).min(max_scroll);
+        self.scroll_offset = (self.scroll_offset + amount).min(self.max_scroll(viewport_height));
     }
 
     pub fn scroll_up(&mut self, amount: usize) {
@@ -47,7 +65,7 @@ impl MarkdownPreviewState {
     }
 
     pub fn scroll_to_bottom(&mut self, viewport_height: usize) {
-        self.scroll_offset = self.rendered_rows.len().saturating_sub(viewport_height);
+        self.scroll_offset = self.max_scroll(viewport_height);
     }
 }
 

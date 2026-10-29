@@ -561,8 +561,54 @@ impl App {
         self.status_message = Some("No active agent gate waiting.".to_string());
     }
 
+    /// Aims the diff cursor at the first line on screen so directive commands target it.
+    pub(crate) fn sync_cursor_to_markdown_top(&mut self) -> bool {
+        let preview = &self.markdown_preview;
+        let Some((line, kind)) = preview
+            .rendered_rows
+            .iter()
+            .skip(preview.scroll_offset)
+            .find_map(|r| r.line_number.map(|n| (n, r.diff_kind)))
+        else {
+            return false;
+        };
+        let deleted = kind == markdown::MarkdownDiffKind::Deletion;
+        let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
+            return false;
+        };
+        let found = file
+            .hunks
+            .iter()
+            .flat_map(|h| h.lines.iter())
+            .position(|l| {
+                l.line_type != crate::model::LineType::HunkHeader
+                    && l.new_line_num.or(l.old_line_num) == Some(line)
+                    && (l.line_type == crate::model::LineType::Deletion) == deleted
+            });
+        if let Some(idx) = found {
+            self.cursor_line_idx = idx;
+        }
+        found.is_some()
+    }
+
+    /// Leaves a directive modal for the view it was opened from.
+    pub(crate) fn leave_directive_modal(&mut self) {
+        let md = self.comment_source_view == ActiveView::MarkdownPreview
+            && self
+                .snapshot
+                .files
+                .get(self.selected_file_idx)
+                .is_some_and(|f| markdown::is_markdown_file(&f.new_path));
+        self.active_view = if md {
+            ActiveView::MarkdownPreview
+        } else {
+            ActiveView::Diff
+        };
+    }
+
     pub fn toggle_markdown_preview(&mut self) {
         if self.active_view == ActiveView::MarkdownPreview {
+            self.comment_source_view = ActiveView::Diff;
             self.active_view = ActiveView::Diff;
             return;
         }

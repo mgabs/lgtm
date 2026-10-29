@@ -365,7 +365,8 @@ fn prepare_diff(
     } else {
         match current_file {
             Some(file) => {
-                let file_alerts: Vec<&crate::guard::GuardAlert> = index.file_alerts.iter().map(|&i| &app.alerts[i]).collect();
+                let file_alerts: Vec<&crate::guard::GuardAlert> =
+                    index.file_alerts.iter().map(|&i| &app.alerts[i]).collect();
 
                 let alert_badge_title = if !file_alerts.is_empty() {
                     format!(" | ⚠️ {} Alert(s)", file_alerts.len())
@@ -449,7 +450,7 @@ fn prepare_diff(
                                 ),
                                 style,
                             )]));
-                            lines.tag(cache::Anchor::Fold {raw:hunk_base});
+                            lines.tag(cache::Anchor::Fold { raw: hunk_base });
                             continue;
                         }
 
@@ -487,7 +488,9 @@ fn prepare_diff(
                                         ),
                                         style,
                                     )]));
-                                    lines.tag(cache::Anchor::Fold {raw:hunk_base+h_idx});
+                                    lines.tag(cache::Anchor::Fold {
+                                        raw: hunk_base + h_idx,
+                                    });
                                 }
                                 h_idx += 1;
                                 continue;
@@ -531,7 +534,7 @@ fn prepare_diff(
 
                                     let mut style = Style::default().fg(Color::White);
                                     if let Some(bg) = base_bg {
-                                         style = style.bg(bg);
+                                        style = style.bg(bg);
                                     }
                                     if is_cursor {
                                         style = style.add_modifier(Modifier::BOLD);
@@ -556,12 +559,22 @@ fn prepare_diff(
                                         Span::styled(&line.content, style),
                                     ];
 
-                                    let mut row_spans = pad_or_truncate_spans(left_spans, col_width);
-                                    row_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+                                    let mut row_spans =
+                                        pad_or_truncate_spans(left_spans, col_width);
+                                    row_spans.push(Span::styled(
+                                        " │ ",
+                                        Style::default().fg(Color::DarkGray),
+                                    ));
                                     row_spans.extend(pad_or_truncate_spans(right_spans, col_width));
 
                                     lines.push(Line::from(row_spans));
-                                    lines.tag(cache::Anchor::Split {hunk:hunk_index,old:Some(h_idx),new:Some(h_idx),base:hunk_base,context:true});
+                                    lines.tag(cache::Anchor::Split {
+                                        hunk: hunk_index,
+                                        old: Some(h_idx),
+                                        new: Some(h_idx),
+                                        base: hunk_base,
+                                        context: true,
+                                    });
                                     h_idx += 1;
                                 }
                                 LineType::Deletion | LineType::Addition => {
@@ -612,16 +625,17 @@ fn prepare_diff(
                                                 Style::default().fg(Color::Red),
                                             ));
                                             if let Some((_, _add_line)) = add_opt {
-                                                left_spans.push(Span::styled(&del_line.content,Style::default().fg(Color::LightRed)));
+                                                left_spans.push(Span::styled(
+                                                    &del_line.content,
+                                                    Style::default().fg(Color::LightRed),
+                                                ));
                                             } else {
                                                 let mut style = Style::default().fg(Color::Red);
                                                 if let Some(bg) = base_bg {
                                                     style = style.bg(bg);
                                                 }
-                                                left_spans.push(Span::styled(
-                                                    &del_line.content,
-                                                    style,
-                                                ));
+                                                left_spans
+                                                    .push(Span::styled(&del_line.content, style));
                                             }
                                         }
 
@@ -650,25 +664,23 @@ fn prepare_diff(
                                             } else {
                                                 Style::default().fg(Color::DarkGray)
                                             };
-                                            right_spans.push(Span::styled(
-                                                new_no,
-                                                right_no_style,
-                                            ));
+                                            right_spans.push(Span::styled(new_no, right_no_style));
                                             right_spans.push(Span::styled(
                                                 "+ ",
                                                 Style::default().fg(Color::Green),
                                             ));
                                             if let Some((_, _del_line)) = del_opt {
-                                                right_spans.push(Span::styled(&add_line.content,Style::default().fg(Color::LightGreen)));
+                                                right_spans.push(Span::styled(
+                                                    &add_line.content,
+                                                    Style::default().fg(Color::LightGreen),
+                                                ));
                                             } else {
                                                 let mut style = Style::default().fg(Color::Green);
                                                 if let Some(bg) = base_bg {
                                                     style = style.bg(bg);
                                                 }
-                                                right_spans.push(Span::styled(
-                                                    &add_line.content,
-                                                    style,
-                                                ));
+                                                right_spans
+                                                    .push(Span::styled(&add_line.content, style));
                                             }
                                         }
 
@@ -678,13 +690,17 @@ fn prepare_diff(
                                             " │ ",
                                             Style::default().fg(Color::DarkGray),
                                         ));
-                                        row_spans.extend(pad_or_truncate_spans(
-                                            right_spans,
-                                            col_width,
-                                        ));
+                                        row_spans
+                                            .extend(pad_or_truncate_spans(right_spans, col_width));
 
                                         lines.push(Line::from(row_spans));
-                                        lines.tag(cache::Anchor::Split {hunk:hunk_index,old:del_opt.map(|(i,_)|*i),new:add_opt.map(|(i,_)|*i),base:hunk_base,context:false});
+                                        lines.tag(cache::Anchor::Split {
+                                            hunk: hunk_index,
+                                            old: del_opt.map(|(i, _)| *i),
+                                            new: add_opt.map(|(i, _)| *i),
+                                            base: hunk_base,
+                                            context: false,
+                                        });
                                     }
                                 }
                                 LineType::HunkHeader => {
@@ -717,7 +733,7 @@ fn prepare_diff(
                                 ),
                                 style,
                             )]));
-                            lines.tag(cache::Anchor::Fold {raw:hunk_base});
+                            lines.tag(cache::Anchor::Fold { raw: hunk_base });
                             line_counter += hunk_len;
                             continue;
                         }
@@ -757,7 +773,7 @@ fn prepare_diff(
                                         ),
                                         style,
                                     )]));
-                                    lines.tag(cache::Anchor::Fold {raw:line_counter});
+                                    lines.tag(cache::Anchor::Fold { raw: line_counter });
                                 }
                                 line_counter += 1;
                                 continue;
@@ -791,8 +807,18 @@ fn prepare_diff(
                             };
 
                             // Check matching line-anchored alerts
-                            let matching_alerts: Vec<&crate::guard::GuardAlert> = line_no.and_then(|n| index.alerts.get(&n)).into_iter().flatten().map(|&i| &app.alerts[i]).collect();
-                            let matching_comments: Vec<&crate::comment::CommentAnchor> = line_no.and_then(|n| index.comments.get(&n)).into_iter().flatten().map(|&i| &app.comments[i]).collect();
+                            let matching_alerts: Vec<&crate::guard::GuardAlert> = line_no
+                                .and_then(|n| index.alerts.get(&n))
+                                .into_iter()
+                                .flatten()
+                                .map(|&i| &app.alerts[i])
+                                .collect();
+                            let matching_comments: Vec<&crate::comment::CommentAnchor> = line_no
+                                .and_then(|n| index.comments.get(&n))
+                                .into_iter()
+                                .flatten()
+                                .map(|&i| &app.comments[i])
+                                .collect();
                             let thread_state = line_no.and_then(|n| index.threads.get(&n).copied());
 
                             let matching_drafts: Vec<&lgtm_core::discussion::Draft> = line_no.and_then(|n| index.drafts.get(&n)).into_iter().flatten().map(|&i| &app.drafts.items()[i]).collect();
@@ -870,7 +896,14 @@ fn prepare_diff(
                             ];
 
                             if let Some(&(_, is_del)) = pairs.get(&h_line_idx) {
-                                line_spans.push(Span::styled(&dline.content, Style::default().fg(if is_del {Color::LightRed} else {Color::LightGreen})));
+                                line_spans.push(Span::styled(
+                                    &dline.content,
+                                    Style::default().fg(if is_del {
+                                        Color::LightRed
+                                    } else {
+                                        Color::LightGreen
+                                    }),
+                                ));
                             } else {
                                 let mut style = match dline.line_type {
                                     LineType::Addition => Style::default().fg(Color::Green),
@@ -887,7 +920,12 @@ fn prepare_diff(
                             }
 
                             lines.push(Line::from(line_spans));
-                            lines.tag(cache::Anchor::Unified {raw:line_counter,hunk:hunk_index,line:h_line_idx,pair:pairs.get(&h_line_idx).copied()});
+                            lines.tag(cache::Anchor::Unified {
+                                raw: line_counter,
+                                hunk: hunk_index,
+                                line: h_line_idx,
+                                pair: pairs.get(&h_line_idx).copied(),
+                            });
 
                             // Render inline alerts directly beneath this code line
                             for alert in matching_alerts {
@@ -987,63 +1025,66 @@ fn prepare_diff(
                 }
                 (title, lines)
             }
-            None => (
-                " Working Tree Clean ".to_string(),
-                vec![
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  ✨ Working tree is clean (no modified or untracked files)",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    )),
-                    Line::from(""),
-                    Line::from(vec![
-                        Span::raw("  Repository: "),
-                        Span::styled(
-                            app.git_engine.repo_path.display().to_string(),
-                            Style::default().fg(Color::Cyan),
-                        ),
-                    ]),
-                    Line::from(""),
-                    Line::from("  lgtm is actively monitoring the workspace for real-time diffs."),
-                    Line::from("  Edit files or run a coding agent turn to stream changes here."),
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  Key Navigation:",
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    )),
-                    Line::from("  • Tab          Toggle changed-files sidebar"),
-                    Line::from("  • d            Toggle Side-by-Side Split / Unified view"),
-                    Line::from("  • V            Visual line selection mode (s: stage, u: unstage, x: discard)"),
-                    Line::from("  • s / u / x    Stage / Unstage / Discard current hunk"),
-                    Line::from("  • S / U / X    Stage / Unstage / Discard entire file"),
-                    Line::from("  • f / Ctrl-p   Open fuzzy file switcher"),
-                    Line::from("  • ] / [        Jump to next / previous changed file"),
-                    Line::from("  • c            Add review comment on current line"),
-                    Line::from("  • Ctrl-s       Compile & send batch review prompt to agent"),
-                    Line::from("  • w / W        Jump to next / previous safety alert"),
-                    Line::from("  • Enter        Inject file:line reference into agent pane"),
-                    Line::from("  • za / zc / zo Toggle / close / open AST block or hunk fold"),
-                    Line::from("  • zM / zR      Fold all / unfold all hunks"),
-                    Line::from("  • v            Mark file reviewed and fold"),
-                    Line::from("  • p            Select target tmux pane"),
-                    Line::from("  • q            Quit"),
-                ].into(),
-            ),
+            None => (" Working Tree Clean ".to_string(), landing_lines().into()),
         }
     };
 
     (title, content_lines)
 }
 
+const LOGO: [&str; 6] = [
+    "██╗      ██████╗ ████████╗███╗   ███╗",
+    "██║     ██╔════╝ ╚══██╔══╝████╗ ████║",
+    "██║     ██║  ███╗   ██║   ██╔████╔██║",
+    "██║     ██║   ██║   ██║   ██║╚██╔╝██║",
+    "███████╗╚██████╔╝   ██║   ██║ ╚═╝ ██║",
+    "╚══════╝ ╚═════╝    ╚═╝   ╚═╝     ╚═╝",
+];
+
+/// Landing screen shown when the working tree is clean.
+pub(super) fn landing_lines() -> Vec<Line<'static>> {
+    let mut lines: Vec<Line<'static>> = vec![Line::from(""), Line::from("")];
+    lines.extend(LOGO.iter().map(|row| {
+        Line::from(Span::styled(
+            *row,
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .centered()
+    }));
+    lines.push(Line::from(""));
+    lines.push(
+        Line::from(Span::styled(
+            "looks good to me",
+            Style::default().add_modifier(Modifier::ITALIC),
+        ))
+        .centered(),
+    );
+    lines.push(Line::from(""));
+    lines.push(
+        Line::from(Span::styled(
+            "Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner.",
+            Style::default().fg(Color::DarkGray),
+        ))
+        .centered(),
+    );
+    lines.push(Line::from(""));
+    lines.push(
+        Line::from(Span::styled(
+            "? help  ·  : commands",
+            Style::default().fg(Color::DarkGray),
+        ))
+        .centered(),
+    );
+    lines
+}
+
 pub(super) fn update_diff_scroll_offset(
     scroll_offset: &mut usize,
     content_len: usize,
     inner_height: usize,
-    active_cursor_row: Option<usize>,
+    active_rows: Option<(usize, usize)>,
 ) {
     if inner_height == 0 {
         return;
@@ -1052,10 +1093,11 @@ pub(super) fn update_diff_scroll_offset(
         *scroll_offset = 0;
         return;
     }
-    if let Some(cursor_row) = active_cursor_row {
+    // Show the whole active row when it fits; its first line always wins when it does not.
+    if let Some((start, end)) = active_rows {
         *scroll_offset = (*scroll_offset)
-            .min(cursor_row)
-            .max(cursor_row.saturating_sub(inner_height - 1));
+            .max(end.saturating_sub(inner_height))
+            .min(start);
     }
 }
 
@@ -1185,6 +1227,11 @@ mod tests {
         let active_row = 26; // 1 hunk header + 25 lines
         assert!(active_row >= app.diff_scroll_offset);
         assert!(active_row < app.diff_scroll_offset + inner_height);
+        let screen = format!("{:?}", terminal.backend().buffer());
+        assert!(
+            screen.contains('▲') && screen.contains('▼'),
+            "scrollbar visible"
+        );
 
         // 3. Move cursor up above the screen: cursor_line_idx = 2
         app.cursor_line_idx = 2;
@@ -1254,6 +1301,36 @@ mod tests {
         let active_row = 31; // 1 hunk header + 30 lines
         assert!(active_row >= app.diff_scroll_offset);
         assert!(active_row < app.diff_scroll_offset + inner_height);
+    }
+
+    #[test]
+    fn scroll_keeps_the_whole_wrapped_cursor_row_visible() {
+        let mut off = 0;
+        update_diff_scroll_offset(&mut off, 100, 10, Some((12, 15)));
+        assert_eq!(off, 5);
+        let mut off = 50;
+        update_diff_scroll_offset(&mut off, 100, 10, Some((12, 15)));
+        assert_eq!(off, 12);
+        let mut off = 0;
+        update_diff_scroll_offset(&mut off, 100, 10, Some((20, 40)));
+        assert_eq!(off, 20, "a row taller than the view shows its start");
+    }
+
+    #[test]
+    fn landing_shows_logo_tagline_and_purpose() {
+        let text: String = landing_lines()
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("███████╗╚██████╔╝"));
+        assert!(text.contains("looks good to me"));
+        assert!(text.contains("terminal diff reviewer"));
     }
 }
 
