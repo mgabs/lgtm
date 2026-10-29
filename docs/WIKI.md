@@ -423,7 +423,7 @@ Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queri
 #### PR Threads and Remote Discussions
 
 - Run `:threads` to fetch remote discussion threads in the background.
-- Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread).
+- Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread). Your pending inline drafts (`:thread comment`) show `✎` on the targeted line plus an inline `DRAFT #id (pending|stale|failed)` row beneath it; reply/resolve drafts show as `DRAFT …` labels in the threads view.
 - Jump between discussions using `]t` / `[t`.
 - The forge is the source of truth: threads are always fetched live (`:threads`, `:thread refresh`).
 - Everything you write is a local **draft** (`.lgtm/drafts/pr-<N>.json`) until you submit: `:thread comment <text>` (inline at the cursor; deletions go on the LEFT side), `:thread general <text>`, `:thread reply <n> <text>` (or `r`), `:thread resolve|unresolve <n>` (or `R`; last draft per thread wins).

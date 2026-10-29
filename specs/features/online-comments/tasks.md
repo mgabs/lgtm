@@ -77,6 +77,6 @@ Covers REQ-OC-02..06b, 10, NFR-OC-01..03.
 ## Delivery notes (deviations, recorded at implementation)
 - Streams A/B/D/C were implemented sequentially on the feature branch (no parallel worktrees were needed).
 - B3 single GitHub review (`COMMENT`) was NOT implemented: every item is sent individually on both forges (REQ-OC-06b/ASM-OC-05 hold per item; no behaviour is forge-specific).
-- C2 draft persistence is a synchronous atomic write on the command path (small file, no network); C7 gutter markers for pending drafts are deferred; `x`/`e`/`d` view keys are covered by `:thread edit|discard`.
+- C2 draft persistence is a synchronous atomic write on the command path (small file, no network); `x`/`e`/`d` view keys are covered by `:thread edit|discard`.
 - Dedupe matches (path, line, body) / reply body, not author (current user unknown to the adapters).
 - T9.2 legacy notice is superseded by automatic migration of `comments.jsonl` to `directives.jsonl`.

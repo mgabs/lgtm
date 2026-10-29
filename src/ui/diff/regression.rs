@@ -313,6 +313,30 @@ fn annotation_changes_refresh_rows_without_recomputing_word_differences() {
 }
 
 #[test]
+fn pending_drafts_show_gutter_and_inline_row_and_refresh_cache() {
+    use lgtm_core::discussion::DraftKind;
+    let mut app = fixture();
+    app.threads.clear();
+    app.alerts.clear();
+    app.comments.clear();
+    assert!(!screen(&mut app, 96, 30).contains("DRAFT"));
+    let kind = DraftKind::Thread {
+        path: "a.rs".into(),
+        line: 2,
+        side: crate::comment::CommentSide::Right,
+    };
+    let id = app.drafts.add(kind, "please rename").unwrap();
+    let after = screen(&mut app, 96, 30);
+    assert!(after.contains("✎"));
+    assert!(after.contains("DRAFT #1 (pending)"));
+    assert!(after.contains("please rename"));
+    app.drafts.edit(id, "edited body").unwrap();
+    assert!(screen(&mut app, 96, 30).contains("edited body"));
+    app.drafts.remove(id);
+    assert!(!screen(&mut app, 96, 30).contains("DRAFT"));
+}
+
+#[test]
 fn split_change_groups_stop_at_folded_block_boundaries() {
     let mut app = fixture();
     app.alerts.clear();
