@@ -425,8 +425,11 @@ Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queri
 - Run `:threads` to fetch remote discussion threads in the background.
 - Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread).
 - Jump between discussions using `]t` / `[t`.
-- Reply directly on marked lines with `r` or `:thread reply <n> <text> --yes`.
-- Toggle thread resolution with `R` or `:thread resolve <n> --yes` / `:thread unresolve <n> --yes`.
+- The forge is the source of truth: threads are always fetched live (`:threads`, `:thread refresh`).
+- Everything you write is a local **draft** (`.lgtm/drafts/pr-<N>.json`) until you submit: `:thread comment <text>` (inline at the cursor; deletions go on the LEFT side), `:thread general <text>`, `:thread reply <n> <text>` (or `r`), `:thread resolve|unresolve <n>` (or `R`; last draft per thread wins).
+- Manage drafts with `:thread drafts`, `:thread edit <id> <text>`, `:thread discard <id|all>`.
+- `:thread submit` (or `s` in the threads view) shows the batch; run it again to confirm. Items are sent in order (new threads, general, replies, resolves); each succeeds or fails on its own, failures stay as drafts with the reason and remediation, and a retry never duplicates comments already on the forge. Drafts whose thread vanished are marked `STALE` and skipped.
+- The agent MCP server exposes live threads through `lgtm_list_threads` (`pr` argument).
 
 #### Directive Outcomes and Remote Posting
 

@@ -2,6 +2,7 @@ pub mod baseline;
 pub mod comment;
 pub mod config;
 pub mod debug;
+pub mod discussion;
 pub mod findings;
 pub mod forge;
 pub mod git;

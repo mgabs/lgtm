@@ -225,8 +225,8 @@ pub static COMMAND_REGISTRY: &[CommandDef] = &[
         name: "threads",
         aliases: &["thread"],
         category: CommandCategory::PrRemote,
-        args_summary: "[view]",
-        description: "Inspect remote PR review threads",
+        args_summary: "[comment|reply|resolve|unresolve|edit|discard|drafts|submit|refresh]",
+        description: "Inspect live PR threads; draft and submit comments",
     },
     CommandDef {
         name: "checks",
@@ -649,7 +649,7 @@ impl App {
                 if args.is_empty() || args.first() == Some(&"view") {
                     self.open_threads_modal();
                 } else {
-                    self.thread_action_async(&args);
+                    self.thread_command(&args);
                 }
             }
             "threads" => {
@@ -766,12 +766,7 @@ impl App {
                 if !args.is_empty() {
                     let text = args.join(" ");
                     if let Some(t_idx) = self.thread_at_cursor() {
-                        self.thread_action_async(&[
-                            "reply",
-                            &(t_idx + 1).to_string(),
-                            &text,
-                            "--yes",
-                        ]);
+                        self.thread_command(&["reply", &(t_idx + 1).to_string(), &text]);
                     } else if let Some(idx) = self.comment_idx_at_cursor() {
                         self.comments[idx].replies.push(text);
                         let _ = self.comment_store.save_comments(&self.comments);
@@ -1137,67 +1132,6 @@ mod tests {
         app.refresh_github(&bad, true);
         assert_eq!(app.status_message.as_deref(), Some("gh missing"));
         assert_eq!(app.threads.len(), 2);
-    }
-
-    #[test]
-    fn test_thread_actions_preview_then_send() {
-        use lgtm_core::github::{FakeClient, Thread, ThreadComment};
-        let mut app = create_test_app();
-        let fake = FakeClient::default();
-        app.thread_action(&fake, &["resolve", "1"]);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Open a PR first (:pr <n>)")
-        );
-        app.pr.current_number = Some(2);
-        app.thread_action(&fake, &["resolve"]);
-        assert!(app.status_message.as_deref().unwrap().starts_with("Usage"));
-        app.thread_action(&fake, &["resolve", "1"]);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("No such thread; run :threads first")
-        );
-        app.threads = vec![Thread {
-            id: "T1".into(),
-            path: "a.rs".into(),
-            line: Some(3),
-            resolved: false,
-            comments: vec![ThreadComment {
-                id: 9,
-                author: "bob".into(),
-                body: "x".into(),
-            }],
-        }];
-        app.thread_action(&fake, &["resolve", "1"]);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Would resolve thread on a.rs:3; add --yes to send")
-        );
-        app.thread_action(&fake, &["reply", "1"]);
-        assert_eq!(app.status_message.as_deref(), Some("Reply text is empty"));
-        app.thread_action(&fake, &["nuke", "1"]);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Unknown thread action 'nuke'")
-        );
-        assert!(fake.posted.borrow().is_empty());
-        app.thread_action(&fake, &["reply", "1", "thanks", "all", "--yes"]);
-        assert_eq!(app.status_message.as_deref(), Some("Reply posted"));
-        app.thread_action(&fake, &["resolve", "1", "--yes"]);
-        assert!(app.threads[0].resolved);
-        app.thread_action(&fake, &["unresolve", "1", "--yes"]);
-        assert!(!app.threads[0].resolved);
-        assert_eq!(
-            *fake.posted.borrow(),
-            vec!["reply:9:thanks all", "resolve:T1:true", "resolve:T1:false"]
-        );
-        let bad = FakeClient {
-            fail_post_after: Some(0),
-            ..Default::default()
-        };
-        app.thread_action(&bad, &["resolve", "1", "--yes"]);
-        assert_eq!(app.status_message.as_deref(), Some("rate limited"));
-        assert!(!app.threads[0].resolved);
     }
 
     #[test]

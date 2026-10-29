@@ -17,6 +17,7 @@ mod background_tests;
 pub(crate) mod command;
 mod comments;
 mod commit;
+mod drafts;
 mod external;
 mod input;
 pub mod markdown;
@@ -167,12 +168,10 @@ pub struct App {
     pr_load_lock: std::sync::Arc<std::sync::Mutex<()>>,
     pr_load_latest: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub thread_revision: u64,
-    thread_reconcile: std::collections::HashSet<(u64, String)>,
-    thread_jobs:
-        std::collections::HashMap<(u64, String), std::collections::VecDeque<comments::ThreadJob>>,
+    pub drafts: lgtm_core::discussion::DraftSet,
+    submit_confirm: bool,
+    submitting: bool,
     review_posting_prs: std::collections::HashSet<u64>,
-    reply_drafts: std::collections::HashMap<(u64, String), String>,
-    uncertain_replies: std::collections::HashMap<(u64, String), String>,
 }
 
 pub type Job = Box<dyn FnOnce(&mut App) + Send>;
@@ -297,11 +296,10 @@ impl App {
             pr_load_lock: Default::default(),
             pr_load_latest: Default::default(),
             thread_revision: 0,
-            thread_reconcile: Default::default(),
-            thread_jobs: Default::default(),
+            drafts: Default::default(),
+            submit_confirm: false,
+            submitting: false,
             review_posting_prs: Default::default(),
-            reply_drafts: Default::default(),
-            uncertain_replies: Default::default(),
         };
 
         app.load_marks();
@@ -463,9 +461,7 @@ impl App {
     }
 
     fn has_pending_writes(&self) -> bool {
-        self.audit_exports_pending()
-            || !self.review_posting_prs.is_empty()
-            || !self.thread_jobs.is_empty()
+        self.audit_exports_pending() || !self.review_posting_prs.is_empty() || self.submitting
     }
 
     pub(crate) fn request_quit(&mut self) {

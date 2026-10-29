@@ -36,7 +36,7 @@ pub fn kind_of(repo: &Path) -> ForgeKind {
     origin_url(repo).map_or(ForgeKind::Unknown, |u| detect(&u))
 }
 
-pub(crate) fn origin_url(repo: &Path) -> Option<String> {
+pub fn origin_url(repo: &Path) -> Option<String> {
     git2::Repository::open(repo)
         .ok()
         .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))

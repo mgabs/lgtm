@@ -558,7 +558,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :threads, :thread    ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Inspect and reply to remote PR review threads"),
+                    Span::raw("Live PR threads; draft comment/reply/resolve, then :thread submit"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :checks              ", Style::default().fg(Color::Cyan)),

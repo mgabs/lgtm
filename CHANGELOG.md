@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Online PR comments: live threads, local drafts (`:thread comment|general|reply|resolve|unresolve|edit|discard|drafts`), and a confirmed batch `:thread submit` with per-item results, stale detection and duplicate-safe retries; MCP `lgtm_list_threads`.
+
 ### Removed
 - Local PR comment posting (`:pr post`, `lgtm pr post|reply|resolve`); agent directives now live in `.lgtm/directives.jsonl` (legacy `comments.jsonl` is migrated automatically).
 

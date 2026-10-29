@@ -707,17 +707,12 @@ impl App {
                 self.thread_scroll_offset = self.thread_scroll_offset.saturating_sub(3);
             }
             (_, KeyCode::Char('v')) | (_, KeyCode::Char('R')) | (_, KeyCode::Char(' ')) => {
-                if let Some(t) = self.threads.get(self.thread_selected_idx) {
-                    let thread_id = t.id.clone();
-                    let next_resolved = !t.resolved;
-                    if let Some(pr) = self.pr.current_number {
-                        self.set_thread_resolved_async(pr, thread_id, next_resolved);
-                    }
-                }
+                self.draft_resolve(self.thread_selected_idx, None);
             }
             (_, KeyCode::Char('r')) if !self.threads.is_empty() => {
                 self.start_thread_reply(self.thread_selected_idx);
             }
+            (_, KeyCode::Char('s')) => self.thread_command(&["submit"]),
             _ => {}
         }
     }

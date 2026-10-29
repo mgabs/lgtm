@@ -188,6 +188,20 @@ impl McpServer {
                             }
                         },
                         {
+                            "name": "lgtm_list_threads",
+                            "description": "List the live review threads of a pull request from the forge (path, line, resolved state, comments).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "pr": {
+                                        "type": "integer",
+                                        "description": "Pull request number."
+                                    }
+                                },
+                                "required": ["pr"]
+                            }
+                        },
+                        {
                             "name": "lgtm_security_scan",
                             "description": "Run AST and regex static analysis guardrails for OWASP security vulnerabilities, hardcoded secrets, cognitive complexity spikes, test neutering, and typo hallucinations.",
                             "inputSchema": {
@@ -410,6 +424,14 @@ impl McpServer {
                 let report = serde_json::to_string_pretty(&filtered)?;
                 Ok(report)
             }
+            "lgtm_list_threads" => {
+                let pr = args
+                    .get("pr")
+                    .and_then(|p| p.as_u64())
+                    .ok_or_else(|| anyhow::anyhow!("`pr` (pull request number) is required"))?;
+                let forge = lgtm_core::forge::open(&self.git_engine.repo_path);
+                Self::threads_report(&*forge, pr)
+            }
             "lgtm_list_directives" => {
                 let comments_file = self.git_engine.repo_path.join(".lgtm/directives.jsonl");
                 if !comments_file.exists() {
@@ -483,6 +505,26 @@ impl McpServer {
             }
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
+    }
+
+    /// Live threads as JSON; nothing is cached locally.
+    fn threads_report(forge: &dyn lgtm_core::forge::PrDiscussion, pr: u64) -> Result<String> {
+        let threads: Vec<Value> = forge
+            .threads(pr)?
+            .into_iter()
+            .map(|t| {
+                json!({
+                    "id": t.id,
+                    "path": t.path,
+                    "line": t.line,
+                    "resolved": t.resolved,
+                    "comments": t.comments.iter().map(|c| json!({
+                        "id": c.id, "author": c.author, "body": c.body
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        Ok(serde_json::to_string_pretty(&threads)?)
     }
 
     fn store(&self) -> lgtm_core::comment::CommentStore {
@@ -656,6 +698,41 @@ mod tests {
     }
 
     #[test]
+    fn threads_come_live_from_the_forge_and_need_a_pr() {
+        use lgtm_core::github::{FakeClient, Thread, ThreadComment};
+        let fake = FakeClient {
+            threads: vec![Thread {
+                id: "T1".into(),
+                path: "a.rs".into(),
+                line: Some(3),
+                resolved: true,
+                comments: vec![ThreadComment {
+                    id: 5,
+                    author: "bob".into(),
+                    body: "fix".into(),
+                }],
+            }],
+            ..Default::default()
+        };
+        let out: Value =
+            serde_json::from_str(&McpServer::threads_report(&fake, 1).unwrap()).unwrap();
+        assert_eq!(out[0]["path"], "a.rs");
+        assert_eq!(out[0]["line"], 3);
+        assert_eq!(out[0]["resolved"], true);
+        assert_eq!(out[0]["comments"][0]["author"], "bob");
+        let down = FakeClient {
+            error: Some("offline".into()),
+            ..Default::default()
+        };
+        assert!(McpServer::threads_report(&down, 1).is_err());
+        let server = McpServer::new(".");
+        let err = server
+            .execute_tool("lgtm_list_threads", &json!({}))
+            .unwrap_err();
+        assert!(err.to_string().contains("`pr`"));
+    }
+
+    #[test]
     fn test_mcp_tools_list() {
         let server = McpServer::new(".");
         let resp = server
@@ -669,6 +746,7 @@ mod tests {
             "lgtm_review_state",
             "lgtm_scan_changes",
             "lgtm_resolve_directive",
+            "lgtm_list_threads",
         ] {
             assert!(tools.iter().any(|t| t["name"] == n), "{n}");
         }
