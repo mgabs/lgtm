@@ -103,18 +103,18 @@ stateDiagram-v2
     LocalDraft --> Associated: PR loaded / matched by file
     Associated --> PlannedInline: in_diff == true (matching line & side)
     Associated --> PlannedGeneral: in_diff == false (outside hunks)
-    
+
     PlannedInline --> Posting: :pr post --yes
     PlannedGeneral --> Posting: :pr post --yes
-    
+
     Posting --> RemoteConfirmed: Forge 200/201 (remote_id assigned)
     Posting --> RemoteUncertain: Network timeout / 5xx
     Posting --> FailedRejected: Forge 422 / 403
-    
+
     RemoteUncertain --> RemoteConfirmed: Reconciled with threads
     RemoteUncertain --> Associated: Cleared uncertain flag
     FailedRejected --> Associated: User edits / re-anchors
-    
+
     RemoteConfirmed --> Resolved: :resolve --yes
     Resolved --> RemoteConfirmed: :unresolve --yes
 ```
