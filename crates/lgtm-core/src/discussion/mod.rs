@@ -1,9 +1,10 @@
 //! Draft-then-submit PR discussion: drafts are local, the forge is the source of truth.
 use crate::comment::CommentSide;
 use crate::forge::failure::{is_ambiguous_write, Failure, Kind};
-use crate::forge::PrDiscussion;
+use crate::forge::{InlineDraft, PrDiscussion};
 use crate::github::Thread;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub mod store;
 
@@ -323,6 +324,47 @@ fn send(
     }
 }
 
+/// Sends two or more new inline drafts through the forge's batch call; results by draft id.
+fn send_inline_batch(
+    forge: &dyn PrDiscussion,
+    pr: u64,
+    drafts: &DraftSet,
+    plan: &[u64],
+    threads: &[Thread],
+    sha: &anyhow::Result<String>,
+) -> HashMap<u64, anyhow::Result<()>> {
+    let Ok(sha) = sha else {
+        return HashMap::new();
+    };
+    let mut ids = Vec::new();
+    let mut items = Vec::new();
+    for d in plan.iter().filter_map(|id| drafts.get(*id)) {
+        if let DraftKind::Thread { path, line, side } = &d.kind {
+            if !already_present(d, threads) {
+                ids.push(d.id);
+                items.push(InlineDraft {
+                    path,
+                    line: *line,
+                    side: *side,
+                    body: &d.body,
+                });
+            }
+        }
+    }
+    if items.len() < 2 {
+        return HashMap::new();
+    }
+    let mut results = forge.post_inline_batch(pr, sha, &items).into_iter();
+    ids.into_iter()
+        .map(|id| {
+            let r = results
+                .next()
+                .unwrap_or_else(|| Err(anyhow::anyhow!("batch returned no result")));
+            (id, r)
+        })
+        .collect()
+}
+
 /// Sends every sendable draft; each item succeeds or fails on its own and only successes leave the set.
 pub fn submit(
     forge: &dyn PrDiscussion,
@@ -344,14 +386,19 @@ pub fn submit(
     } else {
         Ok(String::new())
     };
-    for id in drafts.plan() {
+    let plan = drafts.plan();
+    let mut batched = send_inline_batch(forge, pr, drafts, &plan, &threads, &sha);
+    for id in plan {
         let draft = drafts.get(id).cloned().expect("planned id exists");
-        if already_present(&draft, &threads) {
+        if already_present(&draft, &threads) && !batched.contains_key(&id) {
             drafts.remove(id);
             report.deduped += 1;
             continue;
         }
-        match send(forge, pr, &draft, &sha) {
+        let result = batched
+            .remove(&id)
+            .unwrap_or_else(|| send(forge, pr, &draft, &sha));
+        match result {
             Ok(()) => {
                 drafts.remove(id);
                 report.sent += 1;

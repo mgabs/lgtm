@@ -115,11 +115,20 @@ make release
 cp target/release/lgtm /usr/local/bin/lgtm
 ```
 
+### Windows Installation (Native)
+```powershell
+# Install via Cargo
+cargo install --git https://github.com/mgabs/lgtm.git
+
+# Or download pre-compiled release zip:
+# Download lgtm-v*-windows-x86_64.zip from GitHub Releases and extract lgtm.exe into your PATH.
+```
+
 ### Requirements
-- **OS**: macOS, Linux, Windows (via WSL2 or Windows Terminal)
+- **OS**: macOS, Linux, Windows 10/11 (Windows Terminal, PowerShell, or Command Prompt; WSL2 also supported)
 - **Git**: Git 2.20+ installed
-- **PR features**: GitHub uses Git/API/`gh`; public listings and stored patches can fall back to anonymous HTTPS via `curl`. Private reads, discussions, and writes require authentication. Azure uses `az` with the `azure-devops` extension.
-- **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
+- **PR features**: GitHub uses Git/API/`gh`; public listings and stored patches can fall back to anonymous HTTPS via `curl`. Private reads, discussions, and writes require authentication. Azure uses `az` (or `az.cmd`) with the `azure-devops` extension.
+- **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Windows Terminal, Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
 
 ---
 
@@ -431,7 +440,7 @@ Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queri
 - The forge is the source of truth: threads are always fetched live (`:threads`, `:thread refresh`).
 - Everything you write is a local **draft** (`.lgtm/drafts/pr-<N>.json`) until you submit: `:thread comment <text>` (inline at the cursor; deletions go on the LEFT side), `:thread general <text>`, `:thread reply <n> <text>` (or `r`), `:thread resolve|unresolve <n>` (or `R`; last draft per thread wins).
 - Manage drafts with `:thread drafts`, `:thread edit <id> <text>`, `:thread discard <id|all>`.
-- `:thread submit` (or `s` in the threads view) shows the batch; run it again to confirm. Items are sent in order (new threads, general, replies, resolves); each succeeds or fails on its own, failures stay as drafts with the reason and remediation, and a retry never duplicates comments already on the forge. Drafts whose thread vanished are marked `STALE` and skipped.
+- `:thread submit` (or `s` in the threads view) shows the batch; run it again to confirm. Items are sent in order (new threads, general, replies, resolves); on GitHub two or more new inline comments go out as one `COMMENT` review (one notification; if GitHub rejects it, they are sent one by one so each failure is reported on its own draft); each item succeeds or fails on its own, failures stay as drafts with the reason and remediation, and a retry never duplicates comments already on the forge. Drafts whose thread vanished are marked `STALE` and skipped.
 - The agent MCP server exposes live threads through `lgtm_list_threads` (`pr` argument).
 
 #### Directive Outcomes and Remote Posting

@@ -52,6 +52,7 @@ pub struct DraftSet { pr: u64, repo_key: String, next_id: u32, items: Vec<Draft>
 **Submit** (`:submit`):
 1. Core `plan_submit(&DraftSet)` → ordered batch: threads, general, replies, resolves; skips `Stale`.
 2. TUI shows the batch confirmation modal.
+   (Delivery: forge-level, `submit` sends ≥2 new inline drafts through `post_inline_batch`; GitHub posts them as one `COMMENT` review, others per item. See tasks.md Delivery notes.)
 3. On confirm, a bg job: re-fetch `head_sha` and `threads` → pre-dedupe each item (REQ-OC-07) → `post_review` for inline items (GitHub: single review) → per-item `reply`/`post_general`/`set_resolved`.
 4. After each item the job sends a progress job removing it from `DraftSet` (and persists). Failures set `Failed(reason)`. Final job stores `SubmitReport`, triggers refresh.
 5. Generation guard drops results if the PR changed mid-flight (writes already acknowledged stay removed in the store since the removal is done in the worker via the store, keyed by `repo_key`+`pr`).

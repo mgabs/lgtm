@@ -334,11 +334,7 @@ impl IpcBridge {
     }
 
     pub fn send_osc52_clipboard(text: &str) {
-        use std::io::Write;
-        let b64 = base64_encode(text.as_bytes());
-        let osc_sequence = format!("\x1b]52;c;{}\x07", b64);
-        let _ = std::io::stdout().write_all(osc_sequence.as_bytes());
-        let _ = std::io::stdout().flush();
+        let _ = crate::sys::copy_to_clipboard(text);
     }
 }
 

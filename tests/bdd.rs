@@ -710,10 +710,11 @@ echo "[]"
         let engine = lgtm_core::git::GitEngine::new(&repo_dir);
         let worktrees = engine.list_worktrees().unwrap();
         assert_eq!(worktrees.len(), 2);
-        let canon_repo = repo_dir.canonicalize().unwrap();
+        let canon_repo = lgtm_core::sys::canonicalize_clean(&repo_dir).unwrap();
         assert!(worktrees
             .iter()
-            .any(|w| w.is_current && w.path.canonicalize().unwrap() == canon_repo));
+            .any(|w| w.is_current
+                && lgtm_core::sys::canonicalize_clean(&w.path).unwrap() == canon_repo));
         assert!(worktrees
             .iter()
             .any(|w| w.branch.as_deref() == Some("feat-x")));
@@ -818,4 +819,35 @@ echo "[]"
         };
         assert!(status.success(), "expected clean exit, got {status}");
     }
+}
+
+#[test]
+fn bdd_win_001_windows_path_and_process_resolution() {
+    use lgtm_core::sys::{normalize_git_path, resolve_program_for_os, strip_verbatim_prefix};
+
+    // Verbatim UNC and disk prefixes are cleanly stripped
+    assert_eq!(
+        strip_verbatim_prefix(std::path::PathBuf::from(r"\\?\C:\Users\runner\repo")),
+        std::path::PathBuf::from(r"C:\Users\runner\repo")
+    );
+    assert_eq!(
+        strip_verbatim_prefix(std::path::PathBuf::from(r"\\?\UNC\server\share\repo")),
+        std::path::PathBuf::from(r"\\server\share\repo")
+    );
+
+    // Git index slashes are normalized
+    assert_eq!(
+        normalize_git_path(std::path::Path::new(r"src\app\main.rs")),
+        "src/app/main.rs"
+    );
+
+    // Batch wrapper commands resolve to .cmd on Windows
+    assert_eq!(resolve_program_for_os("az", true), "az.cmd");
+    assert_eq!(resolve_program_for_os("code", true), "code.cmd");
+    assert_eq!(resolve_program_for_os("cursor", true), "cursor.cmd");
+    assert_eq!(resolve_program_for_os("git", true), "git");
+
+    // Unix returns unmodified binary names
+    assert_eq!(resolve_program_for_os("az", false), "az");
+    assert_eq!(resolve_program_for_os("code", false), "code");
 }
