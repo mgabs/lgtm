@@ -853,7 +853,12 @@ fn bdd_win_001_windows_path_and_process_resolution() {
     assert_eq!(resolve_program_for_os("az", true), "az.cmd");
     assert_eq!(resolve_program_for_os("code", true), "code.cmd");
     assert_eq!(resolve_program_for_os("cursor", true), "cursor.cmd");
-    assert_eq!(resolve_program_for_os("git", true), "git");
+    // A native Windows host probes PATHEXT and finds git.exe; elsewhere the name is unchanged.
+    let git = resolve_program_for_os("git", true);
+    assert!(
+        git == "git" || git == "git.exe",
+        "unexpected resolution: {git}"
+    );
 
     // Unix returns unmodified binary names
     assert_eq!(resolve_program_for_os("az", false), "az");
