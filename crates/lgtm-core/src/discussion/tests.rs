@@ -38,6 +38,12 @@ struct Fake {
     land_then_timeout: RefCell<Vec<String>>,
     sha: Option<String>,
     head_calls: std::cell::Cell<u32>,
+    /// When set, `post_inline_batch` lands every item and answers per item: `Some(msg)` fails it.
+    /// A shorter list leaves the remaining items without a result.
+    batch_errs: RefCell<Option<Vec<Option<String>>>>,
+    /// The batch is rejected as a whole: nothing lands.
+    batch_no_land: bool,
+    batches: RefCell<Vec<Vec<String>>>,
 }
 
 impl Fake {
@@ -74,6 +80,27 @@ impl PrDiscussion for Fake {
         self.call(format!("inline:{path}:{line}"), |t| {
             t.push(thread("new", path, line, false, &[body]))
         })
+    }
+    fn post_inline_batch(&self, pr: u64, sha: &str, items: &[InlineDraft]) -> Vec<Result<()>> {
+        self.batches.borrow_mut().push(
+            items
+                .iter()
+                .map(|i| format!("{}:{}:{}", i.path, i.line, i.body))
+                .collect(),
+        );
+        let Some(errs) = self.batch_errs.borrow().clone() else {
+            return crate::forge::post_each(self, pr, sha, items);
+        };
+        if !self.batch_no_land {
+            for i in items {
+                self.threads
+                    .borrow_mut()
+                    .push(thread("new", i.path, i.line, false, &[i.body]));
+            }
+        }
+        errs.into_iter()
+            .map(|e| e.map_or(Ok(()), |m| Err(anyhow::anyhow!(m))))
+            .collect()
     }
     fn post_general(&self, _pr: u64, _body: &str) -> Result<u64> {
         self.call("general".into(), |_| {})
@@ -428,4 +455,191 @@ fn draft_errors_have_readable_messages() {
     assert_eq!(DraftError::EmptyBody.to_string(), "Comment body is empty");
     assert!(DraftError::InvalidLine.to_string().contains("diff hunk"));
     assert!(DraftError::NoBody.to_string().contains("no text"));
+}
+
+fn batch_fake(errs: Vec<Option<String>>) -> Fake {
+    Fake {
+        sha: Some("s".into()),
+        batch_errs: RefCell::new(Some(errs)),
+        ..Default::default()
+    }
+}
+
+fn drafts(inlines: &[(&str, u32, &str)]) -> DraftSet {
+    let mut s = DraftSet::default();
+    for (p, l, b) in inlines {
+        s.add(inline(p, *l), b).unwrap();
+    }
+    s
+}
+
+#[test]
+fn inline_drafts_go_out_as_one_batch_in_plan_order() {
+    let fake = batch_fake(vec![None, None]);
+    let mut s = DraftSet::default();
+    s.add(DraftKind::General, "g").unwrap();
+    s.add(inline("b", 2), "second").unwrap();
+    s.add(inline("a", 1), "first").unwrap();
+    let report = submit(&fake, 1, &mut s).unwrap();
+    assert_eq!((report.sent, report.deduped), (3, 0));
+    assert!(s.is_empty());
+    assert_eq!(
+        *fake.batches.borrow(),
+        vec![vec!["b:2:second", "a:1:first"]]
+    );
+    assert_eq!(*fake.calls.borrow(), vec!["general"]);
+}
+
+#[test]
+fn a_single_inline_draft_is_not_batched() {
+    let fake = batch_fake(vec![]);
+    let mut s = drafts(&[("a", 1, "x")]);
+    assert_eq!(submit(&fake, 1, &mut s).unwrap().sent, 1);
+    assert!(fake.batches.borrow().is_empty());
+    assert_eq!(*fake.calls.borrow(), vec!["inline:a:1"]);
+}
+
+#[test]
+fn two_inline_drafts_are_the_smallest_batch() {
+    let fake = batch_fake(vec![None, None]);
+    let mut s = drafts(&[("a", 1, "x"), ("a", 2, "y")]);
+    assert_eq!(submit(&fake, 1, &mut s).unwrap().sent, 2);
+    assert_eq!(fake.batches.borrow().len(), 1);
+    assert!(fake.calls.borrow().is_empty());
+}
+
+#[test]
+fn already_present_inline_drafts_stay_out_of_the_batch() {
+    let fake = batch_fake(vec![None, None]);
+    fake.threads
+        .borrow_mut()
+        .push(thread("t", "a", 5, false, &["there"]));
+    let mut s = drafts(&[("a", 5, "there"), ("a", 6, "x"), ("a", 7, "y")]);
+    let report = submit(&fake, 1, &mut s).unwrap();
+    assert_eq!((report.sent, report.deduped), (2, 1));
+    assert_eq!(*fake.batches.borrow(), vec![vec!["a:6:x", "a:7:y"]]);
+}
+
+#[test]
+fn one_new_draft_left_after_dedupe_is_sent_individually() {
+    let fake = batch_fake(vec![]);
+    fake.threads
+        .borrow_mut()
+        .push(thread("t", "a", 5, false, &["there"]));
+    let mut s = drafts(&[("a", 5, "there"), ("a", 6, "x")]);
+    let report = submit(&fake, 1, &mut s).unwrap();
+    assert_eq!((report.sent, report.deduped), (1, 1));
+    assert!(fake.batches.borrow().is_empty());
+    assert_eq!(*fake.calls.borrow(), vec!["inline:a:6"]);
+}
+
+#[test]
+fn batch_failure_of_one_item_keeps_only_that_draft() {
+    let fake = batch_fake(vec![None, Some("HTTP 422 unprocessable".into())]);
+    let mut s = drafts(&[("a", 1, "ok"), ("b", 2, "bad")]);
+    let report = submit(&fake, 1, &mut s).unwrap();
+    assert_eq!((report.sent, report.failed.len()), (1, 1));
+    assert_eq!(report.failed[0].0, s.items()[0].id);
+    assert_eq!(s.items().len(), 1);
+    assert_eq!(s.items()[0].body, "bad");
+    assert!(s.items()[0]
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("no longer in the PR diff"));
+}
+
+#[test]
+fn ambiguous_batch_that_landed_is_deduped_and_never_resent() {
+    let fake = batch_fake(vec![Some("request timed out".into()), None]);
+    let mut s = drafts(&[("a", 1, "x"), ("b", 2, "y")]);
+    let report = submit(&fake, 1, &mut s).unwrap();
+    assert_eq!((report.sent, report.deduped), (1, 1));
+    assert!(report.failed.is_empty() && s.is_empty());
+    assert!(fake.calls.borrow().is_empty());
+}
+
+#[test]
+fn ambiguous_batch_that_did_not_land_keeps_every_draft_without_double_posting() {
+    let mut fake = batch_fake(vec![
+        Some("request timed out".into()),
+        Some("request timed out".into()),
+    ]);
+    fake.batch_no_land = true;
+    let mut s = drafts(&[("a", 1, "x"), ("b", 2, "y")]);
+    let report = submit(&fake, 1, &mut s).unwrap();
+    assert_eq!(
+        (report.sent, report.deduped, report.failed.len()),
+        (0, 0, 2)
+    );
+    assert_eq!(s.items().len(), 2);
+    assert!(s.items().iter().all(|d| d.error.is_some()));
+    assert!(fake.calls.borrow().is_empty());
+}
+
+#[test]
+fn missing_batch_results_fail_the_draft_and_keep_it() {
+    let fake = batch_fake(vec![None]);
+    let mut s = drafts(&[("a", 1, "x"), ("b", 2, "y")]);
+    let report = submit(&fake, 1, &mut s).unwrap();
+    assert_eq!((report.sent, report.failed.len()), (1, 1));
+    assert_eq!(s.items()[0].body, "y");
+    assert!(s.items()[0]
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("batch returned no result"));
+}
+
+#[test]
+fn missing_head_skips_the_batch_and_keeps_inline_drafts() {
+    let fake = Fake {
+        batch_errs: RefCell::new(Some(vec![None, None])),
+        ..Default::default()
+    };
+    let mut s = drafts(&[("a", 1, "x"), ("b", 2, "y")]);
+    let report = submit(&fake, 1, &mut s).unwrap();
+    assert_eq!((report.sent, report.failed.len()), (0, 2));
+    assert!(fake.batches.borrow().is_empty());
+    assert_eq!(s.items().len(), 2);
+}
+
+#[test]
+fn default_batch_posts_each_item_individually() {
+    let fake = Fake {
+        sha: Some("s".into()),
+        fail: RefCell::new(vec![("inline:b:2".into(), "boom".into())]),
+        ..Default::default()
+    };
+    let items = [("a", 1), ("b", 2), ("c", 3)].map(|(path, line)| InlineDraft {
+        path,
+        line,
+        side: CommentSide::Right,
+        body: "x",
+    });
+    let r = PrDiscussion::post_inline_batch(&Plain(&fake), 1, "s", &items);
+    assert_eq!(
+        r.iter().map(Result::is_ok).collect::<Vec<_>>(),
+        [true, false, true]
+    );
+    assert_eq!(
+        *fake.calls.borrow(),
+        ["inline:a:1", "inline:b:2", "inline:c:3"]
+    );
+}
+
+/// Exposes only `post_inline`, so the trait's default batch implementation is exercised.
+struct Plain<'a>(&'a Fake);
+impl PrDiscussion for Plain<'_> {
+    fn post_inline(
+        &self,
+        pr: u64,
+        sha: &str,
+        path: &str,
+        line: u32,
+        side: CommentSide,
+        body: &str,
+    ) -> Result<u64> {
+        self.0.post_inline(pr, sha, path, line, side, body)
+    }
 }

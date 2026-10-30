@@ -1,5 +1,6 @@
 //! GitHub forge: native Git diffs, authenticated API/CLI access, and anonymous public reads.
-use super::{Forge, PrDiscussion};
+use super::failure::is_ambiguous_write;
+use super::{post_each, Forge, InlineDraft, PrDiscussion};
 use crate::comment::CommentSide;
 use crate::github::{parse_threads, Bucket, Check, GhClient, Thread, THREADS_QUERY};
 use crate::model::DiffSnapshot;
@@ -511,6 +512,53 @@ impl PrDiscussion for GitHubForge {
         GhClient.post_inline(pr, sha, path, line, side, body)
     }
 
+    /// Two or more comments go out as one COMMENT review: one notification, all or nothing.
+    /// A rejected review created nothing, so items then fall back to individual posts; an
+    /// ambiguous outcome is reported for every item so the caller can check the forge first.
+    fn post_inline_batch(&self, pr: u64, sha: &str, items: &[InlineDraft]) -> Vec<Result<()>> {
+        let Some(r) = self
+            .remote
+            .as_ref()
+            .filter(|_| items.len() > 1 && self.token().is_some())
+        else {
+            return post_each(self, pr, sha, items);
+        };
+        let comments: Vec<Value> = items
+            .iter()
+            .map(|i| {
+                serde_json::json!({
+                    "path": i.path,
+                    "line": i.line,
+                    "side": i.side.as_github_str(),
+                    "body": i.body
+                })
+            })
+            .collect();
+        let payload = serde_json::json!({
+            "commit_id": sha,
+            "event": "COMMENT",
+            "comments": comments
+        });
+        let url = format!(
+            "https://api.github.com/repos/{}/{}/pulls/{pr}/reviews",
+            r.owner, r.repo
+        );
+        let sent = self.curl(&url, "POST", Some(&payload)).and_then(|receipt| {
+            receipt["id"]
+                .as_u64()
+                .map(|_| ())
+                .context("Review response has no receipt; check the thread before retrying")
+        });
+        match sent {
+            Ok(()) => items.iter().map(|_| Ok(())).collect(),
+            Err(e) if is_ambiguous_write(&e) => items
+                .iter()
+                .map(|_| Err(anyhow::anyhow!("{e:#}")))
+                .collect(),
+            Err(_) => post_each(self, pr, sha, items),
+        }
+    }
+
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
         if let Some(r) = self.remote.as_ref().filter(|_| self.token().is_some()) {
             let url = format!(
@@ -785,6 +833,116 @@ mod tests {
         let thread = provider.thread(12, "RT1").unwrap().unwrap();
         assert_eq!(thread.id, "RT1");
         assert_eq!(thread.comments[0].author, "Ann");
+    }
+
+    /// Records `(url, json body)` of every curl call and answers per URL suffix.
+    struct Recorder {
+        log: std::rc::Rc<RefCell<Vec<(String, Value)>>>,
+        reviews: fn() -> Result<String>,
+    }
+
+    impl Runner for Recorder {
+        fn run(&self, _program: &str, args: &[&str]) -> Result<String> {
+            let url = args.last().unwrap().to_string();
+            let body = args
+                .iter()
+                .find_map(|a| a.strip_prefix('@').filter(|p| p.contains("lgtm-gh-body")))
+                .map(|p| serde_json::from_slice(&std::fs::read(p).unwrap()).unwrap())
+                .unwrap_or(Value::Null);
+            self.log.borrow_mut().push((url.clone(), body));
+            if url.ends_with("/reviews") {
+                (self.reviews)()
+            } else {
+                Ok(r#"{"id":7}"#.into())
+            }
+        }
+    }
+
+    fn recording(
+        reviews: fn() -> Result<String>,
+    ) -> (GitHubForge, std::rc::Rc<RefCell<Vec<(String, Value)>>>) {
+        let log = std::rc::Rc::new(RefCell::new(vec![]));
+        let mut f = test_forge(".", vec![]);
+        f.runner = Box::new(Recorder {
+            log: log.clone(),
+            reviews,
+        });
+        (f, log)
+    }
+
+    fn two() -> [InlineDraft<'static>; 2] {
+        [
+            InlineDraft {
+                path: "a.rs",
+                line: 1,
+                side: CommentSide::Right,
+                body: "x",
+            },
+            InlineDraft {
+                path: "b.rs",
+                line: 2,
+                side: CommentSide::Left,
+                body: "y",
+            },
+        ]
+    }
+
+    #[test]
+    fn inline_batch_is_one_comment_review() {
+        let (f, log) = recording(|| Ok(r#"{"id":5}"#.into()));
+        let r = f.post_inline_batch(3, "sha1", &two());
+        assert!(r.len() == 2 && r.iter().all(Result::is_ok));
+        let log = log.borrow();
+        assert_eq!(log.len(), 1);
+        assert!(log[0].0.ends_with("/repos/mgabs/lgtm/pulls/3/reviews"));
+        assert_eq!(
+            log[0].1,
+            serde_json::json!({"commit_id":"sha1","event":"COMMENT","comments":[
+                {"path":"a.rs","line":1,"side":"RIGHT","body":"x"},
+                {"path":"b.rs","line":2,"side":"LEFT","body":"y"}]})
+        );
+    }
+
+    #[test]
+    fn rejected_review_falls_back_to_individual_comments() {
+        let (f, log) = recording(|| bail!("HTTP 422"));
+        let r = f.post_inline_batch(3, "sha1", &two());
+        assert!(r.iter().all(Result::is_ok));
+        let urls: Vec<String> = log.borrow().iter().map(|(u, _)| u.clone()).collect();
+        assert_eq!(urls.len(), 3);
+        assert!(urls[0].ends_with("/reviews"));
+        assert!(urls[1..].iter().all(|u| u.ends_with("/pulls/3/comments")));
+    }
+
+    #[test]
+    fn review_without_receipt_is_ambiguous_and_never_resent() {
+        let (f, log) = recording(|| Ok("{}".into()));
+        let r = f.post_inline_batch(3, "sha1", &two());
+        assert!(r
+            .iter()
+            .all(|x| is_ambiguous_write(x.as_ref().unwrap_err())));
+        assert_eq!(log.borrow().len(), 1);
+    }
+
+    #[test]
+    fn timed_out_review_is_ambiguous_for_every_item() {
+        let (f, log) = recording(|| bail!("request timed out"));
+        let r = f.post_inline_batch(3, "sha1", &two());
+        assert_eq!(r.len(), 2);
+        assert!(r
+            .iter()
+            .all(|x| is_ambiguous_write(x.as_ref().unwrap_err())));
+        assert_eq!(log.borrow().len(), 1);
+    }
+
+    #[test]
+    fn a_single_comment_is_posted_directly() {
+        let (f, log) = recording(|| bail!("unused"));
+        let r = f.post_inline_batch(3, "sha1", &two()[..1]);
+        assert!(r.len() == 1 && r[0].is_ok());
+        let log = log.borrow();
+        assert_eq!(log.len(), 1);
+        assert!(log[0].0.ends_with("/pulls/3/comments"));
     }
 
     #[test]

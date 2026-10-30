@@ -76,7 +76,7 @@ Covers REQ-OC-02..06b, 10, NFR-OC-01..03.
 
 ## Delivery notes (deviations, recorded at implementation)
 - Streams A/B/D/C were implemented sequentially on the feature branch (no parallel worktrees were needed).
-- B3 single GitHub review (`COMMENT`) was NOT implemented: every item is sent individually on both forges (REQ-OC-06b/ASM-OC-05 hold per item; no behaviour is forge-specific).
+- B3 single GitHub review (`COMMENT`) is implemented for new inline Thread drafts only (≥2, via `PrDiscussion::post_inline_batch`; default = per-item sends, so Azure/others are unchanged). Safe because a rejected review (e.g. 422 line not in diff) creates nothing, so GitHubForge falls back to per-item posts and per-draft failures stay precise; an ambiguous outcome (timeout/no receipt) is reported for every item and `submit` re-fetches threads and dedupes before keeping any draft, so nothing is lost or double-posted. General comments, replies and resolves are still sent individually (the review API cannot carry them); the review has no body. Only the token (REST) path batches; the `gh` CLI path sends individually.
 - C2 draft persistence is a synchronous atomic write on the command path (small file, no network); C7 gutter markers for pending drafts are deferred; `x`/`e`/`d` view keys are covered by `:thread edit|discard`.
 - Dedupe matches (path, line, body) / reply body, not author (current user unknown to the adapters).
 - T9.2 legacy notice is superseded by automatic migration of `comments.jsonl` to `directives.jsonl`.
