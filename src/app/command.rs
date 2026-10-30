@@ -225,8 +225,8 @@ pub static COMMAND_REGISTRY: &[CommandDef] = &[
         name: "threads",
         aliases: &["thread"],
         category: CommandCategory::PrRemote,
-        args_summary: "[view]",
-        description: "Inspect remote PR review threads",
+        args_summary: "[comment|reply|resolve|unresolve|edit|discard|drafts|submit|refresh]",
+        description: "Inspect live PR threads; draft and submit comments",
     },
     CommandDef {
         name: "checks",
@@ -388,7 +388,7 @@ impl App {
                 } else {
                     let _ = self.comment_store.save_comments(&self.comments);
                     self.status_message = Some(format!(
-                        "Saved {} review directives to .lgtm/comments.jsonl",
+                        "Saved {} review directives to .lgtm/directives.jsonl",
                         self.comments.len()
                     ));
                     self.active_view = ActiveView::Diff;
@@ -457,11 +457,6 @@ impl App {
                 }
             }
             "pr" => {
-                if args.first() == Some(&"post") {
-                    let confirmed = args.contains(&"--yes");
-                    self.post_pr_comments_async(confirmed);
-                    return;
-                }
                 if let Some(arg) = args.first() {
                     if let Ok(pr_num) = arg.parse::<u64>() {
                         self.load_pr_async(pr_num);
@@ -654,7 +649,7 @@ impl App {
                 if args.is_empty() || args.first() == Some(&"view") {
                     self.open_threads_modal();
                 } else {
-                    self.thread_action_async(&args);
+                    self.thread_command(&args);
                 }
             }
             "threads" => {
@@ -771,12 +766,7 @@ impl App {
                 if !args.is_empty() {
                     let text = args.join(" ");
                     if let Some(t_idx) = self.thread_at_cursor() {
-                        self.thread_action_async(&[
-                            "reply",
-                            &(t_idx + 1).to_string(),
-                            &text,
-                            "--yes",
-                        ]);
+                        self.thread_command(&["reply", &(t_idx + 1).to_string(), &text]);
                     } else if let Some(idx) = self.comment_idx_at_cursor() {
                         self.comments[idx].replies.push(text);
                         let _ = self.comment_store.save_comments(&self.comments);
@@ -1145,121 +1135,6 @@ mod tests {
     }
 
     #[test]
-    fn test_pr_post_previews_then_posts_with_confirmation() {
-        use lgtm_core::github::FakeClient;
-        let mut app = create_test_app();
-        app.post_pr_comments(&FakeClient::default(), true);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Open a PR first (:pr <n>)")
-        );
-        app.pr.current_number = Some(4);
-        app.post_pr_comments(&FakeClient::default(), true);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("No unposted comments for this PR")
-        );
-        let mut c =
-            app.comments
-                .first()
-                .cloned()
-                .unwrap_or_else(|| lgtm_core::comment::CommentAnchor {
-                    id: lgtm_core::comment::new_id(),
-                    file_path: "nowhere.rs".into(),
-                    target_line_no: 1,
-                    target_code: String::new(),
-                    context_before: vec![],
-                    context_after: vec![],
-                    comment_text: "hi".into(),
-                    replies: vec![],
-                    created_at_turn: 1,
-                    is_resolved: false,
-                    pr_number: None,
-                    remote_id: None,
-                    orphaned: false,
-                    side: lgtm_core::comment::CommentSide::Right,
-                    track: Default::default(),
-                });
-        c.pr_number = Some(4);
-        c.remote_id = None;
-        c.is_resolved = false;
-        app.comments = vec![c];
-        let fake = FakeClient::default();
-        app.post_pr_comments(&fake, false);
-        assert!(app
-            .status_message
-            .as_deref()
-            .unwrap()
-            .starts_with("Would post"));
-        assert!(fake.posted.borrow().is_empty());
-        app.post_pr_comments(&fake, true);
-        assert_eq!(app.status_message.as_deref(), Some("1 of 1 posted"));
-        assert_eq!(fake.posted.borrow().len(), 1);
-        assert!(app.comments[0].remote_id.is_some());
-    }
-
-    #[test]
-    fn test_thread_actions_preview_then_send() {
-        use lgtm_core::github::{FakeClient, Thread, ThreadComment};
-        let mut app = create_test_app();
-        let fake = FakeClient::default();
-        app.thread_action(&fake, &["resolve", "1"]);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Open a PR first (:pr <n>)")
-        );
-        app.pr.current_number = Some(2);
-        app.thread_action(&fake, &["resolve"]);
-        assert!(app.status_message.as_deref().unwrap().starts_with("Usage"));
-        app.thread_action(&fake, &["resolve", "1"]);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("No such thread; run :threads first")
-        );
-        app.threads = vec![Thread {
-            id: "T1".into(),
-            path: "a.rs".into(),
-            line: Some(3),
-            resolved: false,
-            comments: vec![ThreadComment {
-                id: 9,
-                author: "bob".into(),
-                body: "x".into(),
-            }],
-        }];
-        app.thread_action(&fake, &["resolve", "1"]);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Would resolve thread on a.rs:3; add --yes to send")
-        );
-        app.thread_action(&fake, &["reply", "1"]);
-        assert_eq!(app.status_message.as_deref(), Some("Reply text is empty"));
-        app.thread_action(&fake, &["nuke", "1"]);
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Unknown thread action 'nuke'")
-        );
-        assert!(fake.posted.borrow().is_empty());
-        app.thread_action(&fake, &["reply", "1", "thanks", "all", "--yes"]);
-        assert_eq!(app.status_message.as_deref(), Some("Reply posted"));
-        app.thread_action(&fake, &["resolve", "1", "--yes"]);
-        assert!(app.threads[0].resolved);
-        app.thread_action(&fake, &["unresolve", "1", "--yes"]);
-        assert!(!app.threads[0].resolved);
-        assert_eq!(
-            *fake.posted.borrow(),
-            vec!["reply:9:thanks all", "resolve:T1:true", "resolve:T1:false"]
-        );
-        let bad = FakeClient {
-            fail_post_after: Some(0),
-            ..Default::default()
-        };
-        app.thread_action(&bad, &["resolve", "1", "--yes"]);
-        assert_eq!(app.status_message.as_deref(), Some("rate limited"));
-        assert!(!app.threads[0].resolved);
-    }
-
-    #[test]
     fn background_jobs_apply_on_the_ui_thread() {
         let mut app = create_test_app();
         app.spawn_job(
@@ -1298,9 +1173,7 @@ mod tests {
             created_at_turn: 0,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         app.comments = vec![mk(true), mk(false), mk(true)];
@@ -1372,9 +1245,7 @@ mod tests {
             created_at_turn: 0,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: lgtm_core::outcome::Tracking {
                 hunk_hash: Some("abc".into()),
                 ..Default::default()

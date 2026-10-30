@@ -493,7 +493,7 @@ impl ReviewStore {
         Self::open_marks_only(repo, target)
     }
 
-    /// Opens the review store for `target` without touching `.lgtm/comments.jsonl`.
+    /// Opens the review store for `target` without touching `.lgtm/directives.jsonl`.
     pub fn open_marks_only(repo: &Path, target: &str) -> Result<Self> {
         let s = Self {
             dir: repo.join(".lgtm").join("reviews"),

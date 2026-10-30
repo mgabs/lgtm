@@ -17,6 +17,7 @@ mod background_tests;
 pub(crate) mod command;
 mod comments;
 mod commit;
+mod drafts;
 mod external;
 mod input;
 pub mod markdown;
@@ -167,14 +168,10 @@ pub struct App {
     pr_load_lock: std::sync::Arc<std::sync::Mutex<()>>,
     pr_load_latest: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub thread_revision: u64,
-    thread_reconcile: std::collections::HashSet<(u64, String)>,
-    thread_jobs:
-        std::collections::HashMap<(u64, String), std::collections::VecDeque<comments::ThreadJob>>,
-    posting_prs: std::collections::HashSet<u64>,
-    pub posting_comments: std::collections::HashSet<String>,
+    pub drafts: lgtm_core::discussion::DraftSet,
+    submit_confirm: bool,
+    submitting: bool,
     review_posting_prs: std::collections::HashSet<u64>,
-    reply_drafts: std::collections::HashMap<(u64, String), String>,
-    uncertain_replies: std::collections::HashMap<(u64, String), String>,
 }
 
 pub type Job = Box<dyn FnOnce(&mut App) + Send>;
@@ -299,13 +296,10 @@ impl App {
             pr_load_lock: Default::default(),
             pr_load_latest: Default::default(),
             thread_revision: 0,
-            thread_reconcile: Default::default(),
-            thread_jobs: Default::default(),
-            posting_prs: Default::default(),
-            posting_comments: Default::default(),
+            drafts: Default::default(),
+            submit_confirm: false,
+            submitting: false,
             review_posting_prs: Default::default(),
-            reply_drafts: Default::default(),
-            uncertain_replies: Default::default(),
         };
 
         app.load_marks();
@@ -361,7 +355,7 @@ impl App {
                     watcher_changed_view |= paths.iter().any(|path| {
                         lgtm_core::watcher::affects_diff(&self.git_engine.repo_path, path)
                             || [
-                                ".lgtm/comments.jsonl",
+                                ".lgtm/directives.jsonl",
                                 ".lgtm/gate.json",
                                 ".lgtm/state.json",
                                 ".lgtm/prompt.txt",
@@ -378,7 +372,7 @@ impl App {
                     }
                     // PR snapshots describe remote commits; workspace edits cannot change them.
                     // Still pick up directives written by MCP/other lgtm processes.
-                    if paths.iter().any(|p| p.ends_with(".lgtm/comments.jsonl")) {
+                    if paths.iter().any(|p| p.ends_with(".lgtm/directives.jsonl")) {
                         self.comments = self.comment_store.load_comments();
                     }
                     reload_needed |= (self.pr.current_number.is_none()
@@ -467,10 +461,7 @@ impl App {
     }
 
     fn has_pending_writes(&self) -> bool {
-        self.audit_exports_pending()
-            || !self.posting_prs.is_empty()
-            || !self.review_posting_prs.is_empty()
-            || !self.thread_jobs.is_empty()
+        self.audit_exports_pending() || !self.review_posting_prs.is_empty() || self.submitting
     }
 
     pub(crate) fn request_quit(&mut self) {
@@ -570,8 +561,54 @@ impl App {
         self.status_message = Some("No active agent gate waiting.".to_string());
     }
 
+    /// Aims the diff cursor at the first line on screen so directive commands target it.
+    pub(crate) fn sync_cursor_to_markdown_top(&mut self) -> bool {
+        let preview = &self.markdown_preview;
+        let Some((line, kind)) = preview
+            .rendered_rows
+            .iter()
+            .skip(preview.scroll_offset)
+            .find_map(|r| r.line_number.map(|n| (n, r.diff_kind)))
+        else {
+            return false;
+        };
+        let deleted = kind == markdown::MarkdownDiffKind::Deletion;
+        let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
+            return false;
+        };
+        let found = file
+            .hunks
+            .iter()
+            .flat_map(|h| h.lines.iter())
+            .position(|l| {
+                l.line_type != crate::model::LineType::HunkHeader
+                    && l.new_line_num.or(l.old_line_num) == Some(line)
+                    && (l.line_type == crate::model::LineType::Deletion) == deleted
+            });
+        if let Some(idx) = found {
+            self.cursor_line_idx = idx;
+        }
+        found.is_some()
+    }
+
+    /// Leaves a directive modal for the view it was opened from.
+    pub(crate) fn leave_directive_modal(&mut self) {
+        let md = self.comment_source_view == ActiveView::MarkdownPreview
+            && self
+                .snapshot
+                .files
+                .get(self.selected_file_idx)
+                .is_some_and(|f| markdown::is_markdown_file(&f.new_path));
+        self.active_view = if md {
+            ActiveView::MarkdownPreview
+        } else {
+            ActiveView::Diff
+        };
+    }
+
     pub fn toggle_markdown_preview(&mut self) {
         if self.active_view == ActiveView::MarkdownPreview {
+            self.comment_source_view = ActiveView::Diff;
             self.active_view = ActiveView::Diff;
             return;
         }
@@ -617,9 +654,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         });
 
@@ -652,9 +687,7 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         });
 

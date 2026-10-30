@@ -3,7 +3,7 @@
 [![CI](https://github.com/mgabs/lgtm/actions/workflows/ci.yml/badge.svg)](https://github.com/mgabs/lgtm/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> **Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner built in Rust.**  
+> **Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner built in Rust.**
 > *"Because code shouldn't ship until it actually looks good to you."*
 
 `lgtm` is a keyboard-driven diff reviewer and deterministic guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It combines Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST hunk folding, an interactive Commit Forge, GitHub & Azure DevOps PR review, and direct `#ref` injection into `tmux`, `zellij`, `wezterm`, `kitty` agent panes or clipboards.
@@ -31,8 +31,11 @@
 # macOS & Linux (Homebrew)
 brew install mgabs/tap/lgtm
 
-# Cargo (from GitHub)
+# Windows, macOS & Linux (Cargo from GitHub)
 cargo install --git https://github.com/mgabs/lgtm.git
+
+# Windows (Pre-compiled zip)
+# Download lgtm-v*-windows-x86_64.zip from GitHub Releases and extract to PATH.
 ```
 
 ### 30-Second Cheat Sheet
@@ -55,7 +58,7 @@ lgtm mcp              # Run native Model Context Protocol (MCP) server (alias: l
 - **Interactive Staging & Commit Forge**: Stage (`s`), unstage (`u`), or discard (`x`) individual hunks or visual line selections (`V`) straight to the Git index; craft conventional commits (`C` / `:commit`).
 - **AI Agent Steering & Chords**: Drop inline directives (`c`), use 2-key chord templates (`ca` coverage, `cs` security, `cr` refactor, `cp` performance, `cw` why), and dispatch context-aware `#ref` links directly into agent multiplexer panes (`Enter`) or reject hunks (`X`).
 - **Deep Static Analysis Guardrails**: Real-time detection of OWASP vulnerabilities, cognitive complexity spikes ($\ge 5$), hallucinated identifier typos, dead function additions (YAGNI), breaking API drift, and stealth test neutering.
-- **Pull Request Review**: Review open/closed PRs from GitHub (`gh`/API/HTTPS fallback) and Azure DevOps (`az`/REST) with CI checks (`:checks`), remote discussion threads (`:threads`, markers `◆`/`◇`), and batch posting (`:pr post --yes`).
+- **Pull Request Review**: Review open/closed PRs from GitHub (`gh`/API/HTTPS fallback) and Azure DevOps (`az`/REST) with CI checks (`:checks`), remote discussion threads (`:threads`, markers `◆`/`◇`) with local drafts (`:thread comment|reply|resolve`, `✎` gutter marker) submitted as one confirmed batch (`:thread submit`).
 - **Native MCP Server**: JSON-RPC stdio server for Claude Code, Cursor, Windsurf, and Aider with live file-watcher resource subscriptions.
 - **Headless CI & Security Gates**: `lgtm check` gates CI pipelines on critical findings; `lgtm hook` automates Git pre-commit verification; SARIF 2.1.0 and Markdown reporting.
 

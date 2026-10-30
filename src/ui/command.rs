@@ -2,7 +2,7 @@ use super::*;
 
 pub fn command_description(cmd: &str) -> &'static str {
     match cmd {
-        "w" | "write" => "Save directives to .lgtm/comments.jsonl",
+        "w" | "write" => "Save directives to .lgtm/directives.jsonl",
         "q" | "quit" => "Quit lgtm",
         "wq" | "x" | "exit" => "Save directives and quit",
         "h" | "help" | "?" => "Open help modal",
@@ -19,7 +19,7 @@ pub fn command_description(cmd: &str) -> &'static str {
             "Open review directives list (`:directives recheck` reclassifies outcomes; `:directives orphans` lists, re-pins or drops orphaned ones)"
         }
         "r" | "review" | "send" | "push" | "submit" => "Export & blast batch review to agent",
-        "thread" => "Reply to or resolve a remote thread (:thread reply|resolve|unresolve <n>)",
+        "thread" => "Draft comments, replies and resolves, then send them (:thread comment|reply|resolve|unresolve|edit|discard|drafts|submit)",
         "checks" => "Refresh CI check status for the open PR",
         "threads" => "List remote review threads for the open PR",
         "hidden" => "List suppressed and baselined findings",
@@ -138,7 +138,7 @@ mod tests {
     fn test_command_descriptions() {
         assert_eq!(
             command_description("w"),
-            "Save directives to .lgtm/comments.jsonl"
+            "Save directives to .lgtm/directives.jsonl"
         );
         assert_eq!(command_description("q"), "Quit lgtm");
         assert_eq!(

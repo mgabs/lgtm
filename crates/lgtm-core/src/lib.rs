@@ -2,6 +2,7 @@ pub mod baseline;
 pub mod comment;
 pub mod config;
 pub mod debug;
+pub mod discussion;
 pub mod findings;
 pub mod forge;
 pub mod git;
@@ -13,6 +14,7 @@ pub mod outcome;
 pub mod pr;
 pub mod review;
 pub mod scan;
+pub mod sys;
 pub mod turn;
 pub mod watcher;
 

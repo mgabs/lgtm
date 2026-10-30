@@ -216,14 +216,21 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Toggle resolve  "),
+        Span::raw(" Draft resolve  "),
         Span::styled(
             "[r]",
             Style::default()
                 .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Reply  "),
+        Span::raw(" Draft reply  "),
+        Span::styled(
+            "[s]",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Submit drafts  "),
         Span::styled("[Esc/q]", Style::default().fg(Color::DarkGray)),
         Span::raw(" Close"),
     ]))

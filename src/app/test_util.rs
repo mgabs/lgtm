@@ -9,7 +9,12 @@ pub(crate) fn create_test_app() -> App {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let tmp = std::env::temp_dir().join(format!("lgtm-test-{}-{}", unique, id));
+    let tmp = std::env::temp_dir().join(format!(
+        "lgtm-test-{}-{}-{}",
+        std::process::id(),
+        unique,
+        id
+    ));
     let _ = std::fs::create_dir_all(&tmp);
     let mut app = App::new(tmp, rx, None, None, None);
     app.forge_factory = |_| Box::new(lgtm_core::forge::Unsupported("test"));

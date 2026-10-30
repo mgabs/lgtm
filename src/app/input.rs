@@ -525,6 +525,12 @@ impl App {
                     self.active_view = ActiveView::Diff;
                 }
             }
+            (_, KeyCode::Up) if !self.command.completions.is_empty() => {
+                self.command.autocomplete_prev();
+            }
+            (_, KeyCode::Down) if !self.command.completions.is_empty() => {
+                self.command.autocomplete_next();
+            }
             (_, KeyCode::Up) | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
                 if !self.command.history.is_empty() {
                     let next_idx = match self.command.history_idx {
@@ -587,7 +593,7 @@ impl App {
     pub(crate) fn handle_comment_list_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
-                self.active_view = ActiveView::Diff;
+                self.leave_directive_modal();
             }
             (_, KeyCode::Enter) => {
                 if let Some(comment) = self.comments.get(self.comment_list_selected_idx) {
@@ -595,7 +601,7 @@ impl App {
                     let target_line = comment.target_line_no;
                     self.jump_to_file_and_line(&file_path, target_line);
                 }
-                self.active_view = ActiveView::Diff;
+                self.leave_directive_modal();
             }
             (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
                 if self.comment_list_selected_idx > 0 {
@@ -644,7 +650,7 @@ impl App {
                 if !self.comments.is_empty() && self.comment_list_selected_idx < self.comments.len()
                 {
                     self.action_comment_to_agent(self.comment_list_selected_idx);
-                    self.active_view = ActiveView::Diff;
+                    self.leave_directive_modal();
                 }
             }
             (_, KeyCode::Char('d')) | (_, KeyCode::Char('x')) | (_, KeyCode::Delete) => {
@@ -707,17 +713,12 @@ impl App {
                 self.thread_scroll_offset = self.thread_scroll_offset.saturating_sub(3);
             }
             (_, KeyCode::Char('v')) | (_, KeyCode::Char('R')) | (_, KeyCode::Char(' ')) => {
-                if let Some(t) = self.threads.get(self.thread_selected_idx) {
-                    let thread_id = t.id.clone();
-                    let next_resolved = !t.resolved;
-                    if let Some(pr) = self.pr.current_number {
-                        self.set_thread_resolved_async(pr, thread_id, next_resolved);
-                    }
-                }
+                self.draft_resolve(self.thread_selected_idx, None);
             }
             (_, KeyCode::Char('r')) if !self.threads.is_empty() => {
                 self.start_thread_reply(self.thread_selected_idx);
             }
+            (_, KeyCode::Char('s')) => self.thread_command(&["submit"]),
             _ => {}
         }
     }
@@ -1490,19 +1491,45 @@ impl App {
     }
 
     pub(crate) fn handle_markdown_preview_key(&mut self, key: KeyEvent) {
+        let vh = self.markdown_preview.viewport_height;
         match (key.modifiers, key.code) {
             (KeyModifiers::NONE, KeyCode::Char('m')) | (KeyModifiers::NONE, KeyCode::Esc) => {
+                self.comment_source_view = ActiveView::Diff;
                 self.active_view = ActiveView::Diff;
             }
+            (_, KeyCode::Tab) | (_, KeyCode::BackTab) => {
+                self.show_file_drawer = !self.show_file_drawer;
+            }
+            (KeyModifiers::NONE, KeyCode::Char('c')) => {
+                if self.sync_cursor_to_markdown_top() {
+                    self.comment_input.clear();
+                    self.comment_source_view = ActiveView::MarkdownPreview;
+                    self.active_view = ActiveView::CommentInput;
+                }
+            }
+            (KeyModifiers::NONE, KeyCode::Char('l')) => {
+                self.sync_cursor_to_markdown_top();
+                self.comment_source_view = ActiveView::MarkdownPreview;
+                self.open_comment_list();
+            }
+            (KeyModifiers::NONE, KeyCode::Char('R'))
+            | (KeyModifiers::SHIFT, KeyCode::Char('R')) => {
+                self.sync_cursor_to_markdown_top();
+                self.toggle_resolve_current_comment();
+            }
+            (KeyModifiers::NONE, KeyCode::Char('x')) => {
+                self.sync_cursor_to_markdown_top();
+                self.delete_current_line_comment();
+            }
             (KeyModifiers::NONE, KeyCode::Char('j')) | (KeyModifiers::NONE, KeyCode::Down) => {
-                self.markdown_preview.scroll_down(1, 30);
+                self.markdown_preview.scroll_down(1, vh);
             }
             (KeyModifiers::NONE, KeyCode::Char('k')) | (KeyModifiers::NONE, KeyCode::Up) => {
                 self.markdown_preview.scroll_up(1);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('d'))
             | (KeyModifiers::NONE, KeyCode::PageDown) => {
-                self.markdown_preview.scroll_down(15, 30);
+                self.markdown_preview.scroll_down(15, vh);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('u')) | (KeyModifiers::NONE, KeyCode::PageUp) => {
                 self.markdown_preview.scroll_up(15);
@@ -1511,7 +1538,7 @@ impl App {
                 self.markdown_preview.scroll_to_top();
             }
             (KeyModifiers::NONE, KeyCode::Char('G')) | (KeyModifiers::NONE, KeyCode::End) => {
-                self.markdown_preview.scroll_to_bottom(30);
+                self.markdown_preview.scroll_to_bottom(vh);
             }
             (KeyModifiers::NONE, KeyCode::Char(':')) => {
                 self.command.input.clear();
@@ -1821,6 +1848,111 @@ mod tests {
         // Colon command :preview toggles back
         app.execute_command("preview");
         assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn arrows_walk_the_tab_completion_list() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        let key = |code: KeyCode| KeyEvent {
+            code,
+            modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+        let mut app = create_test_app();
+        app.active_view = ActiveView::CommandLine;
+        app.command.history.push("older".into());
+        app.handle_key(key(KeyCode::Char('e')));
+        app.handle_key(key(KeyCode::Tab));
+        let first = app.command.input.clone();
+        let n = app.command.completions.len();
+        assert!(n > 1);
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.command.completion_idx, Some(1));
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.command.input, first);
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.command.completion_idx, Some(n - 1));
+        assert_ne!(app.command.input, "older");
+    }
+
+    #[test]
+    fn markdown_preview_follows_tab_and_manages_directives() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        let key = |code: KeyCode| KeyEvent {
+            code,
+            modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+        let line = |t: LineType, old: Option<u32>, new: Option<u32>| DiffLine {
+            line_type: t,
+            content: "text".into(),
+            old_line_num: old,
+            new_line_num: new,
+        };
+        let mut app = create_test_app();
+        app.snapshot.files = vec![FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("README.md"),
+            change_type: ChangeType::Modified,
+            additions: 1,
+            deletions: 1,
+            hunks: vec![DiffHunk {
+                header: "@@".into(),
+                lines: vec![
+                    line(LineType::HunkHeader, None, None),
+                    line(LineType::Deletion, Some(5), None),
+                    line(LineType::Addition, None, Some(5)),
+                ],
+                old_start: 5,
+                old_lines: 1,
+                new_start: 5,
+                new_lines: 1,
+                is_folded: false,
+                folded_blocks: Vec::new(),
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }];
+        app.selected_file_idx = 0;
+        app.handle_key(key(KeyCode::Char('m')));
+        app.markdown_preview.rendered_rows =
+            crate::app::markdown::build_markdown_preview(&app.snapshot.files[0], 80);
+
+        let drawer = app.show_file_drawer;
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.show_file_drawer, !drawer);
+        app.handle_key(key(KeyCode::BackTab));
+        assert_eq!(app.show_file_drawer, drawer);
+
+        // Top row is the deleted line, which is diff-line index 1.
+        app.handle_key(key(KeyCode::Char('c')));
+        assert_eq!(app.active_view, ActiveView::CommentInput);
+        assert_eq!(app.cursor_line_idx, 1);
+        for c in "fix".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+        assert_eq!(app.comments.len(), 1);
+        assert_eq!(app.comments[0].comment_text, "fix");
+
+        app.handle_key(key(KeyCode::Char('R')));
+        assert!(app.comments[0].is_resolved);
+
+        app.handle_key(key(KeyCode::Char('l')));
+        assert_eq!(app.active_view, ActiveView::CommentList);
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+
+        app.handle_key(key(KeyCode::Char('x')));
+        assert!(app.comments.is_empty());
+
+        // Leaving the preview resets the modal return view.
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.comment_source_view, ActiveView::Diff);
     }
 
     #[test]

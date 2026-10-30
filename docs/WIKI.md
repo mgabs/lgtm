@@ -115,11 +115,20 @@ make release
 cp target/release/lgtm /usr/local/bin/lgtm
 ```
 
+### Windows Installation (Native)
+```powershell
+# Install via Cargo
+cargo install --git https://github.com/mgabs/lgtm.git
+
+# Or download pre-compiled release zip:
+# Download lgtm-v*-windows-x86_64.zip from GitHub Releases and extract lgtm.exe into your PATH.
+```
+
 ### Requirements
-- **OS**: macOS, Linux, Windows (via WSL2 or Windows Terminal)
+- **OS**: macOS, Linux, Windows 10/11 (Windows Terminal, PowerShell, or Command Prompt; WSL2 also supported)
 - **Git**: Git 2.20+ installed
-- **PR features**: GitHub uses Git/API/`gh`; public listings and stored patches can fall back to anonymous HTTPS via `curl`. Private reads, discussions, and writes require authentication. Azure uses `az` with the `azure-devops` extension.
-- **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
+- **PR features**: GitHub uses Git/API/`gh`; public listings and stored patches can fall back to anonymous HTTPS via `curl`. Private reads, discussions, and writes require authentication. Azure uses `az` (or `az.cmd`) with the `azure-devops` extension.
+- **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Windows Terminal, Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
 
 ---
 
@@ -148,7 +157,10 @@ lgtm
 | `*` / `#` | Word Search | Search symbol under cursor forward / backward |
 | `zz` / `zt` / `zb` | Viewport | Center cursor / align top / align bottom |
 | `f` / `Ctrl-p` | Fuzzy Finder | Open fuzzy file switcher popup to jump to any file |
+| — | Scrollbar | A right-edge scrollbar appears when the diff or markdown preview is taller than the view; the cursor row (including wrapped lines) always stays visible |
 | `Tab` | Drawer Sidebar | Toggle 35-column changed file list on the left |
+| — | Clean tree | With no changes, a large LGTM logo, "looks good to me" and the one-line purpose are shown |
+| `m` | Markdown Preview | Rendered preview for `.md` files (`:md`). `Tab` toggles the drawer; directives show under their line; `c` / `l` / `R` / `x` add, list, resolve and delete a directive at the top visible line; `m` / `Esc` returns to the diff. The bottom border shows `first-last/total` |
 | `d` | Split View Toggle | Toggle between Unified Diff and Side-by-Side Dual Pane Diff |
 | `o` / `e` | Open in Editor | Open current file and line in configured editor (default: `nvim`, configurable: `:editor <name>` or config `editor = "vscode"`) |
 | `?` / `h` | **Help Modal** | Open 7-tab interactive documentation modal |
@@ -199,7 +211,7 @@ Folds use a visible-rows indirection for cursor motion (`j`, `k`, `G`, `gg`, `Ct
 #### 1. Adding Directives
 - Press `c` on any line to open the directive input modal.
 - Type your feedback (e.g. `Use parameter binding here rather than string concatenation`) and press `Enter`.
-- Directives are immediately persisted to `.lgtm/comments.jsonl`.
+- Directives are immediately persisted to `.lgtm/directives.jsonl`.
 
 #### 2. Quick Steering Chords (2-Key Templates)
 To minimize typing during fast pairing sessions, use instant directive chords:
@@ -416,7 +428,6 @@ az login # or az devops login
 | `:pr <n>` | Reads metadata via REST with cached auth and CLI fallback |
 | `:checks` | Displays branch policy status as pass / fail / pending |
 | `:threads` | PR threads via `az devops invoke`; system/deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved |
-| `:pr post --yes` | Directives on diff lines post as inline threads; rest post to combined general thread; `:thread reply`, `resolve` (`fixed`), `unresolve` (`active`) |
 | Review submit | `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` posts body as discussion thread |
 
 Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queries reuse one `az account get-access-token` per session (~30m, memory-only, passed to curl via private temporary file). Results are cached for 5 minutes; writes invalidate cache.
@@ -424,10 +435,13 @@ Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queri
 #### PR Threads and Remote Discussions
 
 - Run `:threads` to fetch remote discussion threads in the background.
-- Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread).
+- Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread). Your pending inline drafts (`:thread comment`) show `✎` on the targeted line plus an inline `DRAFT #id (pending|stale|failed)` row beneath it; reply/resolve drafts show as `DRAFT …` labels in the threads view.
 - Jump between discussions using `]t` / `[t`.
-- Reply directly on marked lines with `r` or `:thread reply <n> <text> --yes`.
-- Toggle thread resolution with `R` or `:thread resolve <n> --yes` / `:thread unresolve <n> --yes`.
+- The forge is the source of truth: threads are always fetched live (`:threads`, `:thread refresh`).
+- Everything you write is a local **draft** (`.lgtm/drafts/pr-<N>.json`) until you submit: `:thread comment <text>` (inline at the cursor; deletions go on the LEFT side), `:thread general <text>`, `:thread reply <n> <text>` (or `r`), `:thread resolve|unresolve <n>` (or `R`; last draft per thread wins).
+- Manage drafts with `:thread drafts`, `:thread edit <id> <text>`, `:thread discard <id|all>`.
+- `:thread submit` (or `s` in the threads view) shows the batch; run it again to confirm. Items are sent in order (new threads, general, replies, resolves); on GitHub two or more new inline comments go out as one `COMMENT` review (one notification; if GitHub rejects it, they are sent one by one so each failure is reported on its own draft); each item succeeds or fails on its own, failures stay as drafts with the reason and remediation, and a retry of a draft that failed earlier first checks the forge, so it never duplicates a comment that landed unseen (fresh drafts are always sent, even if the same text already exists). Drafts whose thread vanished are marked `STALE` and skipped.
+- The agent MCP server exposes live threads through `lgtm_list_threads` (`pr` argument).
 
 #### Directive Outcomes and Remote Posting
 
@@ -437,16 +451,12 @@ Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queri
   - `gone`: file left the diff.
   - `orphaned`: commented code no longer found in file.
   - Agent claims via MCP (`lgtm_resolve_directive`) are tracked separately; unverified claims show `[claimed but not changed]` in red.
-- **Posting Directives**:
-  - `:pr post` previews comment count (inline vs general).
-  - `:pr post --yes` dispatches comments to the remote forge.
-  - Each comment's `remote_id` is recorded immediately so interrupted runs resume without duplication.
 
 #### Durable Review State and Comment Re-pinning
 
 - **Hunk & File Review Marks**: Press `M` to mark/unmark the current hunk as reviewed, or `v` to mark the entire file. Marks persist per review target in `.lgtm/reviews/<target>.json` and survive code changes above the hunk.
 - **Export & Import**: `lgtm review export [target]` outputs state JSON; `lgtm review import <file>` merges marks and directives.
-- **Comment Re-pinning & Orphans**: On reload, comments in `.lgtm/comments.jsonl` re-pin using fuzzy content matching around neighboring lines. If code is deleted, the comment is preserved as `⚠ Orphaned` (viewable in `:c`, manageable via `:directives orphans repin <n>` or `:directives orphans drop`).
+- **Comment Re-pinning & Orphans**: On reload, comments in `.lgtm/directives.jsonl` re-pin using fuzzy content matching around neighboring lines. If code is deleted, the comment is preserved as `⚠ Orphaned` (viewable in `:c`, manageable via `:directives orphans repin <n>` or `:directives orphans drop`).
 
 ---
 
@@ -513,7 +523,7 @@ Or start Aider in one tmux/zellij/wezterm pane and `lgtm` in the other for real-
 |---|---|---|
 | `lgtm_diff` | Get structured diff snapshot with file-by-file stats | `rev_spec` (optional string, e.g. `main..feat`) |
 | `lgtm_security_scan` | Run static analysis guardrails for OWASP leaks, complexity spikes, and test neutering | `strict` (boolean, flag only Critical/High) |
-| `lgtm_list_directives` | Read all human review directives from `.lgtm/comments.jsonl` | *(None)* |
+| `lgtm_list_directives` | Read all human review directives from `.lgtm/directives.jsonl` | *(None)* |
 | `lgtm_add_directive` | Anchor a review directive to a specific file and line | `file` (string), `line` (integer), `content` (string) |
 | `lgtm_directive_status` | Directives with 1-based `id`, outcome, claim and verdict | *(None)* |
 | `lgtm_review_state` | Reviewed hunk count and directive counts | *(None)* |
@@ -698,7 +708,6 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 | `:pr <n>`, `lgtm pr <n>`: reads fresh metadata through REST with cached authentication and CLI fallback; uses recorded commits before probing refs, including completed/abandoned PRs | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
-| `:pr post --yes`: inline comments become threads on the new-side line, the rest one general thread; `:thread reply`, `resolve` (status `fixed`), `unresolve` (`active`) | |
 | Review submit: `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` only comments (body posted as a thread) | |
 
 After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line. Jump between thread lines with `]t`/`[t`, and trigger inline reply or toggle resolution directly on the marked line with `r` or `R`.
@@ -711,14 +720,14 @@ Errors name the fix: missing `az`, missing extension, or not logged in. The orga
 
 ## 8. Ex-Commands Dictionary (`:cmds`)
 
-Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmenu auto-completion:
+Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmenu auto-completion (`↑` / `↓` also walk the open completion list):
 
 | Command | Aliases | Description |
 |---|---|---|
 | `:audit` | — | Audit the whole codebase (issues only, no diff) |
 | `:scan [repo]` | `:issues` | Scan changed files; `:scan repo` audits the whole codebase |
 | `:export [path]` | — | Export audit scorecard report to Markdown (default: `lgtm-report.md`) |
-| `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/comments.jsonl` |
+| `:w [path]` | `:write` | In Audit mode: exports report to disk. In Diff mode: saves review directives to `.lgtm/directives.jsonl` |
 | `:diff [range]` | `:rev`, `:range` | Return to Diff mode (or load a range, e.g. `:diff main..feat`; a bare branch name means `<branch>...HEAD`, audited on load) |
 | `:q` | `:quit` | Quit `lgtm` (`:q!` force quit without saving) |
 | `:wq` | `:x`, `:exit` | Save directives and quit |

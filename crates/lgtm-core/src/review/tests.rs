@@ -49,8 +49,6 @@ fn anchor(path: &str, ln: u32, code: &str) -> CommentAnchor {
         created_at_turn: 1,
         is_resolved: false,
         pr_number: None,
-        side: Default::default(),
-        remote_id: None,
         orphaned: false,
         track: Default::default(),
     }
@@ -63,6 +61,14 @@ fn hash_ignores_whitespace_and_line_numbers() {
         hunk_hash(&hunk(50, &["a b", " c "]))
     );
     assert_ne!(hunk_hash(&hunk(1, &["a"])), hunk_hash(&hunk(1, &["b"])));
+}
+
+#[test]
+fn hash_invariant_to_crlf_endings() {
+    let lf = hunk(1, &["let x = 10;", "let y = 20;"]);
+    let crlf = hunk(1, &["let x = 10;\r", "let y = 20;\r"]);
+    assert_eq!(hunk_hash(&lf), hunk_hash(&crlf));
+    assert_eq!(hunk_hash_u64(&lf), hunk_hash_u64(&crlf));
 }
 
 #[test]
@@ -254,8 +260,8 @@ fn open_preserves_comments_jsonl() {
     let s = ReviewStore::open(d.path(), "main").unwrap();
     assert!(s.load().unwrap().comments.is_empty());
     assert_eq!(store.load_comments().len(), 1);
-    assert!(d.path().join(".lgtm/comments.jsonl").is_file());
-    assert!(!d.path().join(".lgtm/comments.jsonl.bak").exists());
+    assert!(d.path().join(".lgtm/directives.jsonl").is_file());
+    assert!(!d.path().join(".lgtm/directives.jsonl.bak").exists());
 }
 
 #[test]
@@ -325,7 +331,7 @@ fn marks_only_leaves_legacy_comments() {
         .add_comment(&anchor("a.rs", 1, "p"))
         .unwrap();
     ReviewStore::open_marks_only(d.path(), "main").unwrap();
-    assert!(d.path().join(".lgtm/comments.jsonl").is_file());
+    assert!(d.path().join(".lgtm/directives.jsonl").is_file());
 }
 
 #[test]

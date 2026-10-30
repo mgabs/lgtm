@@ -477,8 +477,8 @@ echo "[]"
 
         // Submitting the draft saves the directive on PR #20, reprepares without an extra fetch, and exits cleanly.
         app.send(b"\r");
-        let comments_path = repo_dir.join(".lgtm/comments.jsonl");
-        wait_file(&comments_path, "saved comments.jsonl");
+        let comments_path = repo_dir.join(".lgtm/directives.jsonl");
+        wait_file(&comments_path, "saved directives.jsonl");
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             let log = std::fs::read_to_string(&log_path).unwrap_or_default();
@@ -702,18 +702,27 @@ echo "[]"
         let wt_dir = repo_dir.join(".worktrees/feat-x");
         let mut cmd = std::process::Command::new("git");
         cmd.current_dir(&repo_dir);
+        // A git hook run (pre-commit) leaks GIT_* variables that point at the outer repository.
+        for (key, _) in std::env::vars().filter(|(k, _)| k.starts_with("GIT_")) {
+            cmd.env_remove(key);
+        }
         cmd.args(["worktree", "add", "-b", "feat-x", wt_dir.to_str().unwrap()]);
         let out = cmd.output().unwrap();
-        assert!(out.status.success());
+        assert!(
+            out.status.success(),
+            "git worktree add failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
 
         // Verify discovery via GitEngine
         let engine = lgtm_core::git::GitEngine::new(&repo_dir);
         let worktrees = engine.list_worktrees().unwrap();
         assert_eq!(worktrees.len(), 2);
-        let canon_repo = repo_dir.canonicalize().unwrap();
+        let canon_repo = lgtm_core::sys::canonicalize_clean(&repo_dir).unwrap();
         assert!(worktrees
             .iter()
-            .any(|w| w.is_current && w.path.canonicalize().unwrap() == canon_repo));
+            .any(|w| w.is_current
+                && lgtm_core::sys::canonicalize_clean(&w.path).unwrap() == canon_repo));
         assert!(worktrees
             .iter()
             .any(|w| w.branch.as_deref() == Some("feat-x")));
@@ -821,42 +830,37 @@ echo "[]"
 }
 
 #[test]
-fn bdd_cli_010_pr_post_command_validates_target_pr_and_previews_comments() {
-    let repo = tempfile::tempdir().unwrap();
-    lgtm_core::git2::Repository::init(repo.path()).unwrap();
+fn bdd_win_001_windows_path_and_process_resolution() {
+    use lgtm_core::sys::{normalize_git_path, resolve_program_for_os, strip_verbatim_prefix};
 
-    // When no PR number is given and no comments exist, it asks for a PR number
-    let output = lgtm(repo.path(), &["pr", "post"]);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("PR number required"));
-
-    // When an explicit PR number is given on an empty review
-    let output = lgtm(repo.path(), &["pr", "post", "42"]);
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+    // Verbatim UNC and disk prefixes are cleanly stripped
+    assert_eq!(
+        strip_verbatim_prefix(std::path::PathBuf::from(r"\\?\C:\Users\runner\repo")),
+        std::path::PathBuf::from(r"C:\Users\runner\repo")
     );
+    assert_eq!(
+        strip_verbatim_prefix(std::path::PathBuf::from(r"\\?\UNC\server\share\repo")),
+        std::path::PathBuf::from(r"\\server\share\repo")
+    );
+
+    // Git index slashes are normalized
+    assert_eq!(
+        normalize_git_path(std::path::Path::new(r"src\app\main.rs")),
+        "src/app/main.rs"
+    );
+
+    // Batch wrapper commands resolve to .cmd on Windows
+    assert_eq!(resolve_program_for_os("az", true), "az.cmd");
+    assert_eq!(resolve_program_for_os("code", true), "code.cmd");
+    assert_eq!(resolve_program_for_os("cursor", true), "cursor.cmd");
+    // A native Windows host probes PATHEXT and finds git.exe; elsewhere the name is unchanged.
+    let git = resolve_program_for_os("git", true);
     assert!(
-        combined.contains("Checking diff")
-            || combined.contains("PR #42")
-            || combined.contains("Failed to query diff")
-            || combined.contains("Error")
+        git == "git" || git == "git.exe",
+        "unexpected resolution: {git}"
     );
-}
 
-#[test]
-fn bdd_cli_011_pr_reply_and_resolve_cli_argument_handling() {
-    let repo = tempfile::tempdir().unwrap();
-    lgtm_core::git2::Repository::init(repo.path()).unwrap();
-
-    // Invoking pr reply requires arguments (PR, thread, body)
-    let output = lgtm(repo.path(), &["pr", "reply"]);
-    assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("<PR>"));
-
-    // Invoking pr resolve requires arguments (PR, thread)
-    let output = lgtm(repo.path(), &["pr", "resolve"]);
-    assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("<PR>"));
+    // Unix returns unmodified binary names
+    assert_eq!(resolve_program_for_os("az", false), "az");
+    assert_eq!(resolve_program_for_os("code", false), "code");
 }

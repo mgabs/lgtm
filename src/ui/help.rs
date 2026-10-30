@@ -510,7 +510,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 )]),
                 Line::from(vec![
                     Span::styled("  :w, :write           ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Save active directives to .lgtm/comments.jsonl"),
+                    Span::raw("Save active directives to .lgtm/directives.jsonl"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :q, :quit            ", Style::default().fg(Color::Cyan)),
@@ -553,16 +553,12 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Load PR in background; close drafts and visual selections to switch"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :pr post [--yes]     ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Post pending review comments to GitHub/Azure PR"),
-                ]),
-                Line::from(vec![
                     Span::styled("  :prs [open|closed|all]", Style::default().fg(Color::Cyan)),
                     Span::raw("Open PR picker modal (open, closed, or all)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :threads, :thread    ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Inspect and reply to remote PR review threads"),
+                    Span::raw("Live PR threads; draft comment/reply/resolve, then :thread submit"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :checks              ", Style::default().fg(Color::Cyan)),
@@ -650,7 +646,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :md, :preview        ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Toggle rendered Markdown preview for .md files"),
+                    Span::raw("Markdown preview (Tab files; c/l/R/x directives)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :yank, :y            ", Style::default().fg(Color::Cyan)),

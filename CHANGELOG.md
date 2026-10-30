@@ -1,8 +1,25 @@
 # Changelog
 
+## 2.6.0
+
+### Added
+- Online PR comments: live threads, local drafts (`:thread comment|general|reply|resolve|unresolve|edit|discard|drafts`), and a confirmed batch `:thread submit` with per-item results, stale detection and duplicate-safe retries; MCP `lgtm_list_threads`; pending inline drafts show a `✎` gutter marker and an inline row (pending/stale/failed) in the diff view. On GitHub, new inline comments in a submit are posted as a single `COMMENT` review (one notification) with automatic per-comment fallback.
+
+### Fixed
+- A fresh draft whose text already appears in a thread (e.g. a second "Done") is now sent; only drafts that previously failed are checked against the forge before retrying.
+- A failed draft-store save after a successful submit no longer leaves sent drafts pending (which could re-send them) or lets a pending quit proceed.
+
+### Removed
+- Local PR comment posting (`:pr post`, `lgtm pr post|reply|resolve`); agent directives now live in `.lgtm/directives.jsonl` (legacy `comments.jsonl` is migrated automatically).
+
 ## 1.1.0
 
 ### Added
+- Markdown preview: `Tab` toggles the file drawer, directives render under their line, and `c`/`l`/`R`/`x` add, list, resolve and delete directives at the top visible line.
+- Clean working tree shows a large LGTM logo, "looks good to me" and a one-line purpose.
+- Diff and markdown views show a scrollbar; the markdown preview shows its position, and scrolling counts directive rows so the end is always reachable.
+- A wrapped cursor row is kept fully visible in the diff view.
+- `↑` / `↓` walk the `:` completion list while it is open.
 - Anonymous HTTPS fallback for public GitHub.com PR listings and stored patches when `gh` is missing or needs login and no API token is set; BDD scenarios verify request budgets and failure boundaries. Private reads and writes still require authentication.
 - Public API and application-launch BDD scenarios, with a catalog mapping internal UI regressions and remaining acceptance work.
 - Opt-in `--debug` timing diagnostics with `--debug-log PATH`, plus offline responsiveness benchmarks.

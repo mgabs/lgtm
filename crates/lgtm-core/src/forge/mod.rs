@@ -36,7 +36,7 @@ pub fn kind_of(repo: &Path) -> ForgeKind {
     origin_url(repo).map_or(ForgeKind::Unknown, |u| detect(&u))
 }
 
-pub(crate) fn origin_url(repo: &Path) -> Option<String> {
+pub fn origin_url(repo: &Path) -> Option<String> {
     git2::Repository::open(repo)
         .ok()
         .and_then(|r| r.find_remote("origin").ok()?.url().map(str::to_string))
@@ -71,6 +71,32 @@ impl Drop for PrivateTempFile {
     }
 }
 
+/// One inline comment of a batched submit.
+#[derive(Debug, Clone, Copy)]
+pub struct InlineDraft<'a> {
+    pub path: &'a str,
+    pub line: u32,
+    pub side: CommentSide,
+    pub body: &'a str,
+}
+
+/// Posts each item on its own; one result per item, in order.
+pub fn post_each<P: PrDiscussion + ?Sized>(
+    forge: &P,
+    pr: u64,
+    sha: &str,
+    items: &[InlineDraft],
+) -> Vec<Result<()>> {
+    items
+        .iter()
+        .map(|i| {
+            forge
+                .post_inline(pr, sha, i.path, i.line, i.side, i.body)
+                .map(|_| ())
+        })
+        .collect()
+}
+
 /// Provider-agnostic PR discussion and review capabilities (comments, threads, checks).
 pub trait PrDiscussion {
     fn checks(&self, _pr: u64) -> Result<Vec<Check>> {
@@ -97,6 +123,11 @@ pub trait PrDiscussion {
         _body: &str,
     ) -> Result<u64> {
         bail!("Inline comments are not supported by this provider")
+    }
+    /// Inline comments in one provider call when supported; one result per item, in order.
+    /// The default posts each item on its own.
+    fn post_inline_batch(&self, pr: u64, sha: &str, items: &[InlineDraft]) -> Vec<Result<()>> {
+        post_each(self, pr, sha, items)
     }
     /// General PR conversation comment; returns the comment id.
     fn post_general(&self, _pr: u64, _body: &str) -> Result<u64> {
@@ -136,6 +167,9 @@ impl<T: ?Sized + PrDiscussion> PrDiscussion for Box<T> {
         body: &str,
     ) -> Result<u64> {
         (**self).post_inline(pr, sha, path, line, side, body)
+    }
+    fn post_inline_batch(&self, pr: u64, sha: &str, items: &[InlineDraft]) -> Vec<Result<()>> {
+        (**self).post_inline_batch(pr, sha, items)
     }
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
         (**self).post_general(pr, body)
@@ -237,6 +271,13 @@ impl PrDiscussion for ForgeImpl {
             Self::GitHub(f) => f.post_inline(pr, sha, path, line, side, body),
             Self::Azure(f) => f.post_inline(pr, sha, path, line, side, body),
             Self::Unsupported(f) => f.post_inline(pr, sha, path, line, side, body),
+        }
+    }
+    fn post_inline_batch(&self, pr: u64, sha: &str, items: &[InlineDraft]) -> Vec<Result<()>> {
+        match self {
+            Self::GitHub(f) => f.post_inline_batch(pr, sha, items),
+            Self::Azure(f) => f.post_inline_batch(pr, sha, items),
+            Self::Unsupported(f) => f.post_inline_batch(pr, sha, items),
         }
     }
     fn post_general(&self, pr: u64, body: &str) -> Result<u64> {
@@ -494,6 +535,31 @@ mod tests {
             .contains("Azure DevOps"));
         assert!(f.pr_diff(1).is_err() && f.checks(1).is_err());
         assert!(f.post_review(1, "x", "y").is_err());
+    }
+
+    #[test]
+    fn inline_batch_reaches_the_wrapped_provider() {
+        struct Batching;
+        impl PrDiscussion for Batching {
+            fn post_inline_batch(&self, _: u64, _: &str, i: &[InlineDraft]) -> Vec<Result<()>> {
+                i.iter().map(|_| Err(anyhow::anyhow!("batched"))).collect()
+            }
+        }
+        let item = InlineDraft {
+            path: "a",
+            line: 1,
+            side: CommentSide::Right,
+            body: "x",
+        };
+        let boxed: Box<dyn PrDiscussion> = Box::new(Batching);
+        let r = boxed.post_inline_batch(1, "s", &[item, item]);
+        assert!(
+            r.len() == 2
+                && r.iter()
+                    .all(|x| x.as_ref().unwrap_err().to_string() == "batched")
+        );
+        let r = ForgeImpl::Unsupported(Unsupported("X")).post_inline_batch(1, "s", &[item, item]);
+        assert!(r.len() == 2 && r.iter().all(Result::is_err));
     }
 
     #[test]

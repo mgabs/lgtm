@@ -403,7 +403,5 @@ impl GithubClient for FakeClient {
     }
 }
 
-pub mod post;
-
 #[cfg(test)]
 mod tests;
