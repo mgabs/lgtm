@@ -646,7 +646,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :md, :preview        ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Toggle rendered Markdown preview for .md files"),
+                    Span::raw("Markdown preview (Tab files; c/l/R/x directives)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :yank, :y            ", Style::default().fg(Color::Cyan)),

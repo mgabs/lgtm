@@ -251,7 +251,7 @@ pub(super) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
     let active = rows
         .source_rows
         .get(&canonical)
-        .map(|&row| rows.offsets[row]);
+        .map(|&row| (rows.offsets[row], rows.offsets[row + 1]));
     let height = inner.height as usize;
     app.diff_scroll_offset = app
         .diff_scroll_offset
@@ -309,6 +309,19 @@ pub(super) fn render_diff_view(frame: &mut Frame, area: Rect, app: &mut App) {
         y += count;
         logical += 1;
         skip = 0;
+    }
+    let total = layout.rows.total_height();
+    if total > height {
+        let mut bar = ratatui::widgets::ScrollbarState::new(total - height + 1)
+            .position(app.diff_scroll_offset);
+        frame.render_stateful_widget(
+            ratatui::widgets::Scrollbar::new(ratatui::widgets::ScrollbarOrientation::VerticalRight),
+            area.inner(ratatui::layout::Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut bar,
+        );
     }
     cache.viewport_rows = drawn;
     cache.layout = Some(layout);
