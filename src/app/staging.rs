@@ -927,6 +927,7 @@ mod tests {
         let root = app.git_engine.repo_path.clone();
         std::fs::write(root.join(".git-placeholder"), "").unwrap();
         git_out(&app, &["init", "-q"]);
+        git_out(&app, &["config", "core.autocrlf", "false"]);
         std::fs::write(root.join(".git/info/exclude"), ".lgtm/\n.git-placeholder\n").unwrap();
         std::fs::write(root.join("a.txt"), ORIGINAL).unwrap();
         git_out(&app, &["add", "a.txt"]);
