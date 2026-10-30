@@ -45,7 +45,7 @@ impl App {
             .or_else(|| {
                 worktrees
                     .iter()
-                    .find(|w| w.path.to_string_lossy() == target || w.path.ends_with(target))
+                    .find(|w| w.path == std::path::Path::new(target) || w.path.ends_with(target))
             });
 
         if let Some(wt) = found {
@@ -269,7 +269,12 @@ mod tests {
             let target = match how {
                 "branch" => "feat-x".to_string(),
                 "dirname" => wt.file_name().unwrap().to_string_lossy().into_owned(),
-                _ => wt.canonicalize().unwrap().to_string_lossy().into_owned(),
+                _ => wt
+                    .canonicalize()
+                    .unwrap()
+                    .to_string_lossy()
+                    .trim_start_matches(r"\\?\")
+                    .to_owned(),
             };
             app.jump_to_worktree(&target);
             let name = wt.file_name().unwrap().to_string_lossy().into_owned();
