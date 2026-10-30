@@ -279,6 +279,13 @@ fn describe(draft: &Draft, error: &anyhow::Error) -> String {
     )
 }
 
+/// A body match proves nothing for a fresh draft ("Done" may be said twice); only a draft
+/// that already failed once can have landed unseen. Resolve state is compared directly.
+fn maybe_already_sent(draft: &Draft, threads: &[Thread]) -> bool {
+    let state_based = matches!(draft.kind, DraftKind::SetResolved { .. });
+    (state_based || draft.error.is_some()) && already_present(draft, threads)
+}
+
 /// True when the forge already shows this draft, so it must not be sent again.
 fn already_present(draft: &Draft, threads: &[Thread]) -> bool {
     let has = |t: &Thread| t.comments.iter().any(|c| c.body.trim() == draft.body);
@@ -340,7 +347,7 @@ fn send_inline_batch(
     let mut items = Vec::new();
     for d in plan.iter().filter_map(|id| drafts.get(*id)) {
         if let DraftKind::Thread { path, line, side } = &d.kind {
-            if !already_present(d, threads) {
+            if !maybe_already_sent(d, threads) {
                 ids.push(d.id);
                 items.push(InlineDraft {
                     path,
@@ -390,7 +397,7 @@ pub fn submit(
     let mut batched = send_inline_batch(forge, pr, drafts, &plan, &threads, &sha);
     for id in plan {
         let draft = drafts.get(id).cloned().expect("planned id exists");
-        if already_present(&draft, &threads) && !batched.contains_key(&id) {
+        if maybe_already_sent(&draft, &threads) && !batched.contains_key(&id) {
             drafts.remove(id);
             report.deduped += 1;
             continue;

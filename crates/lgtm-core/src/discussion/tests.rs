@@ -318,9 +318,26 @@ fn already_present_items_are_deduped_before_sending() {
     s.add(inline("a", 5), "note").unwrap();
     s.add(inline("a", 6), "note").unwrap();
     s.add(DraftKind::General, "g").unwrap();
+    for d in s.items.iter_mut().take(4).filter(|d| d.body != "") {
+        d.error = Some("timed out".into());
+    }
     let report = submit(&fake, 1, &mut s).unwrap();
     assert_eq!((report.sent, report.deduped), (2, 3));
     assert_eq!(*fake.calls.borrow(), vec!["inline:a:6", "general"]);
+}
+
+#[test]
+fn fresh_drafts_with_text_already_in_a_thread_are_still_sent() {
+    let fake = Fake {
+        sha: Some("s".into()),
+        threads: RefCell::new(vec![thread("t", "a", 5, false, &["Done"])]),
+        ..Default::default()
+    };
+    let mut s = DraftSet::default();
+    s.add(reply_kind("t"), "Done").unwrap();
+    s.add(inline("a", 5), "Done").unwrap();
+    let report = submit(&fake, 1, &mut s).unwrap();
+    assert_eq!((report.sent, report.deduped), (2, 0));
 }
 
 #[test]
@@ -515,6 +532,7 @@ fn already_present_inline_drafts_stay_out_of_the_batch() {
         .borrow_mut()
         .push(thread("t", "a", 5, false, &["there"]));
     let mut s = drafts(&[("a", 5, "there"), ("a", 6, "x"), ("a", 7, "y")]);
+    s.items[0].error = Some("timed out".into());
     let report = submit(&fake, 1, &mut s).unwrap();
     assert_eq!((report.sent, report.deduped), (2, 1));
     assert_eq!(*fake.batches.borrow(), vec![vec!["a:6:x", "a:7:y"]]);
@@ -527,6 +545,7 @@ fn one_new_draft_left_after_dedupe_is_sent_individually() {
         .borrow_mut()
         .push(thread("t", "a", 5, false, &["there"]));
     let mut s = drafts(&[("a", 5, "there"), ("a", 6, "x")]);
+    s.items[0].error = Some("timed out".into());
     let report = submit(&fake, 1, &mut s).unwrap();
     assert_eq!((report.sent, report.deduped), (1, 1));
     assert!(fake.batches.borrow().is_empty());

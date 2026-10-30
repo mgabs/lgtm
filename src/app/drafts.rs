@@ -299,13 +299,15 @@ impl App {
                 };
                 if result.is_ok() {
                     let key = app.repo_key();
-                    if let Err(e) = store::save(&app.git_engine.repo_path, pr, &key, &drafts) {
-                        app.status_message = Some(format!("Could not save drafts: {e:#}"));
-                        return;
-                    }
+                    let saved = store::save(&app.git_engine.repo_path, pr, &key, &drafts);
                     if current {
                         app.drafts = drafts;
                         app.invalidate_diff_content();
+                    }
+                    if let Err(e) = saved {
+                        app.status_message = Some(format!("Could not save drafts: {e:#}"));
+                        app.quit_after_jobs = false;
+                        return;
                     }
                 }
                 app.quit_after_jobs = app.quit_after_jobs && result.is_ok();
@@ -628,5 +630,24 @@ mod tests {
         assert!(status(&app).starts_with("Submit failed before sending anything"));
         assert_eq!(app.drafts.items()[0].body, "keep me");
         assert!(!app.submitting);
+    }
+
+    #[test]
+    fn failed_save_after_submit_still_clears_sent_drafts_and_the_pending_quit() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut app = pr_app();
+        app.forge_factory = |_| Box::new(Recording);
+        app.thread_command(&["reply", "1", "r"]);
+        app.thread_command(&["submit"]);
+        // A directory in place of the store file makes the post-submit save fail.
+        let blocked = app.git_engine.repo_path.join(".lgtm/drafts/pr-7.json");
+        std::fs::remove_file(&blocked).unwrap();
+        std::fs::create_dir_all(&blocked).unwrap();
+        app.quit_after_jobs = true;
+        app.thread_command(&["submit"]);
+        wait_submit(&mut app);
+        assert!(status(&app).starts_with("Could not save drafts"));
+        assert!(app.drafts.is_empty(), "sent drafts must not be re-sent");
+        assert!(!app.quit_after_jobs);
     }
 }
