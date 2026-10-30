@@ -1,23 +1,9 @@
 use super::*;
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandCategory {
-    NavigationLayout,
-    DirectivesThreads,
-    AgentSteering,
-    PrRemote,
-    AuditGit,
-}
-
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct CommandDef {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
-    pub category: CommandCategory,
-    pub args_summary: &'static str,
-    pub description: &'static str,
 }
 
 pub static COMMAND_REGISTRY: &[CommandDef] = &[
@@ -25,318 +11,186 @@ pub static COMMAND_REGISTRY: &[CommandDef] = &[
     CommandDef {
         name: "quit",
         aliases: &["q"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Request safe quit",
     },
     CommandDef {
         name: "quit!",
         aliases: &["q!"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Force quit immediately without saving",
     },
     CommandDef {
         name: "write",
         aliases: &["w"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "[path]",
-        description: "Save review directives or write audit scorecard",
     },
     CommandDef {
         name: "exit",
         aliases: &["wq", "x"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Save directives and exit",
     },
     CommandDef {
         name: "diff",
         aliases: &["rev", "range"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "[revision]",
-        description: "Switch to diff view or review revision range",
     },
     CommandDef {
         name: "split",
         aliases: &["sp", "vsp", "vsplit"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Toggle Unified vs Side-by-Side split diff view",
     },
     CommandDef {
         name: "drawer",
         aliases: &["tree", "sidebar"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Toggle file tree sidebar drawer",
     },
     CommandDef {
         name: "find",
         aliases: &["f", "files"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Open fuzzy file switcher modal",
     },
     CommandDef {
         name: "preview",
         aliases: &["md"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Toggle rendered Markdown preview",
     },
     CommandDef {
         name: "reload",
         aliases: &["e", "edit"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Reload diff from disk",
     },
     CommandDef {
         name: "next",
         aliases: &["n"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Navigate to next file or audit issue",
     },
     CommandDef {
         name: "prev",
         aliases: &["p"],
-        category: CommandCategory::NavigationLayout,
-        args_summary: "",
-        description: "Navigate to previous file or audit issue",
     },
     // Review Directives & Threads
     CommandDef {
         name: "comments",
         aliases: &["c", "directives", "todo"],
-        category: CommandCategory::DirectivesThreads,
-        args_summary: "[recheck|orphans]",
-        description: "Open review directives drawer",
     },
     CommandDef {
         name: "reply",
         aliases: &["rep"],
-        category: CommandCategory::DirectivesThreads,
-        args_summary: "[text]",
-        description: "Reply to comment or thread at cursor",
     },
     CommandDef {
         name: "resolve",
         aliases: &["res"],
-        category: CommandCategory::DirectivesThreads,
-        args_summary: "[all]",
-        description: "Toggle resolved status on comment/thread (or resolve all)",
     },
     CommandDef {
         name: "unresolve",
         aliases: &[],
-        category: CommandCategory::DirectivesThreads,
-        args_summary: "[all]",
-        description: "Mark comment/thread active (or unresolve all)",
     },
     CommandDef {
         name: "clear",
         aliases: &[],
-        category: CommandCategory::DirectivesThreads,
-        args_summary: "",
-        description: "Clear all review directives",
     },
     CommandDef {
         name: "clear-resolved",
         aliases: &[],
-        category: CommandCategory::DirectivesThreads,
-        args_summary: "",
-        description: "Remove only resolved review directives",
     },
     // Agent Steering & Execution
     CommandDef {
         name: "send",
         aliases: &["review", "push"],
-        category: CommandCategory::AgentSteering,
-        args_summary: "",
-        description: "Compile batch directives and dispatch to agent sink",
     },
     CommandDef {
         name: "prompt",
         aliases: &["context"],
-        category: CommandCategory::AgentSteering,
-        args_summary: "",
-        description: "Open agent prompt / gate context modal",
     },
     CommandDef {
         name: "approve",
         aliases: &["lgtm"],
-        category: CommandCategory::AgentSteering,
-        args_summary: "",
-        description: "Approve waiting agent breakpoint gate",
     },
     CommandDef {
         name: "reject",
         aliases: &[],
-        category: CommandCategory::AgentSteering,
-        args_summary: "",
-        description: "Revert hunk and dispatch prompt with rejection reason",
     },
     CommandDef {
         name: "reject-all",
         aliases: &["reject-gate"],
-        category: CommandCategory::AgentSteering,
-        args_summary: "",
-        description: "Reject waiting agent breakpoint gate",
     },
     CommandDef {
         name: "pane",
         aliases: &["panes"],
-        category: CommandCategory::AgentSteering,
-        args_summary: "[id]",
-        description: "View or set agent target pane ID",
     },
     CommandDef {
         name: "sink",
         aliases: &[],
-        category: CommandCategory::AgentSteering,
-        args_summary: "[name]",
-        description: "Configure multiplexer agent sink",
     },
     CommandDef {
         name: "inject",
         aliases: &[],
-        category: CommandCategory::AgentSteering,
-        args_summary: "[all]",
-        description: "Inject audit violation directive to agent",
     },
     // PR & Remote Lifecycle
     CommandDef {
         name: "pr",
         aliases: &[],
-        category: CommandCategory::PrRemote,
-        args_summary: "<num> | post [--yes]",
-        description: "Review pull request by number or post comments",
     },
     CommandDef {
         name: "prs",
         aliases: &[],
-        category: CommandCategory::PrRemote,
-        args_summary: "[open|closed|all]",
-        description: "Open pull request list picker",
     },
     CommandDef {
         name: "threads",
         aliases: &["thread"],
-        category: CommandCategory::PrRemote,
-        args_summary: "[comment|reply|resolve|unresolve|edit|discard|drafts|submit|refresh]",
-        description: "Inspect live PR threads; draft and submit comments",
     },
     CommandDef {
         name: "checks",
         aliases: &[],
-        category: CommandCategory::PrRemote,
-        args_summary: "",
-        description: "Refresh and inspect CI status checks",
     },
     // Audit, Security & Git Lifecycle
     CommandDef {
         name: "audit",
         aliases: &[],
-        category: CommandCategory::AuditGit,
-        args_summary: "",
-        description: "Run full codebase security and architecture audit",
     },
     CommandDef {
         name: "scan",
         aliases: &["issues"],
-        category: CommandCategory::AuditGit,
-        args_summary: "[repo]",
-        description: "Scan diff changes (or full repo) for guard alerts",
     },
     CommandDef {
         name: "risk",
         aliases: &[],
-        category: CommandCategory::AuditGit,
-        args_summary: "",
-        description: "Run security and fraud risk scan",
     },
     CommandDef {
         name: "filter",
         aliases: &["sev"],
-        category: CommandCategory::AuditGit,
-        args_summary: "<crit|high|all>",
-        description: "Filter audit alerts by severity level",
     },
     CommandDef {
         name: "file",
         aliases: &[],
-        category: CommandCategory::AuditGit,
-        args_summary: "[path]",
-        description: "Filter audit alerts to specific file",
     },
     CommandDef {
         name: "commit",
         aliases: &["ci"],
-        category: CommandCategory::AuditGit,
-        args_summary: "[message]",
-        description: "Commit staged hunks (or open Commit Forge)",
     },
     CommandDef {
         name: "worktrees",
         aliases: &["wt"],
-        category: CommandCategory::AuditGit,
-        args_summary: "[name|path]",
-        description: "Open worktree switcher modal",
     },
     CommandDef {
         name: "hook",
         aliases: &[],
-        category: CommandCategory::AuditGit,
-        args_summary: "[install|uninstall|status]",
-        description: "Inspect or manage Git pre-commit hook",
     },
     CommandDef {
         name: "editor",
         aliases: &[],
-        category: CommandCategory::AuditGit,
-        args_summary: "[name]",
-        description: "Configure external editor command",
     },
     CommandDef {
         name: "export",
         aliases: &[],
-        category: CommandCategory::AuditGit,
-        args_summary: "[path]",
-        description: "Export audit scorecard markdown report",
     },
     CommandDef {
         name: "hidden",
         aliases: &[],
-        category: CommandCategory::AuditGit,
-        args_summary: "",
-        description: "Display baselined and suppressed findings",
     },
     CommandDef {
         name: "yank",
         aliases: &["y"],
-        category: CommandCategory::AuditGit,
-        args_summary: "",
-        description: "Yank current code line to clipboard",
     },
     CommandDef {
         name: "ref",
         aliases: &["yr"],
-        category: CommandCategory::AuditGit,
-        args_summary: "",
-        description: "Yank code reference with file and line to clipboard",
     },
     CommandDef {
         name: "help",
         aliases: &["h", "?"],
-        category: CommandCategory::AuditGit,
-        args_summary: "",
-        description: "Open interactive documentation modal",
     },
 ];
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn find_command(name: &str) -> Option<&'static CommandDef> {
     COMMAND_REGISTRY
         .iter()
