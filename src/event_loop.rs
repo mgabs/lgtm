@@ -105,6 +105,10 @@ impl UiLoop {
                     app.handle_key(key);
                     self.dirty = true;
                 }
+                Event::Mouse(mouse) => {
+                    app.handle_mouse(mouse);
+                    self.dirty = true;
+                }
                 Event::Resize(..) => self.dirty = true,
                 Event::FocusGained => {
                     app.invalidate_view_data();

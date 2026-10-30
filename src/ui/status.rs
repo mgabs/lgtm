@@ -126,7 +126,7 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
             Span::styled("[m/Esc]", Style::default().fg(Color::Yellow)),
             Span::raw(" Raw Diff | "),
             Span::styled("[j/k]", Style::default().fg(Color::Cyan)),
-            Span::raw(" Scroll | "),
+            Span::raw(" Move | "),
             Span::styled("[g/G]", Style::default().fg(Color::Cyan)),
             Span::raw(" Top/End | "),
             Span::styled("[Tab]", Style::default().fg(Color::Cyan)),

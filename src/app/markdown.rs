@@ -27,6 +27,8 @@ pub struct RenderedMarkdownRow {
 #[derive(Debug, Default, Clone)]
 pub struct MarkdownPreviewState {
     pub scroll_offset: usize,
+    /// Row (index into `rendered_rows`) that directive commands act on.
+    pub cursor_row: usize,
     pub rendered_rows: Vec<RenderedMarkdownRow>,
     pub cached_file_idx: Option<usize>,
     pub cached_width: u16,
@@ -57,18 +59,63 @@ impl MarkdownPreviewState {
 
     pub fn scroll_down(&mut self, amount: usize, viewport_height: usize) {
         self.scroll_offset = (self.scroll_offset + amount).min(self.max_scroll(viewport_height));
+        self.clamp_cursor_into_view(viewport_height);
     }
 
-    pub fn scroll_up(&mut self, amount: usize) {
+    pub fn scroll_up(&mut self, amount: usize, viewport_height: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(amount);
+        self.clamp_cursor_into_view(viewport_height);
     }
 
-    pub fn scroll_to_top(&mut self) {
-        self.scroll_offset = 0;
+    /// Last row that starts inside the viewport at the current offset.
+    fn last_visible_row(&self, viewport_height: usize) -> usize {
+        let mut used = 0;
+        let mut last = self.scroll_offset;
+        for row in self.scroll_offset..self.rendered_rows.len() {
+            used += self.height(row);
+            if used > viewport_height && row > self.scroll_offset {
+                break;
+            }
+            last = row;
+        }
+        last
     }
 
-    pub fn scroll_to_bottom(&mut self, viewport_height: usize) {
-        self.scroll_offset = self.max_scroll(viewport_height);
+    fn clamp_cursor_into_view(&mut self, viewport_height: usize) {
+        let last = self.last_visible_row(viewport_height);
+        self.cursor_row = self.cursor_row.clamp(self.scroll_offset, last);
+    }
+
+    /// Moves the cursor by `delta` rows and scrolls just enough to keep it visible.
+    pub fn move_cursor(&mut self, delta: isize, viewport_height: usize) {
+        let last_row = self.rendered_rows.len().saturating_sub(1);
+        self.cursor_row = self.cursor_row.saturating_add_signed(delta).min(last_row);
+        self.ensure_cursor_visible(viewport_height);
+    }
+
+    pub fn cursor_to_top(&mut self, viewport_height: usize) {
+        self.cursor_row = 0;
+        self.ensure_cursor_visible(viewport_height);
+    }
+
+    pub fn cursor_to_bottom(&mut self, viewport_height: usize) {
+        self.cursor_row = self.rendered_rows.len().saturating_sub(1);
+        self.ensure_cursor_visible(viewport_height);
+    }
+
+    fn ensure_cursor_visible(&mut self, viewport_height: usize) {
+        if self.cursor_row < self.scroll_offset {
+            self.scroll_offset = self.cursor_row;
+        }
+        while self.scroll_offset < self.cursor_row
+            && (self.scroll_offset..=self.cursor_row)
+                .map(|r| self.height(r))
+                .sum::<usize>()
+                > viewport_height
+        {
+            self.scroll_offset += 1;
+        }
+        self.scroll_offset = self.scroll_offset.min(self.max_scroll(viewport_height));
     }
 }
 
@@ -799,14 +846,53 @@ mod tests {
         state.scroll_down(5, 20);
         assert_eq!(state.scroll_offset, 30); // stays clamped
 
-        state.scroll_up(15);
+        state.scroll_up(15, 20);
         assert_eq!(state.scroll_offset, 15);
 
-        state.scroll_to_bottom(20);
+        state.cursor_to_bottom(20);
         assert_eq!(state.scroll_offset, 30);
 
-        state.scroll_to_top();
+        state.cursor_to_top(20);
         assert_eq!(state.scroll_offset, 0);
+    }
+
+    fn rows(n: usize) -> MarkdownPreviewState {
+        MarkdownPreviewState {
+            rendered_rows: (0..n)
+                .map(|i| RenderedMarkdownRow {
+                    line_number: Some(i as u32 + 1),
+                    diff_kind: MarkdownDiffKind::Unchanged,
+                    spans: vec![],
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cursor_moves_and_viewport_follows() {
+        let mut s = rows(100);
+        s.move_cursor(35, 30);
+        assert_eq!((s.cursor_row, s.scroll_offset), (35, 6));
+        s.move_cursor(-35, 30);
+        assert_eq!((s.cursor_row, s.scroll_offset), (0, 0));
+        s.cursor_to_bottom(30);
+        assert_eq!((s.cursor_row, s.scroll_offset), (99, 70));
+        s.move_cursor(1, 30);
+        assert_eq!((s.cursor_row, s.scroll_offset), (99, 70));
+    }
+
+    #[test]
+    fn wheel_scroll_keeps_cursor_in_view() {
+        let mut s = rows(100);
+        s.scroll_down(3, 30);
+        assert_eq!((s.scroll_offset, s.cursor_row), (3, 3));
+        s.move_cursor(29, 30);
+        s.scroll_up(3, 30);
+        assert_eq!(s.scroll_offset, 0);
+        assert!(s.cursor_row <= 29);
+        s.scroll_up(3, 30);
+        assert_eq!(s.scroll_offset, 0);
     }
 
     #[test]

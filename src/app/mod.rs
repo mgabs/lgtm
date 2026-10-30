@@ -561,14 +561,13 @@ impl App {
         self.status_message = Some("No active agent gate waiting.".to_string());
     }
 
-    /// Aims the diff cursor at the first line on screen so directive commands target it.
-    pub(crate) fn sync_cursor_to_markdown_top(&mut self) -> bool {
+    /// Aims the diff cursor at the preview cursor row so directive commands target it.
+    pub(crate) fn sync_cursor_to_markdown_row(&mut self) -> bool {
         let preview = &self.markdown_preview;
         let Some((line, kind)) = preview
             .rendered_rows
-            .iter()
-            .skip(preview.scroll_offset)
-            .find_map(|r| r.line_number.map(|n| (n, r.diff_kind)))
+            .get(preview.cursor_row)
+            .and_then(|r| r.line_number.map(|n| (n, r.diff_kind)))
         else {
             return false;
         };
@@ -616,6 +615,7 @@ impl App {
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             if markdown::is_markdown_file(&file.new_path) {
                 self.markdown_preview.scroll_offset = 0;
+                self.markdown_preview.cursor_row = 0;
                 self.markdown_preview.rendered_rows.clear();
                 self.markdown_preview.cached_file_idx = None;
                 self.active_view = ActiveView::MarkdownPreview;

@@ -1490,6 +1490,24 @@ impl App {
         }
     }
 
+    /// Whether the terminal should report mouse events (only the preview uses them).
+    pub(crate) fn wants_mouse_capture(&self) -> bool {
+        self.active_view == ActiveView::MarkdownPreview
+    }
+
+    pub(crate) fn handle_mouse(&mut self, mouse: crossterm::event::MouseEvent) {
+        use crossterm::event::MouseEventKind;
+        if self.active_view != ActiveView::MarkdownPreview {
+            return;
+        }
+        let vh = self.markdown_preview.viewport_height;
+        match mouse.kind {
+            MouseEventKind::ScrollDown => self.markdown_preview.scroll_down(3, vh),
+            MouseEventKind::ScrollUp => self.markdown_preview.scroll_up(3, vh),
+            _ => {}
+        }
+    }
+
     pub(crate) fn handle_markdown_preview_key(&mut self, key: KeyEvent) {
         let vh = self.markdown_preview.viewport_height;
         match (key.modifiers, key.code) {
@@ -1501,44 +1519,44 @@ impl App {
                 self.show_file_drawer = !self.show_file_drawer;
             }
             (KeyModifiers::NONE, KeyCode::Char('c')) => {
-                if self.sync_cursor_to_markdown_top() {
+                if self.sync_cursor_to_markdown_row() {
                     self.comment_input.clear();
                     self.comment_source_view = ActiveView::MarkdownPreview;
                     self.active_view = ActiveView::CommentInput;
                 }
             }
             (KeyModifiers::NONE, KeyCode::Char('l')) => {
-                self.sync_cursor_to_markdown_top();
+                self.sync_cursor_to_markdown_row();
                 self.comment_source_view = ActiveView::MarkdownPreview;
                 self.open_comment_list();
             }
             (KeyModifiers::NONE, KeyCode::Char('R'))
             | (KeyModifiers::SHIFT, KeyCode::Char('R')) => {
-                self.sync_cursor_to_markdown_top();
+                self.sync_cursor_to_markdown_row();
                 self.toggle_resolve_current_comment();
             }
             (KeyModifiers::NONE, KeyCode::Char('x')) => {
-                self.sync_cursor_to_markdown_top();
+                self.sync_cursor_to_markdown_row();
                 self.delete_current_line_comment();
             }
             (KeyModifiers::NONE, KeyCode::Char('j')) | (KeyModifiers::NONE, KeyCode::Down) => {
-                self.markdown_preview.scroll_down(1, vh);
+                self.markdown_preview.move_cursor(1, vh);
             }
             (KeyModifiers::NONE, KeyCode::Char('k')) | (KeyModifiers::NONE, KeyCode::Up) => {
-                self.markdown_preview.scroll_up(1);
+                self.markdown_preview.move_cursor(-1, vh);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('d'))
             | (KeyModifiers::NONE, KeyCode::PageDown) => {
-                self.markdown_preview.scroll_down(15, vh);
+                self.markdown_preview.move_cursor(15, vh);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('u')) | (KeyModifiers::NONE, KeyCode::PageUp) => {
-                self.markdown_preview.scroll_up(15);
+                self.markdown_preview.move_cursor(-15, vh);
             }
             (KeyModifiers::NONE, KeyCode::Char('g')) | (KeyModifiers::NONE, KeyCode::Home) => {
-                self.markdown_preview.scroll_to_top();
+                self.markdown_preview.cursor_to_top(vh);
             }
             (KeyModifiers::NONE, KeyCode::Char('G')) | (KeyModifiers::NONE, KeyCode::End) => {
-                self.markdown_preview.scroll_to_bottom(vh);
+                self.markdown_preview.cursor_to_bottom(vh);
             }
             (KeyModifiers::NONE, KeyCode::Char(':')) => {
                 self.command.input.clear();
@@ -1877,6 +1895,36 @@ mod tests {
     }
 
     #[test]
+    fn preview_comment_targets_cursor_row_and_wheel_scrolls_only_in_preview() {
+        use crossterm::event::{MouseEvent, MouseEventKind};
+        let wheel = |kind| MouseEvent {
+            kind,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::empty(),
+        };
+        let mut app = create_test_app();
+        app.handle_mouse(wheel(MouseEventKind::ScrollDown));
+        assert!(!app.wants_mouse_capture());
+        assert_eq!(app.markdown_preview.scroll_offset, 0);
+
+        app.active_view = ActiveView::MarkdownPreview;
+        app.markdown_preview.viewport_height = 10;
+        app.markdown_preview.rendered_rows = (0..50)
+            .map(|i| crate::app::markdown::RenderedMarkdownRow {
+                line_number: Some(i + 1),
+                diff_kind: crate::app::markdown::MarkdownDiffKind::Unchanged,
+                spans: vec![],
+            })
+            .collect();
+        app.handle_mouse(wheel(MouseEventKind::ScrollDown));
+        assert_eq!(app.markdown_preview.scroll_offset, 3);
+        app.handle_mouse(wheel(MouseEventKind::ScrollUp));
+        app.handle_mouse(wheel(MouseEventKind::ScrollUp));
+        assert_eq!(app.markdown_preview.scroll_offset, 0);
+    }
+
+    #[test]
     fn markdown_preview_follows_tab_and_manages_directives() {
         use crossterm::event::{KeyEventKind, KeyEventState};
         let key = |code: KeyCode| KeyEvent {
@@ -1926,7 +1974,10 @@ mod tests {
         app.handle_key(key(KeyCode::BackTab));
         assert_eq!(app.show_file_drawer, drawer);
 
-        // Top row is the deleted line, which is diff-line index 1.
+        // Cursor row 0 is the deleted line (diff-line index 1); `j` moves it to the addition.
+        app.handle_key(key(KeyCode::Char('j')));
+        app.handle_key(key(KeyCode::Char('k')));
+        assert!(app.wants_mouse_capture());
         app.handle_key(key(KeyCode::Char('c')));
         assert_eq!(app.active_view, ActiveView::CommentInput);
         assert_eq!(app.cursor_line_idx, 1);
