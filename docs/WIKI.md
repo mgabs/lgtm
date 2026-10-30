@@ -115,11 +115,20 @@ make release
 cp target/release/lgtm /usr/local/bin/lgtm
 ```
 
+### Windows Installation (Native)
+```powershell
+# Install via Cargo
+cargo install --git https://github.com/mgabs/lgtm.git
+
+# Or download pre-compiled release zip:
+# Download lgtm-v*-windows-x86_64.zip from GitHub Releases and extract lgtm.exe into your PATH.
+```
+
 ### Requirements
-- **OS**: macOS, Linux, Windows (via WSL2 or Windows Terminal)
+- **OS**: macOS, Linux, Windows 10/11 (Windows Terminal, PowerShell, or Command Prompt; WSL2 also supported)
 - **Git**: Git 2.20+ installed
-- **PR features**: GitHub uses Git/API/`gh`; public listings and stored patches can fall back to anonymous HTTPS via `curl`. Private reads, discussions, and writes require authentication. Azure uses `az` with the `azure-devops` extension.
-- **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
+- **PR features**: GitHub uses Git/API/`gh`; public listings and stored patches can fall back to anonymous HTTPS via `curl`. Private reads, discussions, and writes require authentication. Azure uses `az` (or `az.cmd`) with the `azure-devops` extension.
+- **Terminal**: Modern UTF-8 terminal with 256-color or TrueColor support (Windows Terminal, Ghostty, iTerm2, Alacritty, Kitty, WezTerm, Tmux)
 
 ---
 

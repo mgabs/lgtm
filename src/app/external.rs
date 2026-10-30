@@ -289,17 +289,29 @@ fn launch_editor(editor: &str, path: &std::path::Path, line_no: u32) -> Result<(
 
     let loc = format!("{}:{}", path.display(), line_no);
     let status = match lower.as_str() {
-        "vscode" | "code" => std::process::Command::new("code")
-            .args(["-g", &loc])
-            .status(),
-        "cursor" => std::process::Command::new("cursor")
-            .args(["-g", &loc])
-            .status(),
-        "subl" | "sublime" => std::process::Command::new("subl").arg(&loc).status(),
-        "idea" => std::process::Command::new("idea")
-            .args(["--line", &line_no.to_string()])
-            .arg(path)
-            .status(),
+        "vscode" | "code" => {
+            let prog = lgtm_core::sys::resolve_program("code");
+            std::process::Command::new(prog.as_ref())
+                .args(["-g", &loc])
+                .status()
+        }
+        "cursor" => {
+            let prog = lgtm_core::sys::resolve_program("cursor");
+            std::process::Command::new(prog.as_ref())
+                .args(["-g", &loc])
+                .status()
+        }
+        "subl" | "sublime" => {
+            let prog = lgtm_core::sys::resolve_program("subl");
+            std::process::Command::new(prog.as_ref()).arg(&loc).status()
+        }
+        "idea" => {
+            let prog = lgtm_core::sys::resolve_program("idea");
+            std::process::Command::new(prog.as_ref())
+                .args(["--line", &line_no.to_string()])
+                .arg(path)
+                .status()
+        }
         _ => spawn_cli_editor(editor, path, line_no, &loc),
     };
 
@@ -329,7 +341,8 @@ fn spawn_cli_editor(
 ) -> Result<std::process::ExitStatus, std::io::Error> {
     let mut parts = editor.split_whitespace();
     let bin = parts.next().unwrap_or(editor);
-    let mut cmd = std::process::Command::new(bin);
+    let resolved = lgtm_core::sys::resolve_program(bin);
+    let mut cmd = std::process::Command::new(resolved.as_ref());
     cmd.args(parts);
     if bin == "hx" || bin == "helix" {
         cmd.arg(loc);
