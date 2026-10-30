@@ -47,7 +47,7 @@ fn wait(app: &mut App, predicate: impl Fn(&App) -> bool) {
 }
 
 #[test]
-fn edits_and_post_receipts_during_loading_survive_without_refetch() {
+fn edits_during_loading_survive_without_refetch() {
     let mut app = setup();
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let count = calls.clone();
@@ -62,8 +62,6 @@ fn edits_and_post_receipts_during_loading_survive_without_refetch() {
     entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();
     app.comments[0].comment_text = "newer edit".into();
     app.comments[0].add_reply("newer reply");
-    let id = app.comments[0].id.clone();
-    app.save_post_receipts(&[(id, 99)], &[]).unwrap();
     app.comments[1].comment_text = "unrelated newer edit".into();
     app.comments.push(directive(42));
     app.comments.swap(0, 2);
@@ -71,7 +69,6 @@ fn edits_and_post_receipts_during_loading_survive_without_refetch() {
     wait(&mut app, |app| app.pr_loading.is_none());
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(app.comments[2].comment_text, "newer edit");
-    assert_eq!(app.comments[2].remote_id, Some(99));
     assert_eq!(app.comments[2].replies, ["newer reply"]);
     assert_eq!(app.comments[1].comment_text, "unrelated newer edit");
     assert_eq!(app.comments[0].target_line_no, 3);
@@ -264,10 +261,10 @@ fn cancelled_preparation_does_not_persist_derived_directives() {
 }
 
 #[test]
-fn failed_completion_save_is_visible_and_posting_does_not_start() {
+fn failed_completion_save_is_visible() {
     let mut app = setup();
     app.ready_pr = Some(ready(&app));
-    std::fs::create_dir(app.git_engine.repo_path.join(".lgtm/comments.jsonl")).unwrap();
+    std::fs::create_dir(app.git_engine.repo_path.join(".lgtm/directives.jsonl")).unwrap();
     app.apply_ready_pr();
     assert_eq!(app.pr.current_number, Some(42));
     assert!(app
@@ -275,7 +272,4 @@ fn failed_completion_save_is_visible_and_posting_does_not_start() {
         .as_ref()
         .unwrap()
         .contains("could not be saved"));
-    app.post_pr_comments_job(true, || panic!("posting started before durable save"));
-    assert!(app.posting_prs.is_empty());
-    assert!(app.status_message.as_ref().unwrap().contains("not posted"));
 }

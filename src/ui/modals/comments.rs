@@ -33,11 +33,11 @@ pub(crate) fn render_comment_input(frame: &mut Frame, area: Rect, app: &App) {
 
     let help_text = if let Some(ref alert) = app.comment_target_alert {
         format!(
-            "Finding: {} - {}. Directive will be saved to .lgtm/comments.jsonl.",
+            "Finding: {} - {}. Directive will be saved to .lgtm/directives.jsonl.",
             alert.title, alert.description
         )
     } else {
-        "Comment will be context-anchored in .lgtm/comments.jsonl. Press Ctrl-s in diff view to compile into agent prompt.".to_string()
+        "Comment will be context-anchored in .lgtm/directives.jsonl. Press Ctrl-s in diff view to compile into agent prompt.".to_string()
     };
     let help = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
     frame.render_widget(help, chunks[1]);
@@ -150,9 +150,7 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
         .enumerate()
         .map(|(idx, comment)| {
             let is_selected = idx == app.comment_list_selected_idx;
-            let status_badge = if app.posting_comments.contains(&comment.id) {
-                Span::styled("[Posting…] ", Style::default().fg(Color::Yellow))
-            } else if comment.orphaned {
+            let status_badge = if comment.orphaned {
                 Span::styled(
                     "[⚠ Orphaned] ",
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -173,20 +171,6 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
                 )
             };
 
-            let origin_badge = if comment.remote_id.is_some() {
-                Span::styled("[Remote] ", Style::default().fg(Color::Green))
-            } else if comment.pr_number.is_some() {
-                Span::styled("[Pending] ", Style::default().fg(Color::Yellow))
-            } else {
-                Span::styled("[Local] ", Style::default().fg(Color::DarkGray))
-            };
-
-            let side_badge = if comment.side == lgtm_core::comment::CommentSide::Left {
-                Span::styled("«DEL» ", Style::default().fg(Color::LightRed))
-            } else {
-                Span::raw("")
-            };
-
             let replies_tag = if !comment.replies.is_empty() {
                 format!(
                     " ({} {})",
@@ -203,8 +187,6 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
 
             let mut spans = vec![
                 status_badge,
-                origin_badge,
-                side_badge,
                 Span::styled(
                     format!("{}:{} ", comment.file_path, comment.target_line_no),
                     Style::default()
@@ -218,14 +200,6 @@ pub(crate) fn render_comment_list(frame: &mut Frame, area: Rect, app: &App) {
                 spans.push(Span::styled(
                     replies_tag,
                     Style::default().fg(Color::LightCyan),
-                ));
-            }
-            if comment.remote_id.is_some() {
-                spans.push(Span::styled(
-                    " [↑]",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
                 ));
             }
 

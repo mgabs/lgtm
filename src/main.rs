@@ -231,35 +231,6 @@ fn main() -> ExitCode {
         Some(Commands::Pr { action, number }) => {
             let repo_path = canonicalize_clean(&cli.repo);
             match action {
-                Some(cli::PrSubcommand::Post { pr, yes }) => {
-                    match headless::run_pr_post(&repo_path, pr.or(number), yes) {
-                        Ok(code) => ExitCode::from(code as u8),
-                        Err(e) => {
-                            eprintln!("Error posting to PR: {}", e);
-                            ExitCode::from(1)
-                        }
-                    }
-                }
-                Some(cli::PrSubcommand::Reply { pr, thread, body }) => {
-                    match headless::run_pr_reply(&repo_path, pr, &thread, &body) {
-                        Ok(code) => ExitCode::from(code as u8),
-                        Err(e) => {
-                            eprintln!("Error replying to thread: {}", e);
-                            ExitCode::from(1)
-                        }
-                    }
-                }
-                Some(cli::PrSubcommand::Resolve {
-                    pr,
-                    thread,
-                    unresolve,
-                }) => match headless::run_pr_resolve(&repo_path, pr, &thread, unresolve) {
-                    Ok(code) => ExitCode::from(code as u8),
-                    Err(e) => {
-                        eprintln!("Error resolving thread: {}", e);
-                        ExitCode::from(1)
-                    }
-                },
                 Some(cli::PrSubcommand::List { state }) => list_prs_cli(&repo_path, &state),
                 None => match number {
                     Some(num) => {
@@ -278,7 +249,7 @@ fn main() -> ExitCode {
                         ExitCode::SUCCESS
                     }
                     None => {
-                        eprintln!("PR number or subcommand required (e.g. `lgtm pr <NUMBER>` or `lgtm pr post`)");
+                        eprintln!("PR number or subcommand required (e.g. `lgtm pr <NUMBER>` or `lgtm pr list`)");
                         ExitCode::from(1)
                     }
                 },

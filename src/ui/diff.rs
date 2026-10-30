@@ -795,6 +795,8 @@ fn prepare_diff(
                             let matching_comments: Vec<&crate::comment::CommentAnchor> = line_no.and_then(|n| index.comments.get(&n)).into_iter().flatten().map(|&i| &app.comments[i]).collect();
                             let thread_state = line_no.and_then(|n| index.threads.get(&n).copied());
 
+                            let matching_drafts: Vec<&lgtm_core::discussion::Draft> = line_no.and_then(|n| index.drafts.get(&n)).into_iter().flatten().map(|&i| &app.drafts.items()[i]).collect();
+
                             let gutter_icon = if in_visual {
                                 "▌ "
                             } else if !matching_alerts.is_empty() {
@@ -805,6 +807,8 @@ fn prepare_diff(
                                 } else {
                                     "◇ "
                                 }
+                            } else if !matching_drafts.is_empty() {
+                                "✎ "
                             } else if !matching_comments.is_empty() {
                                 if matching_comments.iter().all(|c| c.is_resolved) {
                                     "✓ "
@@ -826,6 +830,10 @@ fn prepare_diff(
                             } else if let Some(open) = thread_state {
                                 Style::default()
                                     .fg(if open { Color::Cyan } else { Color::Green })
+                                    .add_modifier(Modifier::BOLD)
+                            } else if !matching_drafts.is_empty() {
+                                Style::default()
+                                    .fg(Color::LightBlue)
                                     .add_modifier(Modifier::BOLD)
                             } else if !matching_comments.is_empty()
                                 && matching_comments.iter().all(|c| c.is_resolved)
@@ -908,6 +916,27 @@ fn prepare_diff(
                                 ]));
                             }
 
+                            for draft in matching_drafts {
+                                let (state, color) = if draft.error.is_some() {
+                                    ("failed", Color::Red)
+                                } else if draft.stale.is_some() {
+                                    ("stale", Color::Yellow)
+                                } else {
+                                    ("pending", Color::LightBlue)
+                                };
+                                lines.push(Line::from(vec![
+                                    Span::raw("        │ "),
+                                    Span::styled(
+                                        format!("✎ DRAFT #{} ({state}): ", draft.id),
+                                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                                    ),
+                                    Span::styled(
+                                        format!("\"{}\"", draft.body),
+                                        Style::default().fg(Color::White),
+                                    ),
+                                ]));
+                            }
+
                             // Render inline comments directly beneath this code line
                             for comment in matching_comments {
                                 let (badge, b_style, t_style) = if comment.is_resolved {
@@ -928,19 +957,11 @@ fn prepare_diff(
                                     )
                                 };
 
-                                let mut comment_spans = vec![
+                                let comment_spans = vec![
                                     Span::raw("        │ "),
                                     Span::styled(badge, b_style),
                                     Span::styled(format!("\"{}\"", comment.comment_text), t_style),
                                 ];
-                                if comment.remote_id.is_some() {
-                                    comment_spans.push(Span::styled(
-                                        " [↑]",
-                                        Style::default()
-                                            .fg(Color::Green)
-                                            .add_modifier(Modifier::BOLD),
-                                    ));
-                                }
                                 lines.push(Line::from(comment_spans));
 
                                 for (r_idx, reply) in comment.replies.iter().enumerate() {

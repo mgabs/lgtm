@@ -65,7 +65,7 @@ Feature: Git Worktree Switcher
     Given active worktree "/repo" with 2 unexported review directives
     When the reviewer enters command ":wt feat-ui"
     And the reviewer inputs "s"
-    Then the 2 directives are saved to ".lgtm/comments.jsonl" in "/repo"
+    Then the 2 directives are saved to ".lgtm/directives.jsonl" in "/repo"
     And the active worktree switches to "/repo/.worktrees/feat-ui"
 
   Scenario: Discarding review directives when switching worktrees

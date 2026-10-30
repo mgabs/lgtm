@@ -67,7 +67,7 @@ mod tests {
     fn internal_writes_do_not_invalidate_diff() {
         let root = Path::new("/repo");
         for path in [
-            ".lgtm/comments.jsonl",
+            ".lgtm/directives.jsonl",
             ".lgtm/state.json",
             ".lgtm/debug.jsonl",
             ".git/FETCH_HEAD",

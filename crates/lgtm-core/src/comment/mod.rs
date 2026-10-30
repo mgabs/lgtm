@@ -46,14 +46,9 @@ pub struct CommentAnchor {
     pub replies: Vec<String>,
     pub created_at_turn: u64,
     pub is_resolved: bool,
+    /// PR this directive was written against; scopes saved directives when switching PRs.
     #[serde(default)]
     pub pr_number: Option<u64>,
-    /// Side of diff for PR reviews: RIGHT for additions/context, LEFT for deletions.
-    #[serde(default)]
-    pub side: CommentSide,
-    /// GitHub comment id once posted; posted comments are never posted again.
-    #[serde(default)]
-    pub remote_id: Option<u64>,
     /// Set by re-anchoring when the commented code can no longer be found in the diff.
     #[serde(default)]
     pub orphaned: bool,
@@ -71,14 +66,6 @@ impl CommentAnchor {
         self.is_resolved = !self.is_resolved;
         self.is_resolved
     }
-
-    pub fn is_remote_uncertain(&self) -> bool {
-        self.track.remote_uncertain
-    }
-
-    pub fn set_remote_uncertain(&mut self, uncertain: bool) {
-        self.track.remote_uncertain = uncertain;
-    }
 }
 
 pub struct CommentStore {
@@ -90,12 +77,21 @@ impl CommentStore {
         let dir = repo_root.as_ref().join(".lgtm");
         let _ = create_dir_all(&dir);
         Self {
-            comments_file: dir.join("comments.jsonl"),
+            comments_file: dir.join("directives.jsonl"),
+        }
+    }
+
+    /// One-time move of the legacy `comments.jsonl`; never clobbers an existing store.
+    fn migrate_legacy_file(&self) {
+        let legacy = self.comments_file.with_file_name("comments.jsonl");
+        if legacy.is_file() && !self.comments_file.exists() {
+            let _ = std::fs::rename(&legacy, &self.comments_file);
         }
     }
 
     pub fn load_comments(&self) -> Vec<CommentAnchor> {
         let _timing = crate::debug::Span::new("comments.load_comments");
+        self.migrate_legacy_file();
         if !self.comments_file.exists() {
             return Vec::new();
         }
@@ -247,8 +243,6 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: None,
-            side: CommentSide::Right,
-            remote_id: None,
             orphaned: false,
             track: Default::default(),
         };
@@ -289,8 +283,6 @@ mod tests {
             created_at_turn: 1,
             is_resolved: false,
             pr_number: Some(99),
-            side: CommentSide::Left,
-            remote_id: None,
             orphaned: false,
             track: Default::default(),
         };
@@ -317,7 +309,7 @@ mod tests {
         let legacy = serde_json::json!({"file_path":"a.rs", "target_line_no":1, "target_code":"code",
             "context_before":[], "context_after":[], "comment_text":"keep me", "created_at_turn":1, "is_resolved":false});
         std::fs::write(
-            dir.path().join(".lgtm/comments.jsonl"),
+            dir.path().join(".lgtm/directives.jsonl"),
             format!("{legacy}\n"),
         )
         .unwrap();
@@ -328,12 +320,70 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first[0].comment_text, "keep me");
         assert!(
-            std::fs::read_to_string(dir.path().join(".lgtm/comments.jsonl"))
+            std::fs::read_to_string(dir.path().join(".lgtm/directives.jsonl"))
                 .unwrap()
                 .contains(&first[0].id)
         );
-        // Default side for legacy comments without side field must be Right
-        assert_eq!(first[0].side, CommentSide::Right);
+    }
+
+    #[test]
+    fn legacy_comments_file_migrates_once_to_directives() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy_path = dir.path().join(".lgtm/comments.jsonl");
+        let new_path = dir.path().join(".lgtm/directives.jsonl");
+        std::fs::create_dir_all(dir.path().join(".lgtm")).unwrap();
+        let legacy = serde_json::json!({"id":"abc","file_path":"a.rs","target_line_no":1,"target_code":"c",
+            "context_before":[],"context_after":[],"comment_text":"migrate me","created_at_turn":1,"is_resolved":false});
+        std::fs::write(&legacy_path, format!("{legacy}\n")).unwrap();
+        let loaded = CommentStore::new(dir.path()).load_comments();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].comment_text, "migrate me");
+        assert!(new_path.is_file());
+        assert!(!legacy_path.exists());
+        assert!(std::fs::read_to_string(&new_path)
+            .unwrap()
+            .contains("migrate me"));
+    }
+
+    #[test]
+    fn legacy_comments_file_never_overwrites_existing_directives() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".lgtm")).unwrap();
+        let line = |t: &str| {
+            format!(
+                "{}\n",
+                serde_json::json!({"id":t,"file_path":"a.rs","target_line_no":1,"target_code":"c",
+            "context_before":[],"context_after":[],"comment_text":t,"created_at_turn":1,"is_resolved":false})
+            )
+        };
+        std::fs::write(dir.path().join(".lgtm/comments.jsonl"), line("old")).unwrap();
+        std::fs::write(dir.path().join(".lgtm/directives.jsonl"), line("new")).unwrap();
+        let loaded = CommentStore::new(dir.path()).load_comments();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].comment_text, "new");
+        assert!(dir.path().join(".lgtm/comments.jsonl").exists());
+    }
+
+    #[test]
+    fn legacy_forge_sync_fields_are_ignored_and_not_reserialized() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".lgtm")).unwrap();
+        let legacy = serde_json::json!({"id":"x1","file_path":"a.rs","target_line_no":1,"target_code":"c",
+            "context_before":[],"context_after":[],"comment_text":"keep","created_at_turn":1,"is_resolved":false,
+            "pr_number":7,"remote_id":99,"side":"LEFT","track":{"remote_uncertain":true}});
+        std::fs::write(
+            dir.path().join(".lgtm/directives.jsonl"),
+            format!("{legacy}\n"),
+        )
+        .unwrap();
+        let store = CommentStore::new(dir.path());
+        let loaded = store.load_comments();
+        assert_eq!(loaded.len(), 1);
+        store.save_comments(&loaded).unwrap();
+        let out = std::fs::read_to_string(dir.path().join(".lgtm/directives.jsonl")).unwrap();
+        for key in ["remote_id", "remote_uncertain", "\"side\""] {
+            assert!(!out.contains(key), "{key} leaked: {out}");
+        }
     }
 
     #[test]

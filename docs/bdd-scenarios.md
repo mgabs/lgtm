@@ -25,9 +25,6 @@ application crash or operating-system restart.
 | `bdd_core_002` | A saved PR review is reopened after code moves or changes | Moved content stays reviewed; changed content requires review; another PR inherits no marks |
 | `bdd_core_003` | A historical GitHub PR's merge ref is missing; load its diff | Stored patch returned after one ref attempt; no guessed branch fetch |
 | `bdd_core_004` | GitHub PR fetch fails authentication | Error returned after one request; no patch or transport fallback |
-| `bdd_core_005` | First post succeeds, next fails; reopen saved directives and retry | First receipt survives reopening; only the remaining directive is posted |
-| `bdd_core_006` | First remote post succeeds but its receipt cannot be saved | Save failure reported; second remote write never starts |
-| `bdd_core_007` | Saved directives include posted, resolved, other-PR and local-only entries | Only the current PR's unresolved, unposted directive is sent; excluded entries remain unchanged |
 | `bdd_core_008` | Equivalent GitHub and Azure thread payloads have open or completed statuses | Normalized discussion text, location and resolution markers agree |
 | `bdd_core_009` | Saved review uses an unsupported future format version | Load reports an upgrade is needed; original data stays untouched |
 | `bdd_core_010` | GitHub and Azure listing payloads include open, merged and closed reviews | Normalized open/closed/all filters select equivalent entries |
@@ -41,8 +38,6 @@ application crash or operating-system restart.
 | `bdd_core_018` | Anonymous listing response is malformed or not an array | Error reported without retry or an empty successful listing |
 | `bdd_core_019` | GitHub (API/CLI) and Azure (`az`) list open, closed, and all PRs | Request targets, state flags, and normalized summaries match provider/transport contracts |
 | `bdd_core_020` | GitHub (API/CLI) and Azure (`az`) reply, resolve, and reopen threads | Request endpoints, payloads, numeric ID guards, and confirmation checks reject unconfirmed responses |
-| `bdd_core_021` | Remote directive post times out after provider accepts the comment | Directive is persisted as uncertain, skipped on blind retry, and reconciled against remote threads without duplicate write |
-| `bdd_core_022` | Local receipt save fails after remote post accepts comment, followed by process restart | Fresh process recovers remote id via thread reconciliation, avoids duplicate post, and completes remaining directives |
 | `bdd_cli_001` | User installs, inspects, and removes the hook | Successful exit codes, matching status, actual hook created and removed |
 | `bdd_cli_002` | User supplies `--debug-log` without `--debug` | Argument error and no log file |
 | `bdd_cli_003` | `LGTM_DEBUG_LOG` is set; run normally, then with `--debug --debug-log PATH` | Environment alone creates no log; explicit flags create the requested file |
@@ -60,7 +55,7 @@ cargo test --workspace --test bdd
 Filter by a stable ID to run one scenario, for example:
 
 ```sh
-cargo test -p lgtm-core --test bdd bdd_core_005
+cargo test -p lgtm-core --test bdd bdd_core_004
 ```
 
 ## Related internal behavior tests
@@ -75,12 +70,10 @@ by `--test bdd`.
 | `bdd_ui_002` | New edits, replies, and receipts survive preparation without refetching | `edits_and_post_receipts_during_loading_survive_without_refetch`, `src/app/pr/completion/tests.rs` |
 | `bdd_ui_003` | An older request cannot replace the latest selection; failure preserves the current review | `newest_load_wins_and_failure_preserves_current_review`, `src/app/pr.rs` |
 | `bdd_ui_004` | Failed remote reply retains its draft | `failed_remote_reply_retains_its_draft`, `src/app/pr.rs` |
-| `bdd_ui_005` | Normal quit waits for remote posting and receipt persistence | `normal_quit_waits_for_successful_post_receipt_to_be_saved`, `src/app/pr.rs` |
 | `bdd_ui_006` | Successful reply survives a failed thread refresh without resubmission | `bdd_ui_006_successful_reply_survives_failed_refresh_without_resubmission`, `src/app/pr.rs` |
 | `bdd_ui_007` | Acknowledging an older reply preserves a newer unsent draft | `bdd_ui_007_acknowledged_reply_preserves_a_newer_draft`, `src/app/pr.rs` |
 | `bdd_ui_008` | Failed resolution can be retried, then reopened | `bdd_ui_008_failed_resolution_can_be_retried_and_reopened`, `src/app/pr.rs` |
 | `bdd_ui_009` | Ambiguous remote thread reply timeout blocks blind resubmission until thread refresh reconciles delivery | `bdd_ui_009_ambiguous_reply_timeout_blocks_blind_resubmission_until_reconciled`, `src/app/pr.rs` |
-| `bdd_ui_010` | Failed receipt save recovers after restart via remote thread reconciliation | `bdd_ui_010_restart_after_failed_receipt_save_reconciles_against_remote_threads_without_duplicate_post`, `src/app/pr.rs` |
 | `bdd_provider_001` | Azure historical reloads use recorded commits without repeated ref probes | `historical_pr_cold_and_reload_request_budgets`, `crates/lgtm-core/src/forge/azure/performance_tests.rs` |
 | `bdd_provider_002` | GitHub stored-patch retrieval keeps a bounded request count | `historical_api_patch_request_budget` and `historical_cli_patch_request_budget`, `crates/lgtm-core/src/forge/github/performance_tests.rs` |
 

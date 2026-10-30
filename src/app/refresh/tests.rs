@@ -178,7 +178,7 @@ fn applying_waits_for_drafts_and_preserves_newer_directive_edits() {
     let mut directive: CommentAnchor = serde_json::from_value(serde_json::json!({
         "id":"stable", "file_path":"a.txt", "target_line_no":1, "target_code":"visible",
         "context_before":[], "context_after":[], "comment_text":"newer edit", "replies":["newer reply"],
-        "created_at_turn":1, "is_resolved":true, "remote_id":99,
+        "created_at_turn":1, "is_resolved":true,
     })).unwrap();
     app.comments.push(directive.clone());
     directive.id = "different-review".into();
@@ -191,7 +191,6 @@ fn applying_waits_for_drafts_and_preserves_newer_directive_edits() {
     assert_eq!(app.comments[0].id, "stable");
     assert_eq!(app.comments[0].comment_text, "newer edit");
     assert_eq!(app.comments[0].replies, ["newer reply"]);
-    assert_eq!(app.comments[0].remote_id, Some(99));
     assert!(app.comments[0].is_resolved);
     assert_eq!(app.comments[1], directive);
 }

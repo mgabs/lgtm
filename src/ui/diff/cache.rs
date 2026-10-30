@@ -96,6 +96,7 @@ pub(super) struct Index {
     pub alerts: HashMap<u32, Vec<usize>>,
     pub comments: HashMap<u32, Vec<usize>>,
     pub threads: HashMap<u32, bool>,
+    pub drafts: HashMap<u32, Vec<usize>>,
     pub alert_counts: HashMap<String, usize>,
 }
 
@@ -131,6 +132,13 @@ impl Index {
             if thread.path == name {
                 if let Some(line) = thread.line {
                     *index.threads.entry(line).or_default() |= !thread.resolved;
+                }
+            }
+        }
+        for (i, draft) in app.drafts.items().iter().enumerate() {
+            if let lgtm_core::discussion::DraftKind::Thread { path, line, .. } = &draft.kind {
+                if path == name {
+                    index.drafts.entry(*line).or_default().push(i);
                 }
             }
         }
@@ -187,7 +195,6 @@ pub(super) fn annotation_signature(app: &App) -> u64 {
             c.target_line_no,
             c.orphaned,
             c.is_resolved,
-            c.remote_id,
             &c.comment_text,
             &c.replies,
         )
@@ -204,6 +211,10 @@ pub(super) fn annotation_signature(app: &App) -> u64 {
     app.threads.len().hash(&mut hash);
     for t in &app.threads {
         (&t.path, t.line, t.resolved).hash(&mut hash);
+    }
+    app.drafts.items().len().hash(&mut hash);
+    for d in app.drafts.items() {
+        (d.id, d.target(), &d.body, &d.stale, &d.error).hash(&mut hash);
     }
     hash.finish()
 }

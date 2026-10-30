@@ -213,7 +213,7 @@ sequenceDiagram
     CLI->>Core: plan(comments, files, pr)
     Core-->>CLI: Plan { inline, general, skipped }
     CLI->>Core: run(client, pr, plan, on_save)
-    
+
     loop For each inline comment
         Core->>Forge: post_inline(pr, sha, path, line, side, body)
         alt Success 200/201
@@ -234,7 +234,7 @@ sequenceDiagram
         Forge-->>Core: receipt_id
         Core->>Store: save_receipts(ids, receipt_id)
     end
-    
+
     CLI-->>User: Report { posted, total, error }
 ```
 
