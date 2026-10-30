@@ -54,8 +54,6 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
     let viewport_height = inner_area.height as usize;
     app.markdown_preview.viewport_height = viewport_height;
 
-    let side =
-        |c: &lgtm_core::comment::CommentAnchor| c.side == lgtm_core::comment::CommentSide::Left;
     let file_comments: Vec<_> = app
         .comments
         .iter()
@@ -67,7 +65,7 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
             Some(n) => file_comments
                 .iter()
                 .copied()
-                .filter(|c| c.target_line_no == n && side(c) == deleted)
+                .filter(|c| !deleted && c.target_line_no == n)
                 .collect(),
             None => Vec::new(),
         }
@@ -250,18 +248,13 @@ mod tests {
             created_at_turn: 0,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         let mut done = open.clone();
         done.comment_text = "done one".into();
         done.is_resolved = true;
-        let mut old_side = open.clone();
-        old_side.comment_text = "old side".into();
-        old_side.side = lgtm_core::comment::CommentSide::Left;
-        app.comments = vec![open, done, old_side];
+        app.comments = vec![open, done];
 
         let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
         terminal
@@ -271,7 +264,6 @@ mod tests {
         assert!(out.contains("💬 open one"));
         assert!(out.contains("↳ a reply"));
         assert!(out.contains("✅ done one"));
-        assert_eq!(out.matches("old side").count(), 1);
         assert_eq!(out.matches("open one").count(), 1);
     }
 
@@ -330,9 +322,7 @@ mod tests {
             created_at_turn: 0,
             is_resolved: false,
             pr_number: None,
-            remote_id: None,
             orphaned: false,
-            side: lgtm_core::comment::CommentSide::Right,
             track: Default::default(),
         };
         last.replies.push("r3".into());

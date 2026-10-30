@@ -821,7 +821,12 @@ fn prepare_diff(
                                 .collect();
                             let thread_state = line_no.and_then(|n| index.threads.get(&n).copied());
 
-                            let matching_drafts: Vec<&lgtm_core::discussion::Draft> = line_no.and_then(|n| index.drafts.get(&n)).into_iter().flatten().map(|&i| &app.drafts.items()[i]).collect();
+                            let matching_drafts: Vec<&lgtm_core::discussion::Draft> = line_no
+                                .and_then(|n| index.drafts.get(&n))
+                                .into_iter()
+                                .flatten()
+                                .map(|&i| &app.drafts.items()[i])
+                                .collect();
 
                             let gutter_icon = if in_visual {
                                 "▌ "
