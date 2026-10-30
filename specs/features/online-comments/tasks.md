@@ -80,3 +80,4 @@ Covers REQ-OC-02..06b, 10, NFR-OC-01..03.
 - C2 draft persistence is a synchronous atomic write on the command path (small file, no network); `x`/`e`/`d` view keys are covered by `:thread edit|discard`.
 - Dedupe matches (path, line, body) / reply body, not author (current user unknown to the adapters). Body matches only dedupe drafts that already failed once (a fresh "Done" is always sent); resolve/unresolve compares state directly.
 - T9.2 legacy notice is superseded by automatic migration of `comments.jsonl` to `directives.jsonl`.
+- **Gates 5.A–5.D Review**: Approved by human user.

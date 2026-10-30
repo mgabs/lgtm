@@ -896,4 +896,486 @@ mod tests {
         assert!(prompt.contains("DIRECTIVE: Use constant instead of magic number"));
         assert!(prompt.contains("Reverted hunk in src/main.rs:1"));
     }
+
+    fn git_out(app: &App, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .current_dir(&app.git_engine.repo_path)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_PREFIX")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    const ORIGINAL: &str = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19\nl20\n";
+
+    fn modified() -> String {
+        ORIGINAL.replace("l2\n", "L2\n").replace("l19\n", "L19\n")
+    }
+
+    /// Repo with a committed 20-line a.txt, two separate edits in the working tree, diff loaded.
+    fn app_with_two_hunks() -> App {
+        let mut app = create_test_app();
+        let root = app.git_engine.repo_path.clone();
+        std::fs::write(root.join(".git-placeholder"), "").unwrap();
+        git_out(&app, &["init", "-q"]);
+        std::fs::write(root.join(".git/info/exclude"), ".lgtm/\n.git-placeholder\n").unwrap();
+        std::fs::write(root.join("a.txt"), ORIGINAL).unwrap();
+        git_out(&app, &["add", "a.txt"]);
+        git_out(
+            &app,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "init",
+            ],
+        );
+        std::fs::write(root.join("a.txt"), modified()).unwrap();
+        reload(&mut app);
+        assert_eq!(app.snapshot.files.len(), 1);
+        assert_eq!(app.snapshot.files[0].hunks.len(), 2);
+        app
+    }
+
+    fn reload(app: &mut App) {
+        app.reload_diff();
+        crate::app::test_util::wait_for_local_refresh(app);
+    }
+
+    fn disk(app: &App) -> String {
+        std::fs::read_to_string(app.git_engine.repo_path.join("a.txt")).unwrap()
+    }
+
+    fn second_hunk_cursor(app: &App) -> usize {
+        app.snapshot.files[0].hunks[0].lines.len()
+    }
+
+    #[test]
+    fn test_mutations_blocked_for_pr_and_non_repo() {
+        let mut app = create_test_app();
+        app.snapshot = DiffSnapshot::new(vec![FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("a.txt"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![],
+            is_folded: false,
+            is_reviewed: false,
+        }]);
+        let ops: [fn(&mut App); 11] = [
+            App::toggle_stage_current_file,
+            App::discard_current_file_changes,
+            App::stage_current_hunk,
+            App::unstage_current_hunk,
+            App::discard_current_hunk,
+            App::reject_hunk_and_reprompt,
+            App::unstage_current_file,
+            App::stage_selected_lines,
+            App::unstage_selected_lines,
+            App::discard_selected_lines,
+            |a| {
+                a.active_revision = Some("HEAD".into());
+                a.stage_current_hunk()
+            },
+        ];
+        for op in ops {
+            app.status_message = None;
+            app.pr.current_number = Some(3);
+            op(&mut app);
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some("Staging and discarding are only available on working tree diffs")
+            );
+        }
+        app.pr.current_number = None;
+        app.active_revision = None;
+        app.status_message = None;
+        app.toggle_stage_current_file();
+        assert_eq!(app.status_message.as_deref(), Some("Not a git repository"));
+    }
+
+    #[test]
+    fn test_stage_and_unstage_whole_file() {
+        let mut app = app_with_two_hunks();
+        assert_eq!(app.staged_files_count(), 0);
+        app.toggle_stage_current_file();
+        assert_eq!(app.staged_files_count(), 1);
+        assert!(git_out(&app, &["diff", "--cached"]).contains("+L19"));
+
+        app.unstage_current_file();
+        assert!(!git_out(&app, &["diff", "--cached"]).contains("+L2"));
+    }
+
+    #[test]
+    fn test_stage_and_unstage_hunk_touches_only_current_hunk() {
+        let mut app = app_with_two_hunks();
+        app.cursor_line_idx = second_hunk_cursor(&app);
+        app.stage_current_hunk();
+        let staged = git_out(&app, &["diff", "--cached"]);
+        assert!(staged.contains("+L19"), "{staged}");
+        assert!(!staged.contains("+L2\n"), "{staged}");
+
+        reload(&mut app);
+        app.cursor_line_idx = 0;
+        app.stage_current_hunk();
+        assert!(git_out(&app, &["diff", "--cached"]).contains("+L2\n"));
+
+        reload(&mut app);
+        let all = git_out(&app, &["diff", "--cached"]);
+        assert!(all.contains("+L19") && all.contains("+L2\n"));
+    }
+
+    #[test]
+    fn test_discard_hunk_reverts_only_that_hunk() {
+        let mut app = app_with_two_hunks();
+        app.cursor_line_idx = second_hunk_cursor(&app);
+        app.discard_current_hunk();
+        assert_eq!(disk(&app), ORIGINAL.replace("l2\n", "L2\n"));
+    }
+
+    #[test]
+    fn test_reject_hunk_reverts_and_sends_prompt() {
+        let mut app = app_with_two_hunks();
+        app.cursor_line_idx = 0;
+        app.reject_hunk_and_reprompt();
+        assert_eq!(disk(&app), ORIGINAL.replace("l19\n", "L19\n"));
+    }
+
+    #[test]
+    fn test_discard_file_restores_committed_content() {
+        let mut app = app_with_two_hunks();
+        app.discard_current_file_changes();
+        assert_eq!(disk(&app), ORIGINAL);
+    }
+
+    #[test]
+    fn test_line_level_stage_unstage_discard() {
+        let mut app = app_with_two_hunks();
+        let idx = app.snapshot.files[0].hunks[0]
+            .lines
+            .iter()
+            .position(|l| l.content == "L2")
+            .unwrap();
+        app.cursor_line_idx = idx;
+        app.visual_anchor_idx = Some(idx - 1);
+        app.visual_mode = true;
+        app.stage_selected_lines();
+        assert!(!app.visual_mode);
+        assert!(app.visual_anchor_idx.is_none());
+        let staged = git_out(&app, &["diff", "--cached"]);
+        assert!(
+            staged.contains("+L2\n") && !staged.contains("+L19"),
+            "{staged}"
+        );
+
+        reload(&mut app);
+        let idx = app.snapshot.files[0].hunks[0]
+            .lines
+            .iter()
+            .position(|l| l.content == "L2")
+            .unwrap();
+        app.cursor_line_idx = idx;
+        app.visual_anchor_idx = Some(idx - 1);
+        app.visual_mode = true;
+        app.unstage_selected_lines();
+        assert!(!app.visual_mode);
+        assert_eq!(git_out(&app, &["diff", "--cached"]), "");
+
+        reload(&mut app);
+        let idx = app.snapshot.files[0].hunks[0]
+            .lines
+            .iter()
+            .position(|l| l.content == "L2")
+            .unwrap();
+        app.cursor_line_idx = idx;
+        app.visual_anchor_idx = Some(idx - 1);
+        app.visual_mode = true;
+        app.discard_selected_lines();
+        assert!(!app.visual_mode);
+        assert_eq!(disk(&app), ORIGINAL.replace("l19\n", "L19\n"));
+    }
+
+    #[test]
+    fn test_stale_snapshot_reports_failures() {
+        let mut app = app_with_two_hunks();
+        std::fs::write(
+            app.git_engine.repo_path.join("a.txt"),
+            "completely different\n",
+        )
+        .unwrap();
+        git_out(
+            &app,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-am",
+                "diverge",
+            ],
+        );
+        app.cursor_line_idx = 0;
+
+        type Case = (fn(&mut App), &'static str);
+        let cases: [Case; 7] = [
+            (App::stage_current_hunk, "Failed to stage hunk"),
+            (App::unstage_current_hunk, "Failed to unstage hunk"),
+            (App::discard_current_hunk, "Failed to discard hunk"),
+            (App::reject_hunk_and_reprompt, "Failed to revert hunk"),
+            (
+                |a| {
+                    a.toggle_visual_mode();
+                    a.stage_selected_lines()
+                },
+                "Failed to stage lines",
+            ),
+            (|a| a.unstage_selected_lines(), "Failed to unstage lines"),
+            (|a| a.discard_selected_lines(), "Failed to discard lines"),
+        ];
+        for (op, expected) in cases {
+            app.status_message = None;
+            op(&mut app);
+            let status = app.status_message.clone().unwrap_or_default();
+            assert!(status.starts_with(expected), "{expected}: {status}");
+        }
+        assert_eq!(disk(&app), "completely different\n");
+    }
+
+    #[test]
+    fn test_file_level_failures_reported() {
+        let mut app = app_with_two_hunks();
+        app.snapshot.files[0].new_path = PathBuf::from("missing.txt");
+        app.snapshot.files[0].old_path = None;
+        app.toggle_stage_current_file();
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Failed to stage missing.txt: "));
+        app.discard_current_file_changes();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Failed to restore missing.txt")
+        );
+    }
+
+    fn rust_file_app() -> App {
+        let mut app = create_test_app();
+        let code = [
+            "fn compute(a: i32) -> i32 {",
+            "    let b = a * 2;",
+            "    if b > 10 {",
+            "        let c = b + 1;",
+            "        c * 2",
+            "    } else {",
+            "        0",
+            "    }",
+            "}",
+        ];
+        let lines = code
+            .iter()
+            .enumerate()
+            .map(|(i, &c)| DiffLine {
+                line_type: LineType::Addition,
+                content: c.into(),
+                old_line_num: None,
+                new_line_num: Some(i as u32 + 1),
+            })
+            .collect();
+        app.snapshot = DiffSnapshot::new(vec![FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/compute.rs"),
+            change_type: ChangeType::Added,
+            additions: 9,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@ -0,0 +1,9 @@".into(),
+                old_start: 0,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 9,
+                lines,
+                is_folded: false,
+                folded_blocks: Vec::new(),
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }]);
+        app
+    }
+
+    #[test]
+    fn test_fold_current_hunk_prefers_innermost_ast_block_then_unfolds() {
+        let mut app = rust_file_app();
+        app.cursor_line_idx = 3;
+        app.fold_current_hunk();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Folded AST block (L3-L6)")
+        );
+        let blocks = &app.snapshot.files[0].hunks[0].folded_blocks;
+        assert_eq!((blocks[0].start_line, blocks[0].end_line), (3, 6));
+
+        app.cursor_line_idx = 0;
+        app.fold_current_hunk();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Folded AST block (L1-L9)")
+        );
+
+        app.unfold_current_hunk();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Unfolded AST block (L1-L9)")
+        );
+        assert_eq!(app.snapshot.files[0].hunks[0].folded_blocks.len(), 1);
+
+        app.cursor_line_idx = 99;
+        app.unfold_current_hunk();
+        assert_eq!(app.status_message.as_deref(), Some("Unfolded hunk"));
+        assert!(app.snapshot.files[0].hunks[0].folded_blocks.is_empty());
+    }
+
+    #[test]
+    fn test_fold_falls_back_to_whole_hunk_without_blocks() {
+        let mut app = rust_file_app();
+        app.snapshot.files[0].new_path = PathBuf::from("notes.unknownext");
+        app.cursor_line_idx = 1;
+        app.toggle_fold_at_cursor();
+        assert_eq!(app.status_message.as_deref(), Some("Folded hunk"));
+        assert!(app.snapshot.files[0].hunks[0].is_folded);
+        app.toggle_fold_at_cursor();
+        assert_eq!(app.status_message.as_deref(), Some("Unfolded hunk"));
+        assert!(!app.snapshot.files[0].hunks[0].is_folded);
+
+        // Cursor past the end folds / unfolds the last hunk.
+        app.cursor_line_idx = 50;
+        app.fold_current_hunk();
+        assert!(app.snapshot.files[0].hunks[0].is_folded);
+        app.unfold_current_hunk();
+        assert!(!app.snapshot.files[0].hunks[0].is_folded);
+    }
+
+    #[test]
+    fn test_toggle_fold_unfolds_hunk_and_blocks_with_lang() {
+        let mut app = rust_file_app();
+        app.snapshot.files[0].hunks[0].is_folded = true;
+        app.cursor_line_idx = 0;
+        app.toggle_fold_at_cursor();
+        assert_eq!(app.status_message.as_deref(), Some("Unfolded hunk"));
+        assert!(!app.snapshot.files[0].hunks[0].is_folded);
+
+        // A line outside any block (a closing brace row already inside L1-L9) still folds the outer one.
+        app.cursor_line_idx = 8;
+        app.toggle_fold_at_cursor();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Folded AST block (L1-L9)")
+        );
+        app.toggle_fold_at_cursor();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Unfolded AST block (L1-L9)")
+        );
+    }
+
+    #[test]
+    fn test_selected_lines_span_and_empty() {
+        let mut app = rust_file_app();
+        app.cursor_line_idx = 4;
+        app.visual_anchor_idx = Some(2);
+        let (_, _, idx) = app.selected_line_indices_in_current_hunk().unwrap();
+        assert_eq!(idx, vec![2, 3, 4]);
+
+        app.visual_anchor_idx = None;
+        let (_, _, idx) = app.selected_line_indices_in_current_hunk().unwrap();
+        assert_eq!(idx, vec![4]);
+
+        app.cursor_line_idx = 30;
+        assert!(app.selected_line_indices_in_current_hunk().is_none());
+        app.snapshot = DiffSnapshot::new(vec![]);
+        assert!(app.current_hunk_info().is_none());
+    }
+
+    #[test]
+    fn test_rejection_prompt_combines_alert_comment_and_replies() {
+        use crate::comment::CommentAnchor;
+        let mut app = rust_file_app();
+        let file = app.snapshot.files[0].clone();
+        let hunk = file.hunks[0].clone();
+        let (line, prompt) = app.hunk_rejection_prompt(&file, &hunk);
+        assert_eq!(line, 1);
+        assert_eq!(
+            prompt,
+            "Reverted hunk in src/compute.rs:1, reason: does not meet requirements. Please fix and re-implement."
+        );
+
+        app.alerts.push(crate::guard::GuardAlert {
+            rule_id: "r/x".into(),
+            fingerprint: "f".into(),
+            severity: crate::guard::Severity::High,
+            title: "Bad".into(),
+            description: "d".into(),
+            line_no: Some(3),
+            file_path: "src/compute.rs".into(),
+        });
+        app.comments.push(CommentAnchor {
+            id: lgtm_core::comment::new_id(),
+            file_path: "src/compute.rs".into(),
+            target_line_no: 4,
+            target_code: String::new(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "why".into(),
+            replies: vec!["because".into()],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            orphaned: false,
+            track: Default::default(),
+        });
+        let (line, prompt) = app.hunk_rejection_prompt(&file, &hunk);
+        assert_eq!(line, 4);
+        assert_eq!(
+            prompt,
+            "Reverted hunk in src/compute.rs:4, reason: [r/x] Bad | DIRECTIVE: why | ↳ Reply: because. Please fix and re-implement."
+        );
+    }
+
+    #[test]
+    fn test_detect_blocks_ignores_single_line_blocks() {
+        let mk = |c: &str, n: u32| DiffLine {
+            line_type: LineType::Addition,
+            content: c.into(),
+            old_line_num: None,
+            new_line_num: Some(n),
+        };
+        let hunk = DiffHunk {
+            header: String::new(),
+            old_start: 0,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: 1,
+            lines: vec![mk("fn f() {}", 1)],
+            is_folded: false,
+            folded_blocks: Vec::new(),
+        };
+        assert!(App::detect_blocks_in_hunk(&hunk, lgtm_ast::Lang::Rust).is_empty());
+    }
 }

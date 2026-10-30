@@ -215,3 +215,97 @@ fn risk_scan_updates_diff_findings_without_replacing_audit_results() {
         .unwrap()
         .starts_with("Checking risks complete"));
 }
+
+fn alert(file: &str, line: u32) -> crate::guard::GuardAlert {
+    crate::guard::GuardAlert {
+        severity: crate::guard::Severity::High,
+        rule_id: "r".into(),
+        fingerprint: format!("{file}:{line}"),
+        title: "t".into(),
+        description: "d".into(),
+        line_no: Some(line),
+        file_path: file.into(),
+    }
+}
+
+#[test]
+fn superseded_scans_stop_reporting_progress() {
+    let mut app = create_test_app();
+    let (entered_tx, entered_rx) = crossbeam_channel::bounded(1);
+    let (release_tx, release_rx) = crossbeam_channel::bounded(1);
+    let (result_tx, result_rx) = crossbeam_channel::bounded(1);
+    app.queue_audit(Kind::Repo, move |progress| {
+        entered_tx.send(()).unwrap();
+        release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        result_tx.send(progress(5, 10)).unwrap();
+        Ok(output("late"))
+    });
+    entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    app.invalidate_audit(false);
+    release_tx.send(()).unwrap();
+    assert!(!result_rx.recv_timeout(Duration::from_secs(3)).unwrap());
+    wait_for_audit(&mut app);
+    assert!(app.audit.files.is_empty(), "stale output is never applied");
+}
+
+#[test]
+fn changing_the_root_mid_scan_reports_and_keeps_previous_results() {
+    let mut app = create_test_app();
+    seed(&mut app);
+    let release = blocked(&mut app, Kind::Repo);
+    app.audit.root_dir = app.audit.root_dir.join("elsewhere");
+    release.send(()).unwrap();
+    wait_for_audit(&mut app);
+    assert_eq!(app.audit.files[0].display_name(), "previous.rs");
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("Audit target changed; previous results kept")
+    );
+    assert!(app.audit.progress.is_none());
+}
+
+#[test]
+fn selection_follows_the_same_finding_after_a_rescan() {
+    let mut app = create_test_app();
+    app.audit.alerts = vec![alert("a.rs", 1), alert("b.rs", 2)];
+    app.audit.selected_idx = 1;
+    app.queue_audit(Kind::Repo, |_| {
+        let mut out = output("x");
+        out.findings.active = vec![alert("c.rs", 3), alert("b.rs", 2), alert("a.rs", 1)];
+        Ok(out)
+    });
+    wait_for_audit(&mut app);
+    assert_eq!(app.audit.selected_idx, 1);
+    assert_eq!(app.audit.alerts[app.audit.selected_idx].file_path, "b.rs");
+
+    app.audit.selected_idx = 2;
+    app.queue_audit(Kind::Repo, |_| {
+        let mut out = output("x");
+        out.findings.active = vec![alert("z.rs", 9)];
+        Ok(out)
+    });
+    wait_for_audit(&mut app);
+    assert_eq!(
+        app.audit.selected_idx, 0,
+        "vanished finding clamps into range"
+    );
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("Auditing repository complete: 1 issues found")
+    );
+}
+
+#[test]
+fn export_defaults_to_the_report_file_in_the_audit_root() {
+    let mut app = create_test_app();
+    app.audit.has_result = true;
+    let path = app.export_audit_report(None).unwrap();
+    assert_eq!(path, app.audit.root_dir.join("lgtm-report.md"));
+    wait_for_audit(&mut app);
+    assert!(path.exists());
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .starts_with("Audit report exported to: "));
+}

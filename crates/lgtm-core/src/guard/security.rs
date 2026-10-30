@@ -388,4 +388,66 @@ mod tests {
             .iter()
             .any(|a| a.title.contains("Hardcoded Auth Fallback")));
     }
+
+    fn file_with(path: &str, lines: &[String]) -> FileDiff {
+        let lines: Vec<DiffLine> = lines
+            .iter()
+            .enumerate()
+            .map(|(i, l)| DiffLine {
+                line_type: LineType::Addition,
+                content: l.clone(),
+                old_line_num: None,
+                new_line_num: Some(i as u32 + 1),
+            })
+            .collect();
+        FileDiff {
+            old_path: None,
+            new_path: PathBuf::from(path),
+            change_type: ChangeType::Added,
+            additions: lines.len(),
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@".into(),
+                old_start: 0,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: lines.len() as u32,
+                lines,
+                is_folded: false,
+                folded_blocks: Vec::new(),
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }
+    }
+
+    #[test]
+    fn weak_crypto_flagged_unless_commented_or_ignored() {
+        let weak = ["h = hashlib.", "md5(data)"].concat();
+        let commented = format!("{weak} // legacy");
+        let ignored = format!("{weak} # lgtm:ignore");
+        let alerts = AdvancedSecurityGuard::scan_file(&file_with(
+            "a.py",
+            &[weak.clone(), commented, ignored],
+        ));
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].rule_id, "sec/weak-crypto");
+        assert_eq!(alerts[0].line_no, Some(1));
+        assert!(alerts[0].description.contains("MD5"));
+    }
+
+    #[test]
+    fn lockfiles_skip_entropy_and_truncation_shortens_long_secrets() {
+        let token = format!("\"{}{}\"", "aGv9kL2pQx9mZ4vN8", "jB1wE9qL3zX7cR0pT5yU");
+        assert!(AdvancedSecurityGuard::scan_file(&file_with(
+            "Cargo.lock",
+            std::slice::from_ref(&token)
+        ))
+        .is_empty());
+        let alerts = AdvancedSecurityGuard::scan_file(&file_with("a.js", &[token]));
+        assert_eq!(alerts.len(), 1);
+        assert!(alerts[0].description.contains("aGv9kL...T5yU"));
+        assert_eq!(truncate_secret("short"), "short");
+        assert_eq!(shannon_entropy(""), 0.0);
+    }
 }

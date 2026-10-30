@@ -98,4 +98,12 @@ mod tests {
         assert_eq!(resolve_program_for_os("code.cmd", true), "code.cmd");
         assert_eq!(resolve_program_for_os(r"C:\bin\az", true), r"C:\bin\az");
     }
+
+    #[test]
+    fn create_command_uses_resolved_program() {
+        for prog in ["git", "az", "lgtm-no-such-tool"] {
+            let cmd = create_command(prog);
+            assert_eq!(cmd.get_program().to_string_lossy(), resolve_program(prog));
+        }
+    }
 }

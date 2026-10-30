@@ -352,3 +352,156 @@ pub(crate) fn render_worktree_confirm_guard(frame: &mut Frame, area: Rect, app: 
 
     frame.render_widget(p, popup_area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{ChangeType, FileDiff};
+    use lgtm_core::git::WorktreeInfo;
+    use lgtm_core::guard::{GuardAlert, Severity};
+    use lgtm_core::ipc::TmuxPane;
+    use lgtm_core::pr::{PrAuthor, PullRequestState, PullRequestSummary};
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use std::path::PathBuf;
+
+    fn draw(app: &App, f: fn(&mut Frame, Rect, &App)) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(140, 40)).unwrap();
+        terminal.draw(|fr| f(fr, fr.area(), app)).unwrap();
+        let buf = terminal.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn file(name: &str, adds: usize, dels: usize) -> FileDiff {
+        FileDiff {
+            old_path: None,
+            new_path: PathBuf::from(name),
+            change_type: ChangeType::Modified,
+            additions: adds,
+            deletions: dels,
+            hunks: vec![],
+            is_folded: false,
+            is_reviewed: false,
+        }
+    }
+
+    #[test]
+    fn file_picker_lists_filtered_files_with_alert_counts() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.snapshot.files = vec![file("src/a.rs", 3, 1), file("src/b.rs", 0, 5)];
+        app.alerts = vec![GuardAlert {
+            rule_id: "r".into(),
+            fingerprint: "f".into(),
+            severity: Severity::Warn,
+            title: "t".into(),
+            description: "d".into(),
+            line_no: None,
+            file_path: "src/b.rs".into(),
+        }];
+        app.file_picker.query = "src".into();
+        app.file_picker.filtered_indices = vec![0, 1];
+        app.file_picker.selected_idx = 1;
+        let out = draw(&app, render_file_picker);
+        assert!(out.contains("Jump to File"));
+        assert!(out.contains("src/a.rs"));
+        assert!(out.contains("(+3/-1)"));
+        let line_of = |name: &str| out.lines().find(|l| l.contains(name)).unwrap();
+        assert!(line_of("src/b.rs").contains("⚠") && line_of("src/b.rs").contains("(+0/-5)"));
+        assert!(!line_of("src/a.rs").contains("⚠"));
+    }
+
+    #[test]
+    fn pane_picker_marks_current_pane() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.pane_picker.list = vec![
+            TmuxPane {
+                id: "%1".into(),
+                title: "claude".into(),
+                active: true,
+            },
+            TmuxPane {
+                id: "%2".into(),
+                title: "shell".into(),
+                active: false,
+            },
+        ];
+        let out = draw(&app, render_pane_picker);
+        assert!(out.contains("Select Target Agent Pane"));
+        assert!(out.contains("%1: claude (current)"));
+        assert!(out.contains("%2: shell"));
+        assert!(!out.contains("shell (current)"));
+    }
+
+    #[test]
+    fn pr_picker_empty_and_populated() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.pr.filter = PullRequestState::Closed;
+        let out = draw(&app, render_pr_picker);
+        assert!(out.contains("closed pull requests"));
+        assert!(out.contains("no matching pull requests"));
+
+        app.pr.list = vec![PullRequestSummary {
+            number: 42,
+            title: "Fix bug".into(),
+            author: PrAuthor {
+                login: "alice".into(),
+            },
+            head_ref_name: "fix/bug".into(),
+            additions: 10,
+            deletions: 2,
+            state: "OPEN".into(),
+        }];
+        let out = draw(&app, render_pr_picker);
+        assert!(out.contains("closed PRs [1]"));
+        assert!(out.contains("#42 Fix bug by @alice (+10/-2) [fix/bug] (OPEN)"));
+    }
+
+    #[test]
+    fn worktree_picker_empty_and_populated() {
+        let mut app = crate::app::test_util::create_test_app();
+        assert!(draw(&app, render_worktree_picker).contains("No active worktrees discovered"));
+
+        app.worktree_picker.list = vec![
+            WorktreeInfo {
+                path: PathBuf::from("/repos/main"),
+                head: "abcdef1234567".into(),
+                branch: Some("main".into()),
+                is_bare: false,
+                is_current: true,
+            },
+            WorktreeInfo {
+                path: PathBuf::from("/repos/wip"),
+                head: "abc".into(),
+                branch: None,
+                is_bare: false,
+                is_current: false,
+            },
+        ];
+        let out = draw(&app, render_worktree_picker);
+        assert!(out.contains("Git Worktrees [2]"));
+        assert!(out.contains("* [main] main"));
+        assert!(out.contains("@abcdef1"));
+        assert!(!out.contains("@abcdef12"));
+        assert!(out.contains("[wip] (detached HEAD)"));
+        assert!(out.contains("@abc /repos/wip"));
+    }
+
+    #[test]
+    fn worktree_guard_names_target() {
+        let mut app = crate::app::test_util::create_test_app();
+        assert!(draw(&app, render_worktree_confirm_guard).contains("Switching to: target worktree"));
+
+        app.worktree_picker.pending_target = Some(PathBuf::from("/repos/feature-x"));
+        let out = draw(&app, render_worktree_confirm_guard);
+        assert!(out.contains("Switching to: feature-x"));
+        assert!(out.contains("pending unexported review directives"));
+        assert!(out.contains("[Esc / c]"));
+    }
+}

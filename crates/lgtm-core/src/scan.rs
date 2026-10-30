@@ -562,4 +562,122 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].file_name().unwrap(), "lib.rs");
     }
+
+    fn alert(sev: Severity, file: &str, line: Option<u32>) -> GuardAlert {
+        GuardAlert {
+            rule_id: "r".into(),
+            fingerprint: String::new(),
+            severity: sev,
+            title: format!("T-{file}"),
+            description: "D".into(),
+            line_no: line,
+            file_path: file.into(),
+        }
+    }
+
+    #[test]
+    fn report_grades_and_lists_findings() {
+        let root = Path::new("repo");
+        let clean = FullRepoScanner::generate_markdown_report(root, &[], &[]);
+        assert!(clean.contains("A (Clean & Secure)"));
+        assert!(clean.contains("Repository is Clean!"));
+        assert!(!clean.contains("Detailed Findings"));
+
+        let grade =
+            |alerts: &[GuardAlert]| FullRepoScanner::generate_markdown_report(root, &[], alerts);
+        let high = |n| vec![alert(Severity::High, "h.rs", Some(1)); n];
+        assert!(grade(&high(1)).contains("B (Acceptable with Warnings)"));
+        assert!(grade(&vec![alert(Severity::Warn, "w.rs", None); 6])
+            .contains("B (Acceptable with Warnings)"));
+        assert!(grade(&vec![alert(Severity::Warn, "w.rs", None); 5]).contains("A (Clean"));
+        assert!(grade(&high(3)).contains("C (High Severity Issues)"));
+
+        let report = grade(&[
+            alert(Severity::Critical, "c.rs", Some(7)),
+            alert(Severity::Warn, "w.rs", None),
+        ]);
+        assert!(report.contains("F (Critical Risks Detected)"));
+        assert!(report.contains("🚨 Immediate Fix Required"));
+        assert!(report.contains("`c.rs:7`") && report.contains("`w.rs`"));
+        assert!(report.contains("1. [c.rs:7] **T-c.rs**: D"));
+        assert!(report.contains("2. [w.rs] **T-w.rs**: D"));
+    }
+
+    #[test]
+    fn scan_orders_by_severity_and_marks_test_blocks_ignored() {
+        let tmp = tempdir().unwrap();
+        let weak = ["h = hashlib.", "md5(x)"].concat();
+        std::fs::write(tmp.path().join("a.py"), format!("{weak}\n")).unwrap();
+        let secret = format!(
+            "let t = \"{}{}\";\n",
+            "aGv9kL2pQx9mZ4vN8", "jB1wE9qL3zX7cR0pT5yU"
+        );
+        std::fs::write(tmp.path().join("b.rs"), &secret).unwrap();
+        std::fs::write(
+            tmp.path().join("c.rs"),
+            format!("#[cfg(test)]\nmod t {{\n{secret}}}\n"),
+        )
+        .unwrap();
+        let cfg = crate::config::LgtmConfig::default();
+        let (files, alerts) = FullRepoScanner::scan_unbaselined(tmp.path(), &cfg).unwrap();
+        assert_eq!(files.len(), 3);
+        let seen: Vec<_> = alerts.iter().map(|a| a.file_path.as_str()).collect();
+        assert_eq!(seen, ["b.rs", "a.py"]);
+        assert!(alerts[0].severity > alerts[1].severity);
+    }
+
+    #[test]
+    fn collect_uses_git_index_and_untracked_and_skips_big_or_ignored() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        let repo = git2::Repository::init(root).unwrap();
+        std::fs::write(root.join("tracked.rs"), "fn a() {}\n").unwrap();
+        std::fs::write(root.join("Cargo.lock"), "x").unwrap();
+        std::fs::write(root.join("big.rs"), "a".repeat(500_001)).unwrap();
+        let mut index = repo.index().unwrap();
+        for f in ["tracked.rs", "Cargo.lock", "big.rs"] {
+            index.add_path(Path::new(f)).unwrap();
+        }
+        index.write().unwrap();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/new.py"), "x = 1\n").unwrap();
+        std::fs::write(root.join("notes.png"), "x").unwrap();
+
+        let mut names: Vec<String> = collect_source_files(root)
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        names.sort();
+        assert_eq!(names, ["sub/new.py", "tracked.rs"]);
+    }
+
+    #[test]
+    fn recursive_walk_skips_hidden_and_ignored_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        for d in [".hidden", "node_modules", "src"] {
+            std::fs::create_dir(root.join(d)).unwrap();
+            std::fs::write(root.join(d).join("x.rs"), "fn x() {}").unwrap();
+        }
+        std::fs::write(root.join(".env"), "A=1").unwrap();
+        std::fs::write(root.join("big.rs"), "a".repeat(500_001)).unwrap();
+        let mut files = Vec::new();
+        collect_files_recursive(root, &mut files);
+        let mut names: Vec<_> = files
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        names.sort();
+        assert_eq!(names, [".env", "src/x.rs"]);
+    }
 }

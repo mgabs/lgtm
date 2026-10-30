@@ -491,3 +491,180 @@ pub(crate) fn render_audit_inspector(
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::AuditPaneFocus;
+    use crate::guard::{GuardAlert, Severity};
+    use crate::model::{ChangeType, FileDiff};
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use std::path::PathBuf;
+
+    fn draw(app: &App, width: u16, f: fn(&mut Frame, Rect, &App)) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+        terminal.draw(|fr| f(fr, fr.area(), app)).unwrap();
+        let buf = terminal.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn alert(sev: Severity, title: &str, file: &str, line: Option<u32>) -> GuardAlert {
+        GuardAlert {
+            rule_id: "r".into(),
+            fingerprint: format!("{title}{file}"),
+            severity: sev,
+            title: title.into(),
+            description: "line one\nline two".into(),
+            line_no: line,
+            file_path: file.into(),
+        }
+    }
+
+    fn file(name: &str) -> FileDiff {
+        FileDiff {
+            old_path: None,
+            new_path: PathBuf::from(name),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![],
+            is_folded: false,
+            is_reviewed: false,
+        }
+    }
+
+    fn app_with_alerts() -> App {
+        let mut app = crate::app::test_util::create_test_app();
+        app.audit.alerts = vec![
+            alert(Severity::Critical, "Secret leak", "a.rs", Some(3)),
+            alert(Severity::High, "Big function", "b.rs", None),
+            alert(Severity::Warn, "Todo left", "a.rs", Some(9)),
+        ];
+        app.audit.files = vec![file("a.rs"), file("b.rs"), file("c.rs")];
+        app
+    }
+
+    #[test]
+    fn drawer_without_files_shows_placeholder() {
+        let app = crate::app::test_util::create_test_app();
+        let out = draw(&app, 40, render_audit_file_drawer);
+        assert!(out.contains("(No files audited)"));
+        assert!(out.contains("Files (Tab)"));
+    }
+
+    #[test]
+    fn drawer_lists_files_with_counts_and_filter() {
+        let mut app = app_with_alerts();
+        let out = draw(&app, 50, render_audit_file_drawer);
+        assert!(out.contains("Files [3] (Tab/Space)"));
+        let line_of = |out: &str, n: &str| out.lines().find(|l| l.contains(n)).unwrap().to_string();
+        assert!(line_of(&out, "a.rs").contains(" 2 "));
+        assert!(line_of(&out, "c.rs").contains("✓"));
+
+        app.audit.file_filter = Some("b.rs".into());
+        app.audit.focus = AuditPaneFocus::Files;
+        app.selected_file_idx = 1;
+        let out = draw(&app, 50, render_audit_file_drawer);
+        assert!(out.contains("(Filtered: b.rs)"));
+        assert!(out.contains("● ") && out.contains("b.rs"));
+    }
+
+    #[test]
+    fn report_lists_issues_and_inspector_for_selection() {
+        let mut app = app_with_alerts();
+        app.show_file_drawer = false;
+        let out = draw(&app, 140, render_audit_report_view);
+        assert!(out.contains("Repository Issues (3/3) Filter: All [3]"));
+        assert!(out.contains("a.rs:3 Secret leak"));
+        assert!(out.contains("b.rs Big function"));
+        assert!(out.contains("Location: a.rs:3"));
+        assert!(out.contains("  line two"));
+        assert!(out.contains("Fix security/architectural violation in a.rs:3"));
+        assert!(out.contains("[Enter] Inject"));
+
+        app.audit.selected_idx = 1;
+        let out = draw(&app, 140, render_audit_report_view);
+        assert!(out.contains("Location: b.rs"));
+        assert!(!out.contains("Location: a.rs:3"));
+    }
+
+    #[test]
+    fn report_with_drawer_severity_and_file_filters() {
+        let mut app = app_with_alerts();
+        app.show_file_drawer = true;
+        let out = draw(&app, 120, render_audit_report_view);
+        assert!(out.contains("Files [3]"));
+
+        app.audit.filter_severity = Some(Severity::Critical);
+        let out = draw(&app, 170, render_audit_report_view);
+        assert!(out.contains("(1/3)"));
+        assert!(out.contains("Crit [1]"));
+        assert!(!out.contains("Big function"));
+
+        app.audit.filter_severity = Some(Severity::High);
+        app.audit.file_filter = Some("b.rs".into());
+        let out = draw(&app, 150, render_audit_report_view);
+        assert!(out.contains("Issues for b.rs (1/3)"));
+        assert!(out.contains("High+ [2]"));
+        assert!(out.contains("Big function"));
+    }
+
+    #[test]
+    fn report_with_no_matches_shows_empty_inspector() {
+        let mut app = app_with_alerts();
+        app.show_file_drawer = false;
+        app.audit.file_filter = Some("c.rs".into());
+        let out = draw(&app, 140, render_audit_report_view);
+        assert!(out.contains("(No issues found matching filter)"));
+        assert!(out.contains("No issue selected"));
+    }
+
+    #[test]
+    fn long_issue_list_scrolls_to_selection() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.show_file_drawer = false;
+        app.audit.alerts = (0..60)
+            .map(|i| alert(Severity::Warn, &format!("Issue{i:02}"), "x.rs", None))
+            .collect();
+        app.audit.selected_idx = 40;
+        let out = draw(&app, 140, render_audit_report_view);
+        assert!(out.contains("Issue40"));
+        assert!(!out.contains("Issue00"));
+    }
+
+    #[test]
+    fn maximized_inspector_fills_area_and_titles_focus() {
+        let mut app = app_with_alerts();
+        app.audit.maximized_inspector = true;
+        let out = draw(&app, 100, render_audit_report_view);
+        assert!(out.contains("MAXIMIZED"));
+        assert!(!out.contains("Repository Issues"));
+
+        app.audit.maximized_inspector = false;
+        app.audit.focus = AuditPaneFocus::Inspector;
+        let out = draw(&app, 140, render_audit_report_view);
+        assert!(out.contains("Scroll: j/k"));
+    }
+
+    #[test]
+    fn inspector_shows_code_snippet_with_pointer() {
+        let mut app = app_with_alerts();
+        app.show_file_drawer = false;
+        let root = app.audit.root_dir.clone();
+        std::fs::write(root.join("a.rs"), "one\ntwo\nthree\nfour\nfive\n").unwrap();
+        app.active_view = ActiveView::AuditReport;
+        crate::app::test_util::wait_for_view_data(&mut app);
+        let out = draw(&app, 160, render_audit_report_view);
+        assert!(out.contains("Code Snippet Context:"));
+        assert!(out.contains("▶    3 │ three"));
+        assert!(out.contains("2 │ two"));
+    }
+}

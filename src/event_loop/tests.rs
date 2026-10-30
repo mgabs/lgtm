@@ -148,3 +148,34 @@ fn missing_watcher_refreshes_status_only_when_fallback_is_due() {
     step(&mut state, &mut app, &mut input, &mut draws);
     assert_eq!(draws, 2);
 }
+
+#[test]
+fn enabled_diagnostics_do_not_change_input_or_draw_behavior() {
+    let mut app = create_test_app();
+    app.active_view = ActiveView::CommandLine;
+    let mut state = UiLoop::default();
+    let mut metrics = Some(diagnostics::UiLoop::default());
+    let mut input = FakeInput {
+        events: VecDeque::from([
+            key(KeyEventKind::Press),
+            Event::Resize(80, 24),
+            key(KeyEventKind::Release),
+        ]),
+        ..Default::default()
+    };
+    let mut draws = 0;
+    for _ in 0..2 {
+        state
+            .step(&mut app, &mut input, &mut metrics, |_| {
+                draws += 1;
+                Ok(())
+            })
+            .unwrap();
+    }
+    assert_eq!(input.reads, 3);
+    assert_eq!(draws, 1, "all three events fit one batch and one draw");
+    assert_eq!(
+        app.command.input, "x",
+        "the press was typed once; the release ignored"
+    );
+}

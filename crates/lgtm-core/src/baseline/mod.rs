@@ -181,6 +181,7 @@ mod tests {
     #[test]
     fn save_is_sorted_deterministic_and_roundtrips() {
         let d = std::env::temp_dir().join(format!("lgtm-bl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         let p = d.join("b.json");
         assert!(Baseline::load(&p).unwrap().entries.is_empty());
@@ -201,5 +202,6 @@ mod tests {
         assert_eq!(first, std::fs::read_to_string(&p).unwrap());
         std::fs::write(&p, "nope").unwrap();
         assert!(Baseline::load(&p).is_err());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

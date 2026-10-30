@@ -1442,4 +1442,348 @@ mod tests {
             );
         }
     }
+
+    fn cmd_app() -> App {
+        let mut app = create_test_app();
+        let lines = (1..=3)
+            .map(|i| DiffLine {
+                line_type: LineType::Context,
+                content: format!("line {i}"),
+                old_line_num: Some(i),
+                new_line_num: Some(i),
+            })
+            .collect();
+        app.snapshot = DiffSnapshot::new(vec![FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/lib.rs"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@ -1,3 +1,3 @@".into(),
+                old_start: 1,
+                old_lines: 3,
+                new_start: 1,
+                new_lines: 3,
+                lines,
+                is_folded: false,
+                folded_blocks: Vec::new(),
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }]);
+        app
+    }
+
+    fn cmd_alert(
+        sev: crate::guard::Severity,
+        file: &str,
+        line: Option<u32>,
+    ) -> crate::guard::GuardAlert {
+        crate::guard::GuardAlert {
+            severity: sev,
+            rule_id: "r".into(),
+            fingerprint: String::new(),
+            title: "Title".into(),
+            description: "Desc".into(),
+            line_no: line,
+            file_path: file.into(),
+        }
+    }
+
+    fn cmd_comment(line: u32) -> CommentAnchor {
+        CommentAnchor {
+            id: lgtm_core::comment::new_id(),
+            file_path: "src/lib.rs".into(),
+            target_line_no: line,
+            target_code: format!("line {line}"),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "note".into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            orphaned: false,
+            track: Default::default(),
+        }
+    }
+
+    #[test]
+    fn audit_view_next_prev_and_filters_move_the_selection() {
+        use crate::guard::Severity::*;
+        let mut app = cmd_app();
+        app.active_view = ActiveView::AuditReport;
+        app.audit.alerts = vec![
+            cmd_alert(Critical, "a.rs", Some(1)),
+            cmd_alert(High, "b.rs", Some(2)),
+            cmd_alert(Warn, "c.rs", None),
+        ];
+        app.audit.inspector_scroll = 5;
+        app.execute_command("next");
+        assert_eq!(app.audit.selected_idx, 1);
+        assert_eq!(app.audit.inspector_scroll, 0);
+        app.execute_command("n");
+        app.execute_command("n");
+        assert_eq!(app.audit.selected_idx, 2, "clamped at the last issue");
+        app.execute_command("prev");
+        app.execute_command("p");
+        app.execute_command("p");
+        assert_eq!(app.audit.selected_idx, 0, "clamped at the first issue");
+
+        app.execute_command("filter 2");
+        assert_eq!(app.audit.filter_severity, Some(High));
+        assert_eq!(app.filtered_audit_alerts().len(), 2);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Filter: 🟠 High & 🔴 Critical issues")
+        );
+        app.execute_command("sev crit");
+        assert_eq!(app.filtered_audit_alerts().len(), 1);
+        app.execute_command("filter all");
+        assert_eq!(app.audit.filter_severity, None);
+        assert_eq!(app.status_message.as_deref(), Some("Filter: All issues"));
+        app.execute_command("filter nonsense");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Usage: :filter <1|2|3|crit|high|all>")
+        );
+    }
+
+    #[test]
+    fn next_and_prev_outside_the_audit_view_step_files() {
+        let mut app = cmd_app();
+        let mut second = app.snapshot.files[0].clone();
+        second.new_path = PathBuf::from("src/two.rs");
+        app.snapshot.files.push(second);
+        app.execute_command("next");
+        assert_eq!(app.selected_file_idx, 1);
+        app.execute_command("prev");
+        assert_eq!(app.selected_file_idx, 0);
+    }
+
+    #[test]
+    fn inject_sends_selected_or_all_visible_issues() {
+        use crate::guard::Severity::*;
+        let mut app = cmd_app();
+        app.execute_command("inject");
+        assert_eq!(app.status_message.as_deref(), Some("No issues to inject"));
+
+        app.audit.alerts = vec![
+            cmd_alert(Critical, "a.rs", Some(1)),
+            cmd_alert(High, "b.rs", None),
+        ];
+        app.audit.selected_idx = 1;
+        app.execute_command("inject");
+        let msg = app.status_message.clone().unwrap();
+        assert!(msg.starts_with("Sent directive to "), "{msg}");
+        app.execute_command("inject all");
+        let msg = app.status_message.clone().unwrap();
+        assert!(msg.starts_with("Sent 2 issues to "), "{msg}");
+
+        app.audit.selected_idx = 9;
+        app.status_message = None;
+        app.execute_command("inject");
+        assert_eq!(
+            app.status_message, None,
+            "out-of-range selection sends nothing"
+        );
+    }
+
+    #[test]
+    fn resolve_and_unresolve_cover_all_single_and_missing_targets() {
+        let mut app = cmd_app();
+        app.comments = vec![cmd_comment(1), cmd_comment(2)];
+        app.cursor_line_idx = 0;
+        app.execute_command("resolve");
+        assert!(app.comments[0].is_resolved && !app.comments[1].is_resolved);
+        app.execute_command("unresolve");
+        assert!(!app.comments[0].is_resolved);
+
+        app.execute_command("res all");
+        assert!(app.comments.iter().all(|c| c.is_resolved));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Resolved all 2 directives")
+        );
+        app.execute_command("unresolve all");
+        assert!(app.comments.iter().all(|c| !c.is_resolved));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Marked all 2 directives active")
+        );
+
+        app.comments[1].is_resolved = true;
+        app.execute_command("clear-resolved");
+        assert_eq!(app.comments.len(), 1);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Removed 1 resolved directives")
+        );
+        assert_eq!(app.comment_store.load_comments().len(), 1);
+        app.execute_command("clear");
+        assert!(app.comments.is_empty());
+        assert!(app.comment_store.load_comments().is_empty());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Cleared all directives")
+        );
+    }
+
+    #[test]
+    fn resolve_toggles_the_remote_thread_under_the_cursor() {
+        let mut app = cmd_app();
+        app.pr.current_number = Some(3);
+        app.threads = vec![lgtm_core::github::Thread {
+            id: "t1".into(),
+            path: "src/lib.rs".into(),
+            line: Some(1),
+            resolved: false,
+            comments: vec![],
+        }];
+        app.cursor_line_idx = 0;
+        assert_eq!(app.thread_at_cursor(), Some(0));
+        app.execute_command("resolve");
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert!(app.comments.is_empty());
+    }
+
+    #[test]
+    fn reply_command_targets_comment_cursor_or_prompts() {
+        let mut app = cmd_app();
+        app.comments = vec![cmd_comment(2)];
+        app.cursor_line_idx = 0;
+        app.execute_command("reply hello");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No thread or comment at cursor to reply to")
+        );
+        app.cursor_line_idx = 1;
+        app.execute_command("reply hello there");
+        assert_eq!(app.comments[0].replies, vec!["hello there".to_string()]);
+        assert_eq!(app.comment_store.load_comments()[0].replies.len(), 1);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Reply added to local comment")
+        );
+
+        app.execute_command("rep");
+        assert_eq!(app.active_view, ActiveView::CommentReply);
+        assert_eq!(app.comment_reply_target_idx, Some(0));
+
+        app.cursor_line_idx = 0;
+        app.comment_input = "stale".into();
+        app.execute_command("reply");
+        assert_eq!(app.active_view, ActiveView::CommentInput);
+        assert!(app.comment_input.is_empty());
+    }
+
+    #[test]
+    fn simple_commands_set_view_and_status() {
+        let mut app = cmd_app();
+        app.execute_command("");
+        assert_eq!(app.active_view, ActiveView::Diff);
+        app.execute_command(":r");
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Ambiguous command: :r"));
+        app.execute_command("frobnicate");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Unknown command: :frobnicate (type :help for available commands)")
+        );
+        app.execute_command("prs bogus");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Usage: :prs [open|closed|all]")
+        );
+        app.execute_command("pr abc");
+        assert_eq!(app.status_message.as_deref(), Some("Usage: :pr <number>"));
+        app.execute_command("diff");
+        assert_eq!(app.status_message.as_deref(), Some("Returned to diff view"));
+        app.execute_command("hook bogus");
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Unknown hook action 'bogus'"));
+        app.execute_command("sink nope");
+        assert!(app.status_message.is_some());
+        app.execute_command("split");
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("View mode: "));
+        let split = app.is_split_view;
+        app.execute_command("vsp");
+        assert_ne!(app.is_split_view, split);
+    }
+
+    #[test]
+    fn write_saves_directives_and_wq_quits() {
+        let mut app = cmd_app();
+        app.comments = vec![cmd_comment(1)];
+        app.active_view = ActiveView::Help;
+        app.execute_command("w");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Saved 1 review directives to .lgtm/directives.jsonl")
+        );
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.comment_store.load_comments().len(), 1);
+
+        app.comments.push(cmd_comment(2));
+        app.execute_command("wq");
+        assert_eq!(app.comment_store.load_comments().len(), 2);
+    }
+
+    #[test]
+    fn jump_commands_report_exact_nearest_and_empty_results() {
+        let mut app = cmd_app();
+        app.execute_command("2");
+        assert_eq!(app.status_message.as_deref(), Some("Jumped to line 2"));
+        assert_eq!(app.cursor_line_idx, 1);
+        app.execute_command("99");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Line 99 not in diff; jumped to nearest line 3")
+        );
+        app.status_message = None;
+        app.execute_command("0");
+        assert_eq!(app.status_message, None);
+        app.snapshot = DiffSnapshot::new(vec![]);
+        app.execute_command("5");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No lines in the active file")
+        );
+    }
+
+    #[test]
+    fn worktree_and_pane_commands_route_to_pickers_or_status() {
+        let mut app = cmd_app();
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Dummy);
+        app.execute_command("panes");
+        assert!(matches!(
+            app.active_view,
+            ActiveView::Diff | ActiveView::PanePicker
+        ));
+        app.execute_command("wt");
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Failed to list worktrees"));
+        app.status_message = None;
+        app.execute_command("wt does-not-exist");
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Failed to list worktrees"));
+    }
 }

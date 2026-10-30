@@ -117,4 +117,27 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn spawn_reports_created_file_and_rejects_missing_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, rx) = unbounded();
+        let _watcher = RepoWatcher::spawn(dir.path(), tx, 50).unwrap();
+        std::fs::write(dir.path().join("seen.txt"), "x").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let mut found = false;
+        while !found && std::time::Instant::now() < deadline {
+            if let Ok(WatcherMessage::FilesChanged(paths)) =
+                rx.recv_timeout(Duration::from_millis(200))
+            {
+                found = paths
+                    .iter()
+                    .any(|p| p.file_name().is_some_and(|n| n == "seen.txt"));
+            }
+        }
+        assert!(found, "no change event for seen.txt");
+
+        let (tx, _rx) = unbounded();
+        assert!(RepoWatcher::spawn(dir.path().join("missing"), tx, 50).is_err());
+    }
 }
