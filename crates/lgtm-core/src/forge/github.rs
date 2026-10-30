@@ -858,9 +858,9 @@ mod tests {
         }
     }
 
-    fn recording(
-        reviews: fn() -> Result<String>,
-    ) -> (GitHubForge, std::rc::Rc<RefCell<Vec<(String, Value)>>>) {
+    type RequestLog = std::rc::Rc<RefCell<Vec<(String, Value)>>>;
+
+    fn recording(reviews: fn() -> Result<String>) -> (GitHubForge, RequestLog) {
         let log = std::rc::Rc::new(RefCell::new(vec![]));
         let mut f = test_forge(".", vec![]);
         f.runner = Box::new(Recorder {

@@ -318,7 +318,7 @@ fn already_present_items_are_deduped_before_sending() {
     s.add(inline("a", 5), "note").unwrap();
     s.add(inline("a", 6), "note").unwrap();
     s.add(DraftKind::General, "g").unwrap();
-    for d in s.items.iter_mut().take(4).filter(|d| d.body != "") {
+    for d in s.items.iter_mut().take(4).filter(|d| !d.body.is_empty()) {
         d.error = Some("timed out".into());
     }
     let report = submit(&fake, 1, &mut s).unwrap();
