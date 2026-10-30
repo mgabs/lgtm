@@ -103,7 +103,12 @@ fn display_fixtures_preserve_text_and_styles() {
             )
             .unwrap();
         } else {
-            assert_eq!(actual, expected, "display fixture {name}");
+            // Windows checkouts may convert the golden files to CRLF.
+            assert_eq!(
+                actual,
+                expected.replace("\r\n", "\n"),
+                "display fixture {name}"
+            );
         }
     }
 }

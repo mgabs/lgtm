@@ -702,9 +702,17 @@ echo "[]"
         let wt_dir = repo_dir.join(".worktrees/feat-x");
         let mut cmd = std::process::Command::new("git");
         cmd.current_dir(&repo_dir);
+        // A git hook run (pre-commit) leaks GIT_* variables that point at the outer repository.
+        for (key, _) in std::env::vars().filter(|(k, _)| k.starts_with("GIT_")) {
+            cmd.env_remove(key);
+        }
         cmd.args(["worktree", "add", "-b", "feat-x", wt_dir.to_str().unwrap()]);
         let out = cmd.output().unwrap();
-        assert!(out.status.success());
+        assert!(
+            out.status.success(),
+            "git worktree add failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
 
         // Verify discovery via GitEngine
         let engine = lgtm_core::git::GitEngine::new(&repo_dir);

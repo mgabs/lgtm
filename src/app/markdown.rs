@@ -43,6 +43,9 @@ impl MarkdownPreviewState {
 
     /// Largest offset that still fills the viewport, counting directive rows under each line.
     pub fn max_scroll(&self, viewport_height: usize) -> usize {
+        if self.row_heights.is_empty() {
+            return self.rendered_rows.len().saturating_sub(viewport_height);
+        }
         let mut used = 0;
         let mut first = self.rendered_rows.len();
         while first > 0 && used + self.height(first - 1) <= viewport_height {
