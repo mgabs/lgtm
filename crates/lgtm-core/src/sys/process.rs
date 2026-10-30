@@ -86,7 +86,10 @@ mod tests {
         assert_eq!(resolve_program_for_os("code", true), "code.cmd");
         assert_eq!(resolve_program_for_os("cursor", true), "cursor.cmd");
         // Unknown or standard exes without extension fall through
-        assert_eq!(resolve_program_for_os("git", true), "git");
+        assert_eq!(
+            resolve_program_for_os("lgtm-no-such-tool", true),
+            "lgtm-no-such-tool"
+        );
     }
 
     #[test]
