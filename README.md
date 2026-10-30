@@ -58,7 +58,7 @@ lgtm mcp              # Run native Model Context Protocol (MCP) server (alias: l
 - **Interactive Staging & Commit Forge**: Stage (`s`), unstage (`u`), or discard (`x`) individual hunks or visual line selections (`V`) straight to the Git index; craft conventional commits (`C` / `:commit`).
 - **AI Agent Steering & Chords**: Drop inline directives (`c`), use 2-key chord templates (`ca` coverage, `cs` security, `cr` refactor, `cp` performance, `cw` why), and dispatch context-aware `#ref` links directly into agent multiplexer panes (`Enter`) or reject hunks (`X`).
 - **Deep Static Analysis Guardrails**: Real-time detection of OWASP vulnerabilities, cognitive complexity spikes ($\ge 5$), hallucinated identifier typos, dead function additions (YAGNI), breaking API drift, and stealth test neutering.
-- **Pull Request Review**: Review open/closed PRs from GitHub (`gh`/API/HTTPS fallback) and Azure DevOps (`az`/REST) with CI checks (`:checks`), remote discussion threads (`:threads`, markers `◆`/`◇`).
+- **Pull Request Review**: Review open/closed PRs from GitHub (`gh`/API/HTTPS fallback) and Azure DevOps (`az`/REST) with CI checks (`:checks`), remote discussion threads (`:threads`, markers `◆`/`◇`) with local drafts (`:thread comment|reply|resolve`, `✎` gutter marker) submitted as one confirmed batch (`:thread submit`).
 - **Native MCP Server**: JSON-RPC stdio server for Claude Code, Cursor, Windsurf, and Aider with live file-watcher resource subscriptions.
 - **Headless CI & Security Gates**: `lgtm check` gates CI pipelines on critical findings; `lgtm hook` automates Git pre-commit verification; SARIF 2.1.0 and Markdown reporting.
 

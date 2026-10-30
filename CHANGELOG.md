@@ -3,11 +3,11 @@
 ## Unreleased
 
 ### Added
-<<<<<<< HEAD
-- Online PR comments: live threads, local drafts (`:thread comment|general|reply|resolve|unresolve|edit|discard|drafts`), and a confirmed batch `:thread submit` with per-item results, stale detection and duplicate-safe retries; MCP `lgtm_list_threads`; pending inline drafts show a `✎` gutter marker and an inline row (pending/stale/failed) in the diff view.
-=======
-- Online PR comments: live threads, local drafts (`:thread comment|general|reply|resolve|unresolve|edit|discard|drafts`), and a confirmed batch `:thread submit` with per-item results, stale detection and duplicate-safe retries; MCP `lgtm_list_threads`. On GitHub, new inline comments in a submit are posted as a single `COMMENT` review (one notification) with automatic per-comment fallback.
->>>>>>> feat/oc-batching
+- Online PR comments: live threads, local drafts (`:thread comment|general|reply|resolve|unresolve|edit|discard|drafts`), and a confirmed batch `:thread submit` with per-item results, stale detection and duplicate-safe retries; MCP `lgtm_list_threads`; pending inline drafts show a `✎` gutter marker and an inline row (pending/stale/failed) in the diff view. On GitHub, new inline comments in a submit are posted as a single `COMMENT` review (one notification) with automatic per-comment fallback.
+
+### Fixed
+- A fresh draft whose text already appears in a thread (e.g. a second "Done") is now sent; only drafts that previously failed are checked against the forge before retrying.
+- A failed draft-store save after a successful submit no longer leaves sent drafts pending (which could re-send them) or lets a pending quit proceed.
 
 ### Removed
 - Local PR comment posting (`:pr post`, `lgtm pr post|reply|resolve`); agent directives now live in `.lgtm/directives.jsonl` (legacy `comments.jsonl` is migrated automatically).
