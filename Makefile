@@ -20,6 +20,10 @@ release:
 test:
 	cargo test --workspace -- --nocapture
 
+## Fail if workspace line coverage is below 90% (needs cargo-llvm-cov)
+coverage:
+	cargo llvm-cov --workspace --all-features --fail-under-lines 90 --summary-only
+
 ## Generate automated BDD scenario catalog report
 bdd-report:
 	./scripts/bdd-report.sh
@@ -74,6 +78,7 @@ help:
 	@echo "  make build       - Build debug binary"
 	@echo "  make release     - Build optimized release binary"
 	@echo "  make test        - Run full test suite"
+	@echo "  make coverage    - Fail if line coverage is below 90%"
 	@echo "  make lint        - Run cargo clippy and crate boundary check"
 	@echo "  make fmt         - Format codebase with rustfmt"
 	@echo "  make check       - Full pre-commit check (fmt + lint + test)"
@@ -83,4 +88,3 @@ help:
 	@echo "  make install-hooks - Install git pre-commit hooks"
 	@echo "  make install     - Install binary to cargo path"
 	@echo "  make clean       - Remove target/ and artifacts"
-

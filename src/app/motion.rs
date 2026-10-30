@@ -1311,4 +1311,423 @@ mod tests {
             Some("Already at first file [1/3]: file1.rs")
         );
     }
+
+    fn motion_file(name: &str, hunks: &[&[(&str, u32)]]) -> FileDiff {
+        FileDiff {
+            old_path: None,
+            new_path: PathBuf::from(name),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: hunks
+                .iter()
+                .map(|h| DiffHunk {
+                    header: "@@".into(),
+                    old_start: h[0].1,
+                    old_lines: h.len() as u32,
+                    new_start: h[0].1,
+                    new_lines: h.len() as u32,
+                    lines: h
+                        .iter()
+                        .map(|&(text, no)| DiffLine {
+                            line_type: LineType::Context,
+                            content: text.into(),
+                            old_line_num: Some(no),
+                            new_line_num: Some(no),
+                        })
+                        .collect(),
+                    is_folded: false,
+                    folded_blocks: Vec::new(),
+                })
+                .collect(),
+            is_folded: false,
+            is_reviewed: false,
+        }
+    }
+
+    fn motion_app() -> App {
+        let mut app = create_test_app();
+        app.snapshot = DiffSnapshot::new(vec![
+            motion_file(
+                "a.rs",
+                &[
+                    &[("alpha", 1), ("", 2), ("beta", 3)],
+                    &[("gamma", 10), ("delta", 11)],
+                ],
+            ),
+            motion_file("b.rs", &[&[("one", 1), ("two", 2)]]),
+        ]);
+        app.status_message = None;
+        app
+    }
+
+    fn motion_alert(file: &str, line: Option<u32>) -> crate::guard::GuardAlert {
+        crate::guard::GuardAlert {
+            severity: crate::guard::Severity::High,
+            rule_id: "r".into(),
+            fingerprint: String::new(),
+            title: "Title".into(),
+            description: "d".into(),
+            line_no: line,
+            file_path: file.into(),
+        }
+    }
+
+    fn motion_comment(file: &str, line: u32) -> CommentAnchor {
+        CommentAnchor {
+            id: lgtm_core::comment::new_id(),
+            file_path: file.into(),
+            target_line_no: line,
+            target_code: String::new(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "c".into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            orphaned: false,
+            track: Default::default(),
+        }
+    }
+
+    #[test]
+    fn file_stepping_reports_edges_and_empty_diffs() {
+        let mut app = create_test_app();
+        app.next_file();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No changed files in diff")
+        );
+
+        let mut app = motion_app();
+        app.prev_file();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Already at first file [1/2]: a.rs")
+        );
+        app.cursor_line_idx = 3;
+        app.next_file();
+        assert_eq!(app.status_message.as_deref(), Some("File [2/2]: b.rs"));
+        assert_eq!(app.cursor_line_idx, 0);
+        app.next_file();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Already at last file [2/2]: b.rs")
+        );
+        app.prev_file();
+        assert_eq!(app.selected_file_idx, 0);
+    }
+
+    #[test]
+    fn alerts_cycle_both_ways_and_land_on_their_line() {
+        let mut app = motion_app();
+        app.next_alert();
+        assert_eq!(app.status_message.as_deref(), Some("No warnings detected"));
+        app.prev_alert();
+        assert_eq!(app.status_message.as_deref(), Some("No warnings detected"));
+
+        app.alerts = vec![
+            motion_alert("b.rs", Some(2)),
+            motion_alert("a.rs", Some(11)),
+        ];
+        app.next_alert();
+        assert_eq!((app.selected_file_idx, app.cursor_line_idx), (0, 4));
+        assert!(app.status_message.as_deref().unwrap().ends_with(": Title"));
+        app.prev_alert();
+        assert_eq!((app.selected_file_idx, app.cursor_line_idx), (1, 1));
+        app.prev_alert();
+        assert_eq!(app.selected_alert_idx, 1, "wraps to the last alert");
+        app.next_alert();
+        assert_eq!(app.selected_alert_idx, 0, "wraps to the first alert");
+
+        app.alerts = vec![motion_alert("missing.rs", None)];
+        app.selected_alert_idx = 0;
+        app.jump_to_selected_alert();
+        assert_eq!(
+            app.selected_file_idx, 1,
+            "unknown files leave the selection alone"
+        );
+    }
+
+    #[test]
+    fn unreviewed_navigation_wraps_and_reports_completion() {
+        let mut app = motion_app();
+        app.snapshot.files.push(motion_file("c.rs", &[&[("x", 1)]]));
+        app.snapshot.files[0].is_reviewed = true;
+        app.snapshot.files[2].is_reviewed = true;
+        app.next_unreviewed_file();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Unreviewed file [2/3]: b.rs")
+        );
+        app.selected_file_idx = 2;
+        app.next_unreviewed_file();
+        assert_eq!(app.selected_file_idx, 1, "wraps forward");
+        app.selected_file_idx = 0;
+        app.prev_unreviewed_file();
+        assert_eq!(app.selected_file_idx, 1, "wraps backward");
+        app.selected_file_idx = 2;
+        app.prev_unreviewed_file();
+        assert_eq!(app.selected_file_idx, 1);
+
+        app.snapshot.files[1].is_reviewed = true;
+        app.next_unreviewed_file();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("All files marked reviewed! 🎉")
+        );
+        app.status_message = None;
+        app.prev_unreviewed_file();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("All files marked reviewed! 🎉")
+        );
+
+        let mut empty = create_test_app();
+        empty.status_message = None;
+        empty.next_unreviewed_file();
+        empty.prev_unreviewed_file();
+        assert_eq!(empty.status_message, None);
+    }
+
+    #[test]
+    fn hunk_navigation_crosses_file_boundaries() {
+        let mut app = motion_app();
+        app.next_hunk();
+        assert_eq!(app.cursor_line_idx, 3);
+        app.next_hunk();
+        assert_eq!((app.selected_file_idx, app.cursor_line_idx), (1, 0));
+        app.next_hunk();
+        assert_eq!(app.selected_file_idx, 1, "no file after the last");
+
+        app.prev_hunk();
+        assert_eq!((app.selected_file_idx, app.cursor_line_idx), (0, 4));
+        app.prev_hunk();
+        assert_eq!(app.cursor_line_idx, 3);
+        app.prev_hunk();
+        assert_eq!(app.cursor_line_idx, 0);
+        app.prev_hunk();
+        assert_eq!(
+            app.cursor_line_idx, 0,
+            "first hunk of first file is the floor"
+        );
+    }
+
+    #[test]
+    fn paragraph_motions_stop_on_blank_separators_and_file_edges() {
+        let mut app = create_test_app();
+        app.paragraph_noop_check();
+        app.snapshot = DiffSnapshot::new(vec![motion_file(
+            "p.txt",
+            &[&[("a", 1), ("b", 2), ("", 3), ("c", 4), ("", 5), ("d", 6)]],
+        )]);
+        app.next_paragraph();
+        assert_eq!(app.cursor_line_idx, 2);
+        app.next_paragraph();
+        assert_eq!(app.cursor_line_idx, 4);
+        app.next_paragraph();
+        assert_eq!(app.cursor_line_idx, 5);
+        app.prev_paragraph();
+        assert_eq!(
+            app.cursor_line_idx, 2,
+            "skips the blank directly above, stops at the next"
+        );
+        app.prev_paragraph();
+        assert_eq!(app.cursor_line_idx, 0);
+
+        app.snapshot.files[0].hunks.clear();
+        app.cursor_line_idx = 3;
+        app.next_paragraph();
+        app.prev_paragraph();
+        assert_eq!(app.cursor_line_idx, 3, "empty files do not move the cursor");
+    }
+
+    impl App {
+        fn paragraph_noop_check(&mut self) {
+            self.next_paragraph();
+            self.prev_paragraph();
+            assert_eq!(self.cursor_line_idx, 0);
+        }
+    }
+
+    #[test]
+    fn comment_and_thread_jumps_walk_annotated_lines() {
+        let mut app = motion_app();
+        app.next_comment();
+        assert_eq!(app.status_message.as_deref(), Some("No comments saved"));
+        app.prev_comment();
+        assert_eq!(app.status_message.as_deref(), Some("No comments saved"));
+        app.comments = vec![motion_comment("a.rs", 3), motion_comment("a.rs", 11)];
+        app.next_comment();
+        assert_eq!(app.cursor_line_idx, 2);
+        assert_eq!(app.status_message.as_deref(), Some("Comment at a.rs:3"));
+        app.next_comment();
+        assert_eq!(app.cursor_line_idx, 4);
+        app.next_comment();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("End of comments in file")
+        );
+        app.prev_comment();
+        assert_eq!(app.cursor_line_idx, 2);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Jumped to previous comment")
+        );
+        app.status_message = None;
+        app.prev_comment();
+        assert_eq!(app.cursor_line_idx, 2);
+        assert_eq!(app.status_message, None);
+
+        app.jump_thread(true);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No threads; run :threads first")
+        );
+        let t = |line| lgtm_core::github::Thread {
+            id: "t".into(),
+            path: "a.rs".into(),
+            line: Some(line),
+            resolved: false,
+            comments: vec![],
+        };
+        app.threads = vec![t(3), t(11)];
+        app.cursor_line_idx = 0;
+        app.jump_thread(true);
+        assert_eq!(app.cursor_line_idx, 2);
+        app.jump_thread(true);
+        assert_eq!(app.cursor_line_idx, 4);
+        app.jump_thread(true);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No more threads in this file")
+        );
+        app.jump_thread(false);
+        assert_eq!(app.cursor_line_idx, 2);
+        app.jump_thread(false);
+        assert_eq!(app.cursor_line_idx, 2);
+        app.snapshot = DiffSnapshot::new(vec![]);
+        app.jump_thread(true);
+    }
+
+    #[test]
+    fn search_is_case_insensitive_cycles_and_reports_misses() {
+        let mut app = motion_app();
+        app.prev_search_match();
+        assert_eq!(app.search_match_idx, 0);
+        app.next_search_match();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No search pattern active (press / to search)")
+        );
+        app.execute_search("");
+        assert!(app.search_matches.is_empty());
+        app.execute_search("zzz");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Pattern not found: 'zzz'")
+        );
+
+        app.execute_search("ALPHA");
+        assert_eq!(app.search_matches, vec![(0, 0)]);
+        assert_eq!(app.status_message.as_deref(), Some("Match 1/1 for 'ALPHA'"));
+
+        app.search_query = "o".into();
+        app.execute_search("o");
+        assert_eq!(app.search_matches, vec![(1, 0), (1, 1)]);
+        app.next_search_match();
+        assert_eq!((app.selected_file_idx, app.cursor_line_idx), (1, 1));
+        assert_eq!(app.status_message.as_deref(), Some("Match 2/2 for 'o'"));
+        app.next_search_match();
+        assert_eq!(app.cursor_line_idx, 0, "wraps to the first match");
+        app.prev_search_match();
+        assert_eq!(app.cursor_line_idx, 1, "wraps back to the last match");
+    }
+
+    #[test]
+    fn symbol_search_uses_the_first_word_on_the_cursor_line() {
+        let mut app = motion_app();
+        app.snapshot.files[0].hunks[0].lines[0].content = "  foo_bar(x)".into();
+        app.snapshot.files[0].hunks[1].lines[0].content = "call foo_bar".into();
+        app.cursor_line_idx = 0;
+        app.search_symbol_under_cursor(true);
+        assert_eq!(app.search_query, "foo_bar");
+        assert_eq!(app.search_matches, vec![(0, 0), (0, 3)]);
+        assert_eq!(app.cursor_line_idx, 0);
+        app.search_symbol_under_cursor(false);
+        assert_eq!(
+            app.cursor_line_idx, 3,
+            "backward starts from the previous (wrapped) match"
+        );
+
+        app.snapshot.files[0].hunks[1].lines[1].content = "!!!".into();
+        app.search_query.clear();
+        app.cursor_line_idx = 4;
+        app.search_symbol_under_cursor(true);
+        assert!(app.search_query.is_empty(), "no word, no search");
+    }
+
+    #[test]
+    fn cursor_motions_clamp_when_the_cursor_is_outside_the_visible_rows() {
+        let mut app = motion_app();
+        let total = app.current_file_line_count();
+        assert_eq!(total, 5);
+        app.cursor_line_idx = 99;
+        app.cursor_down();
+        assert_eq!(app.cursor_line_idx, 4);
+        app.cursor_line_idx = 99;
+        app.cursor_up();
+        assert_eq!(app.cursor_line_idx, 4);
+        app.cursor_line_idx = 99;
+        app.page_down(3);
+        assert_eq!(app.cursor_line_idx, 4);
+        app.page_up(3);
+        assert_eq!(app.cursor_line_idx, 1);
+        app.page_up(10);
+        assert_eq!(app.cursor_line_idx, 0);
+        app.cursor_to_bottom();
+        assert_eq!(app.cursor_line_idx, 4);
+        app.diff_scroll_offset = 9;
+        app.cursor_to_top();
+        assert_eq!((app.cursor_line_idx, app.diff_scroll_offset), (0, 0));
+        app.cursor_line_idx = 40;
+        app.center_cursor();
+        assert_eq!(app.diff_scroll_offset, 25);
+        app.cursor_to_top_of_view();
+        assert_eq!(app.diff_scroll_offset, 40);
+        app.cursor_to_bottom_of_view();
+        assert_eq!(app.diff_scroll_offset, 10);
+    }
+
+    #[test]
+    fn cursor_motions_without_a_diff_stay_put() {
+        let mut app = create_test_app();
+        assert_eq!(app.current_file_line_count(), 0);
+        app.cursor_down();
+        app.page_down(5);
+        app.cursor_to_bottom();
+        assert_eq!(app.cursor_line_idx, 0);
+        app.cursor_line_idx = 3;
+        app.cursor_up();
+        assert_eq!(app.cursor_line_idx, 2);
+        app.page_up(5);
+        assert_eq!(app.cursor_line_idx, 0);
+    }
+
+    #[test]
+    fn jumping_to_a_file_handles_nearest_lines_and_unknown_paths() {
+        let mut app = motion_app();
+        app.jump_to_file_and_line("./a.rs", 5);
+        assert_eq!(app.cursor_line_idx, 2, "nearest line 3 wins over 10");
+        assert_eq!(app.status_message.as_deref(), Some("Jumped to a.rs:5"));
+        app.jump_to_file_and_line("nope.rs", 1);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("File 'nope.rs' is not in the active diff")
+        );
+        app.snapshot.files[1].hunks.clear();
+        app.jump_to_file_and_line("b.rs", 1);
+        assert_eq!((app.selected_file_idx, app.cursor_line_idx), (1, 0));
+    }
 }

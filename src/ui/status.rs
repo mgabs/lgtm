@@ -344,4 +344,85 @@ mod tests {
         assert_eq!(buffer[(4, 0)].symbol(), "i");
         assert_eq!(buffer[(5, 0)].symbol(), "t");
     }
+
+    fn status_text(app: &App) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(300, 1)).unwrap();
+        terminal
+            .draw(|f| render_status_bar(f, f.area(), app))
+            .unwrap();
+        let buf = terminal.backend().buffer();
+        (0..buf.area.width).map(|x| buf[(x, 0)].symbol()).collect()
+    }
+
+    #[test]
+    fn markdown_preview_status_lists_keys() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.active_view = ActiveView::MarkdownPreview;
+        let text = status_text(&app);
+        assert!(text.contains("[MARKDOWN PREVIEW]"));
+        assert!(text.contains("[m/Esc] Raw Diff"));
+        assert!(text.contains("[g/G] Top/End"));
+    }
+
+    #[test]
+    fn audit_status_shows_message_and_focus_pane() {
+        use crate::app::AuditPaneFocus;
+        let mut app = crate::app::test_util::create_test_app();
+        app.active_view = ActiveView::AuditReport;
+        app.status_message = None;
+        assert!(status_text(&app).contains(" Audit Mode "));
+        for (focus, tag) in [
+            (AuditPaneFocus::Files, "[Files]"),
+            (AuditPaneFocus::Issues, "[Issues]"),
+            (AuditPaneFocus::Inspector, "[Inspector]"),
+        ] {
+            app.audit.focus = focus;
+            app.status_message = Some("scan done".into());
+            let text = status_text(&app);
+            assert!(text.contains(" scan done "));
+            assert!(text.contains(&format!("Pane: {tag}")));
+            assert!(text.contains("[Z/m] Maximize"));
+        }
+    }
+
+    #[test]
+    fn normal_status_reports_scroll_position() {
+        use crate::model::*;
+        let mut app = crate::app::test_util::create_test_app();
+        assert!(status_text(&app).contains("Bot"));
+
+        let lines = (0..10)
+            .map(|i| DiffLine {
+                line_type: LineType::Context,
+                content: format!("l{i}"),
+                old_line_num: Some(i + 1),
+                new_line_num: Some(i + 1),
+            })
+            .collect();
+        app.snapshot.files = vec![FileDiff {
+            old_path: None,
+            new_path: "a.rs".into(),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@".into(),
+                old_start: 1,
+                old_lines: 10,
+                new_start: 1,
+                new_lines: 10,
+                lines,
+                is_folded: false,
+                folded_blocks: Vec::new(),
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }];
+        app.cursor_line_idx = 0;
+        assert!(status_text(&app).contains("Top"));
+        app.cursor_line_idx = 4;
+        assert!(status_text(&app).contains(" 50%"));
+        app.cursor_line_idx = 9;
+        assert!(status_text(&app).contains("Bot"));
+    }
 }

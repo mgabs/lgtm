@@ -1321,6 +1321,223 @@ mod tests {
         assert_eq!(off, 20, "a row taller than the view shows its start");
     }
 
+    fn screen_text(app: &mut App, width: u16, height: u16) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|f| render_body(f, f.area(), app)).unwrap();
+        let buf = terminal.backend().buffer();
+        (0..height)
+            .map(|y| (0..width).map(|x| buf[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn diff_file(name: &str, hunks: Vec<DiffHunk>) -> FileDiff {
+        FileDiff {
+            old_path: None,
+            new_path: std::path::PathBuf::from(name),
+            change_type: ChangeType::Modified,
+            additions: 2,
+            deletions: 1,
+            hunks,
+            is_folded: false,
+            is_reviewed: false,
+        }
+    }
+
+    fn line(t: LineType, text: &str, old: Option<u32>, new: Option<u32>) -> DiffLine {
+        DiffLine {
+            line_type: t,
+            content: text.into(),
+            old_line_num: old,
+            new_line_num: new,
+        }
+    }
+
+    fn hunk(header: &str, folded: bool, lines: Vec<DiffLine>) -> DiffHunk {
+        DiffHunk {
+            header: header.into(),
+            old_start: 1,
+            old_lines: lines.len() as u32,
+            new_start: 1,
+            new_lines: lines.len() as u32,
+            lines,
+            is_folded: folded,
+            folded_blocks: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn drawer_reports_non_git_and_clean_states() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.view_data.is_git = false;
+        assert!(screen_text(&mut app, 120, 10).contains("(No git repository)"));
+
+        app.view_data.is_git = true;
+        let out = screen_text(&mut app, 120, 10);
+        assert!(out.contains("(Working tree clean)"));
+    }
+
+    #[test]
+    fn drawer_lists_files_with_review_alert_and_stat_markers() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.view_data.is_git = true;
+        let h = hunk(
+            "@@ -1,1 +1,1 @@",
+            false,
+            vec![line(LineType::Context, "x", Some(1), Some(1))],
+        );
+        let mut reviewed = diff_file("done.rs", vec![h.clone()]);
+        reviewed.is_reviewed = true;
+        let mut added = diff_file("new.rs", vec![h.clone()]);
+        added.change_type = ChangeType::Added;
+        added.additions = 0;
+        added.deletions = 0;
+        app.snapshot = DiffSnapshot::new(vec![reviewed, diff_file("main.rs", vec![h]), added]);
+        app.alerts = vec![crate::guard::GuardAlert {
+            rule_id: "r".into(),
+            fingerprint: "f".into(),
+            severity: crate::guard::Severity::Warn,
+            title: "t".into(),
+            description: "d".into(),
+            line_no: None,
+            file_path: "main.rs".into(),
+        }];
+        app.selected_file_idx = 1;
+        let out = screen_text(&mut app, 120, 12);
+        let row = |name: &str| {
+            out.lines()
+                .map(|l| l.chars().take(35).collect::<String>())
+                .find(|l| l.contains(name))
+                .unwrap_or_else(|| panic!("{name} not in drawer:\n{out}"))
+        };
+        assert!(row("done.rs").contains("✓"));
+        assert!(row("main.rs").contains("⚠") && !row("main.rs").contains("✓"));
+        assert!(row("new.rs").contains("[A]"));
+        assert!(out.contains("Changed Files [3]"));
+        assert!(out.contains("+2/-1"));
+    }
+
+    #[test]
+    fn narrow_body_skips_drawer_and_markdown_body_uses_preview() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.view_data.is_git = true;
+        app.show_file_drawer = true;
+        app.snapshot = DiffSnapshot::new(vec![diff_file("a.rs", vec![])]);
+        assert!(!screen_text(&mut app, 40, 10).contains("Changed Files"));
+        assert!(screen_text(&mut app, 120, 10).contains("(Binary file or empty diff)"));
+
+        app.snapshot = DiffSnapshot::new(vec![diff_file("README.md", vec![])]);
+        app.active_view = ActiveView::MarkdownPreview;
+        assert!(screen_text(&mut app, 120, 10).contains("Changed Files"));
+        assert!(screen_text(&mut app, 60, 10).contains("Changed Files"));
+        assert!(!screen_text(&mut app, 40, 10).contains("Changed Files"));
+    }
+
+    #[test]
+    fn audit_view_routes_to_audit_report() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.active_view = ActiveView::AuditReport;
+        let out = screen_text(&mut app, 120, 12);
+        assert!(out.contains("Repository Issues (0/0)"));
+        assert!(out.contains("No issue selected"));
+    }
+
+    #[test]
+    fn split_and_unified_render_folded_hunks_and_alert_banners() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.view_data.is_git = true;
+        app.show_file_drawer = false;
+        let live = hunk(
+            "@@ -1,3 +1,3 @@",
+            false,
+            vec![
+                line(LineType::Context, "keep_me", Some(1), Some(1)),
+                line(LineType::Deletion, "old_value", Some(2), None),
+                line(LineType::Addition, "new_value", None, Some(2)),
+            ],
+        );
+        let folded = hunk(
+            "@@ -10,2 +10,2 @@",
+            true,
+            vec![line(LineType::Context, "hidden_text", Some(10), Some(10))],
+        );
+        app.snapshot = DiffSnapshot::new(vec![diff_file("a.rs", vec![live, folded])]);
+        app.alerts = vec![
+            crate::guard::GuardAlert {
+                rule_id: "r".into(),
+                fingerprint: "f1".into(),
+                severity: crate::guard::Severity::High,
+                title: "File wide".into(),
+                description: "whole file".into(),
+                line_no: None,
+                file_path: "a.rs".into(),
+            },
+            crate::guard::GuardAlert {
+                rule_id: "r".into(),
+                fingerprint: "f2".into(),
+                severity: crate::guard::Severity::Critical,
+                title: "Line bad".into(),
+                description: "on the line".into(),
+                line_no: Some(2),
+                file_path: "a.rs".into(),
+            },
+        ];
+
+        let unified = screen_text(&mut app, 120, 20);
+        assert!(unified.contains("[Unified]"));
+        assert!(unified.contains("2 Alert(s)"));
+        assert!(unified.contains("File wide: whole file"));
+        assert!(unified.contains("Line bad: on the line"));
+        assert!(unified.contains("new_value"));
+        assert!(unified.contains("Folded - 1 lines"));
+        assert!(!unified.contains("hidden_text"));
+
+        app.is_split_view = true;
+        let split = screen_text(&mut app, 120, 20);
+        assert!(split.contains("[Split]"));
+        assert!(split.contains("Split View: Left=Old, Right=New"));
+        assert!(split.contains("keep_me"));
+        assert!(split.contains("old_value") && split.contains("new_value"));
+        assert!(split.contains("Folded - 1 lines"));
+        assert!(!split.contains("hidden_text"));
+
+        let narrow = screen_text(&mut app, 50, 20);
+        assert!(narrow.contains("[Unified]"));
+    }
+
+    #[test]
+    fn folded_ast_blocks_collapse_in_both_layouts() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.view_data.is_git = true;
+        app.show_file_drawer = false;
+        let mut h = hunk(
+            "@@ -1,4 +1,4 @@",
+            false,
+            vec![
+                line(LineType::Context, "fn big() {", Some(1), Some(1)),
+                line(LineType::Context, "secret_body();", Some(2), Some(2)),
+                line(LineType::Context, "}", Some(3), Some(3)),
+                line(LineType::Context, "after();", Some(4), Some(4)),
+            ],
+        );
+        h.folded_blocks = vec![BlockRange {
+            start_line: 1,
+            end_line: 3,
+        }];
+        app.snapshot = DiffSnapshot::new(vec![diff_file("a.rs", vec![h])]);
+
+        for split in [false, true] {
+            app.is_split_view = split;
+            let out = screen_text(&mut app, 120, 14);
+            assert!(
+                out.contains("Folded AST Block (L1-L3, 3 lines): fn big() {"),
+                "{out}"
+            );
+            assert!(!out.contains("secret_body"));
+            assert!(out.contains("after();"));
+        }
+    }
+
     #[test]
     fn landing_shows_logo_tagline_and_purpose() {
         let text: String = landing_lines()

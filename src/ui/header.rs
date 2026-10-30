@@ -314,4 +314,164 @@ mod tests {
         let badge = format_worktree_badge(&app);
         assert!(badge.contains("[wt: "));
     }
+
+    fn header_text(app: &App) -> String {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(250, 1)).unwrap();
+        terminal.draw(|f| render_header(f, f.area(), app)).unwrap();
+        let buf = terminal.backend().buffer();
+        (0..buf.area.width).map(|x| buf[(x, 0)].symbol()).collect()
+    }
+
+    fn alert(sev: crate::guard::Severity) -> crate::guard::GuardAlert {
+        crate::guard::GuardAlert {
+            rule_id: "r".into(),
+            fingerprint: "f".into(),
+            severity: sev,
+            title: "t".into(),
+            description: "d".into(),
+            line_no: None,
+            file_path: "a.rs".into(),
+        }
+    }
+
+    #[test]
+    fn non_git_header_shows_directory_and_quit() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.view_data.is_git = false;
+        let text = header_text(&app);
+        assert!(text.contains("Not a git repository"));
+        assert!(text.contains(&app.git_engine.repo_path.display().to_string()));
+        assert!(text.contains("[q] Quit"));
+    }
+
+    #[test]
+    fn audit_header_counts_severities_and_progress() {
+        use crate::guard::Severity::*;
+        let mut app = crate::app::test_util::create_test_app();
+        app.active_view = ActiveView::AuditReport;
+        app.audit.alerts = vec![alert(Critical), alert(High), alert(High), alert(Warn)];
+        app.audit.progress = Some("scanning 3/9".into());
+        app.audit.filter_severity = Some(High);
+        let text = header_text(&app);
+        assert!(text.contains("lgtm audit"));
+        assert!(text.contains("scanning 3/9"));
+        assert!(text.contains("Total: 4 issue(s)"));
+        assert!(text.contains("1 Crit"));
+        assert!(text.contains("2 High"));
+        assert!(text.contains("1 Warn"));
+        assert!(text.contains("High+ [2]"));
+        assert!(text.contains("Scanned: 0 files"));
+        assert!(text.contains("[w] Export lgtm-report.md"));
+
+        app.audit.filter_severity = Some(Critical);
+        app.audit.progress = None;
+        let text = header_text(&app);
+        assert!(text.contains("Crit [1]"));
+        assert!(!text.contains("scanning"));
+    }
+
+    #[test]
+    fn git_header_shows_turn_counts_and_badges() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.view_data.is_git = true;
+        app.view_data.turn = 4;
+        app.snapshot.total_additions = 12;
+        app.snapshot.total_deletions = 3;
+        let text = header_text(&app);
+        assert!(text.contains("Turn #4"));
+        assert!(text.contains("+12 -3 in 0 changed file(s)"));
+        assert!(text.contains("Target: "));
+        assert!(!text.contains("alerts"));
+        assert!(!text.contains("comments"));
+        assert!(!text.contains("GATE"));
+
+        app.alerts = vec![alert(crate::guard::Severity::Warn)];
+        app.hidden.borrow_mut().suppressed = vec![alert(crate::guard::Severity::Warn)];
+        app.view_data.gate = Some(("waiting".into(), "msg".into()));
+        let text = header_text(&app);
+        assert!(text.contains("1 alerts (w)"));
+        assert!(text.contains("+1 suppressed, 0 baselined"));
+        assert!(text.contains("GATE WAITING"));
+
+        app.view_data.gate = Some(("approved".into(), "msg".into()));
+        assert!(!header_text(&app).contains("GATE WAITING"));
+    }
+
+    #[test]
+    fn header_shows_pr_ci_and_orphaned_comments_and_cache_refreshes() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.view_data.is_git = true;
+        app.pr.current_number = Some(7);
+        app.ci = Some(lgtm_core::github::CiSummary {
+            passed: 5,
+            failed: 1,
+            pending: 2,
+        });
+        let text = header_text(&app);
+        assert!(text.contains("PR #7"));
+        assert!(text.contains("CI ✓5 ✗1"));
+        assert!(text.contains("2 | "));
+        assert!(!text.contains("Turn #"));
+        // second draw hits the cached line
+        assert_eq!(header_text(&app), text);
+
+        let mut c = lgtm_core::comment::CommentAnchor {
+            id: "1".into(),
+            file_path: "a.rs".into(),
+            target_line_no: 1,
+            target_code: String::new(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: "x".into(),
+            replies: vec![],
+            created_at_turn: 0,
+            is_resolved: false,
+            pr_number: None,
+            orphaned: true,
+            track: Default::default(),
+        };
+        app.comments = vec![c.clone()];
+        let text = header_text(&app);
+        assert!(text.contains("1 comments (1 ⚠ orphaned)"));
+        c.orphaned = false;
+        app.comments = vec![c];
+        assert!(header_text(&app).contains("1 comments |"));
+    }
+
+    #[test]
+    fn worktree_badge_reports_branch_and_detached_head() {
+        let dir = tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+                .args(args)
+                .current_dir(dir.path())
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_INDEX_FILE")
+                .env_remove("GIT_WORK_TREE")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?} failed");
+            String::from_utf8(out.stdout).unwrap().trim().to_string()
+        };
+        git(&["init", "-q"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "init"]);
+        let oid = git(&["rev-parse", "HEAD"]);
+        let (_tx, rx) = crossbeam_channel::unbounded();
+        let app = App::new(dir.path().to_path_buf(), rx, None, None, None);
+        let name = dir
+            .path()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let badge = format_worktree_badge(&app);
+        assert!(badge.starts_with(&format!(" [wt: {name} (")) && !badge.contains("detached"));
+
+        git(&["checkout", "-q", "--detach"]);
+        let badge = format_worktree_badge(&app);
+        assert_eq!(badge, format!(" [wt: {name} (detached@{})] |", &oid[..7]));
+    }
 }

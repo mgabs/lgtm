@@ -371,17 +371,13 @@ impl App {
 
     pub fn yank_reference_to_clipboard(&mut self) {
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
-            let mut line_num = 1;
-            let mut line_counter = 0;
-            for hunk in &file.hunks {
-                for line in &hunk.lines {
-                    if line_counter == self.cursor_line_idx {
-                        line_num = line.new_line_num.or(line.old_line_num).unwrap_or(1);
-                        break;
-                    }
-                    line_counter += 1;
-                }
-            }
+            let line_num = file
+                .hunks
+                .iter()
+                .flat_map(|h| &h.lines)
+                .nth(self.cursor_line_idx)
+                .and_then(|l| l.new_line_num.or(l.old_line_num))
+                .unwrap_or(1);
             let reference = format!("#ref {}:{}", file.display_name(), line_num);
             IpcBridge::send_osc52_clipboard(&reference);
             self.status_message = Some(format!("Copied to clipboard: {}", reference));
@@ -591,5 +587,228 @@ mod tests {
 
         app.open_in_editor();
         assert!(!app.needs_terminal_clear);
+    }
+
+    fn comment(text: &str, pr: Option<u64>) -> CommentAnchor {
+        CommentAnchor {
+            id: lgtm_core::comment::new_id(),
+            file_path: "src/main.rs".into(),
+            target_line_no: 10,
+            target_code: "let x = 42;".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: text.into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: pr,
+            orphaned: false,
+            track: Default::default(),
+        }
+    }
+
+    fn wait_for_post(app: &mut crate::app::App, pr: u64) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while app.review_posting_prs.contains(&pr) {
+            app.handle_background_events();
+            assert!(std::time::Instant::now() < deadline, "post did not finish");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn test_batch_review_export_writes_file_and_advances_turn() {
+        for pane in [None, Some("%1".to_string())] {
+            let mut app = setup_app_with_line(10);
+            app.agent_sink_kind = Some(crate::ipc::SinkKind::Dummy);
+            app.agent_pane = pane;
+            app.comments.push(comment("rename this", None));
+            let turn_before = app.turn_manager.load_state().current_turn;
+            app.export_and_send_batch_review();
+            let status = app.status_message.clone().unwrap();
+            assert!(status.starts_with("Exported "), "{status}");
+            assert!(
+                status.ends_with("delivered to dummy (/dev/null)"),
+                "{status}"
+            );
+            let exported = status
+                .trim_start_matches("Exported ")
+                .split(" and delivered")
+                .next()
+                .unwrap();
+            let body = std::fs::read_to_string(app.git_engine.repo_path.join(exported)).unwrap();
+            assert!(body.contains("rename this"));
+            assert_eq!(app.turn_manager.load_state().current_turn, turn_before + 1);
+        }
+    }
+
+    #[test]
+    fn test_pr_review_post_failure_reports_and_clears_in_flight() {
+        let mut app = setup_app_with_line(10);
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Dummy);
+        app.pr.current_number = Some(7);
+        app.comments.push(comment("pr note", Some(7)));
+        app.comments.push(comment("resolved", None));
+        app.comments[1].is_resolved = true;
+        for pane in [None, Some("%1".to_string())] {
+            app.agent_pane = pane;
+            app.export_and_send_batch_review();
+            assert!(app.review_posting_prs.contains(&7));
+            assert!(app
+                .status_message
+                .as_deref()
+                .unwrap()
+                .ends_with("Posting review..."));
+
+            // A second request while one is in flight is rejected.
+            app.export_and_send_batch_review();
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some("A review for this PR is already being posted")
+            );
+
+            wait_for_post(&mut app, 7);
+            let status = app.status_message.clone().unwrap();
+            assert!(
+                status.contains("Delivered to dummy (/dev/null)"),
+                "{status}"
+            );
+            assert!(
+                status.ends_with(
+                    "Review not posted: provider tools are unavailable; saved review retained"
+                ),
+                "{status}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_pr_review_result_ignored_for_other_pr() {
+        let mut app = setup_app_with_line(10);
+        app.pr.current_number = Some(7);
+        app.export_and_send_batch_review();
+        app.pr.current_number = Some(8);
+        app.status_message = None;
+        wait_for_post(&mut app, 7);
+        assert_eq!(app.status_message, None);
+    }
+
+    #[test]
+    fn test_mutation_probe_reports_clean_and_risky() {
+        let mut app = setup_app_with_line(1);
+        app.run_test_mutation_probe();
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .contains("No test neutering"));
+        app.alerts.push(GuardAlert {
+            rule_id: "test/vacuous".into(),
+            fingerprint: "f".into(),
+            severity: Severity::Critical,
+            title: "t".into(),
+            description: "d".into(),
+            line_no: None,
+            file_path: "a.rs".into(),
+        });
+        app.run_test_mutation_probe();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("⚠️ Test Authenticity Probe: Found 1 test risk(s) (e.g. [test/vacuous])")
+        );
+    }
+
+    #[test]
+    fn test_inject_reference_without_files_is_noop() {
+        let mut app = create_test_app();
+        app.status_message = None;
+        app.inject_reference_to_agent();
+        app.open_in_editor();
+        app.yank_current_code_line();
+        app.yank_reference_to_clipboard();
+        assert_eq!(app.status_message, None);
+        assert!(!app.needs_terminal_clear);
+    }
+
+    #[test]
+    fn test_inject_reference_send_failure_reported() {
+        let mut app = setup_app_with_line(10);
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Tmux);
+        app.agent_pane = Some("%nonexistent-pane-xyz".into());
+        app.inject_reference_to_agent();
+        let status = app.status_message.unwrap();
+        assert!(status.starts_with("Send failed:"), "{status}");
+    }
+
+    #[test]
+    fn test_resolved_sink_kind_from_config() {
+        let mut app = setup_app_with_line(1);
+        app.agent_sink_kind = None;
+        app.config.agent_sink = Some("kitty".into());
+        assert_eq!(app.resolved_sink_kind(), crate::ipc::SinkKind::Kitty);
+        app.agent_sink_kind = Some(crate::ipc::SinkKind::Zellij);
+        assert_eq!(app.resolved_sink_kind(), crate::ipc::SinkKind::Zellij);
+    }
+
+    #[test]
+    fn test_open_file_in_editor_status_and_clear_flag() {
+        let mut app = setup_app_with_line(1);
+        app.editor_override = Some("nvim".into());
+        app.open_file_in_editor("src/lib.rs", 12);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Opened src/lib.rs:12 in nvim")
+        );
+        assert!(app.needs_terminal_clear);
+
+        app.needs_terminal_clear = false;
+        app.editor_override = Some("cursor ".into());
+        app.open_file_in_editor("a.rs", 3);
+        assert!(!app.needs_terminal_clear);
+    }
+
+    #[test]
+    fn test_open_in_editor_reports_line_and_file() {
+        let mut app = setup_app_with_line(42);
+        app.editor_override = Some("subl".into());
+        app.open_in_editor();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Opened src/main.rs:42 in subl")
+        );
+    }
+
+    #[test]
+    fn test_yank_line_and_reference() {
+        let mut app = setup_app_with_line(33);
+        app.yank_current_code_line();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Yanked: \"let x = 42;\"")
+        );
+        app.yank_reference_to_clipboard();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Copied to clipboard: #ref src/main.rs:33")
+        );
+
+        // Cursor past the last line: yank is a no-op, reference falls back to line 1.
+        app.status_message = None;
+        app.cursor_line_idx = 5;
+        app.yank_current_code_line();
+        assert_eq!(app.status_message, None);
+        app.yank_reference_to_clipboard();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Copied to clipboard: #ref src/main.rs:1")
+        );
+    }
+
+    #[test]
+    fn test_is_gui_editor_matches_known_names_only() {
+        assert!(super::is_gui_editor("code --wait"));
+        assert!(super::is_gui_editor("idea"));
+        assert!(!super::is_gui_editor("vim"));
+        assert!(!super::is_gui_editor("codeium"));
     }
 }

@@ -360,4 +360,47 @@ mod tests {
         // Real typos
         assert!(!is_naming_convention_variant("token", "tokn"));
     }
+
+    #[test]
+    fn levenshtein_handles_empty_sides() {
+        assert_eq!(levenshtein_distance("", "abc"), 3);
+        assert_eq!(levenshtein_distance("abcd", ""), 4);
+    }
+
+    #[test]
+    fn plain_text_typos_skip_ignored_lines_and_headers() {
+        let line = |line_type, content: &str, n| DiffLine {
+            line_type,
+            content: content.into(),
+            old_line_num: None,
+            new_line_num: Some(n),
+        };
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("notes.zzz"),
+            change_type: ChangeType::Modified,
+            additions: 2,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@".into(),
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 3,
+                lines: vec![
+                    line(LineType::HunkHeader, "@@ user_token", 0),
+                    line(LineType::Context, "user_token", 1),
+                    line(LineType::Addition, "user_tokn # lgtm:ignore", 2),
+                    line(LineType::Addition, "user_tokn", 3),
+                ],
+                is_folded: false,
+                folded_blocks: Vec::new(),
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        };
+        let alerts = SymbolGuard::scan_file(&file);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].line_no, Some(3));
+    }
 }
