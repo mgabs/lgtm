@@ -312,4 +312,41 @@ deleted file mode 100644
         assert_eq!(parse_hunk_header("@@ -42 +99 @@"), (42, 1, 99, 1));
         assert_eq!(parse_hunk_header("invalid"), (1, 1, 1, 1));
     }
+
+    #[test]
+    fn state_parse_and_filtering() {
+        for (text, state) in [
+            ("open", PullRequestState::Open),
+            ("closed", PullRequestState::Closed),
+            ("all", PullRequestState::All),
+        ] {
+            assert_eq!(PullRequestState::parse(text).unwrap(), state);
+            assert_eq!(state.as_str(), text);
+        }
+        assert!(PullRequestState::parse("merged").is_err());
+        assert!(PullRequestState::Open.includes("ACTIVE"));
+        assert!(!PullRequestState::Open.includes("merged"));
+        assert!(PullRequestState::Closed.includes("Abandoned"));
+        assert!(!PullRequestState::Closed.includes("open"));
+        assert!(PullRequestState::All.includes("anything"));
+    }
+
+    #[test]
+    fn post_review_rejects_unknown_event_before_running_gh() {
+        let err = PrEngine::post_review(1, "bogus", "").unwrap_err();
+        assert!(err.to_string().contains("unknown review event 'bogus'"));
+    }
+
+    #[test]
+    fn parse_keeps_multiple_hunks_and_line_numbers() {
+        let diff = "diff --git a/f.rs b/f.rs\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -10 +10 @@\n-x\n+y\n";
+        let file = &PrEngine::parse_unified_diff(diff).unwrap().files[0];
+        assert_eq!(file.hunks.len(), 2);
+        assert_eq!((file.additions, file.deletions), (2, 2));
+        let second = &file.hunks[1];
+        assert_eq!(second.old_start, 10);
+        assert_eq!(second.lines[0].old_line_num, Some(10));
+        assert_eq!(second.lines[1].new_line_num, Some(10));
+        assert_eq!(file.hunks[0].lines[2].new_line_num, Some(2));
+    }
 }

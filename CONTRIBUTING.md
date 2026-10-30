@@ -9,7 +9,7 @@ Thank you for contributing to `lgtm`! We welcome bug reports, feature implementa
 - **Rust Toolchain**: Stable (1.75+)
 - **Make**: Standard GNU `make`
 - **Optional Tools**:
-  - `cargo-llvm-cov` (for detailed HTML coverage reports)
+  - `cargo-llvm-cov` (for detailed HTML coverage reports; `make coverage` enforces the 90% workspace line-coverage gate that CI runs on Linux)
   - `gh` CLI (for testing PR review features)
   - `tmux` (for testing `#ref` agent injection)
 

@@ -807,3 +807,58 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
     let footer_widget = Paragraph::new(footer_text);
     frame.render_widget(footer_widget, chunks[2]);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn render_text(app: &App) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(130, 60)).unwrap();
+        terminal
+            .draw(|f| render_help_modal(f, f.area(), app))
+            .unwrap();
+        let buf = terminal.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn every_tab_renders_its_title_and_first_heading() {
+        let expected = [
+            ("Tab 1: Overview", "HOW TO USE LGTM"),
+            ("Tab 2: Vim Motions", "CURSOR & SCROLLING"),
+            ("Tab 3: Review Directives", "INLINE REVIEW DIRECTIVES"),
+            ("Tab 4: Git Staging", "GIT HUNK & FILE STAGING"),
+            ("Tab 5: Syntax-Aware", "HUNK FOLDING CONTROLS"),
+            ("Tab 6: Security Guardrails", "REAL-TIME STATIC ANALYSIS"),
+            ("Tab 7: Ex-Commands", "EX-COMMAND REFERENCE"),
+        ];
+        let mut app = crate::app::test_util::create_test_app();
+        for (idx, (title, heading)) in expected.iter().enumerate() {
+            app.help_selected_tab = idx;
+            let text = render_text(&app);
+            assert!(text.contains(title), "tab {idx} title missing");
+            assert!(text.contains(heading), "tab {idx} heading missing");
+            assert!(text.contains(&format!("[Tab {}/7", idx + 1)));
+            assert!(text.contains("▶"));
+            assert!(text.contains("Jump Tab"));
+        }
+    }
+
+    #[test]
+    fn out_of_range_tab_shows_fallback() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.help_selected_tab = 9;
+        let text = render_text(&app);
+        assert!(text.contains("No help content"));
+        assert!(!text.contains("▶"));
+    }
+}

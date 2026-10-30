@@ -48,8 +48,11 @@ impl McpServer {
     }
 
     pub fn run_stdio(&self) -> Result<()> {
-        let stdin = io::stdin();
-        let stdout = Arc::new(Mutex::new(io::stdout()));
+        self.serve(io::stdin().lock(), io::stdout())
+    }
+
+    fn serve<R: BufRead, W: Write + Send + 'static>(&self, input: R, output: W) -> Result<()> {
+        let stdout = Arc::new(Mutex::new(output));
 
         // Start background watcher if repo_path exists and is a directory
         let (watcher_tx, watcher_rx) = crossbeam_channel::unbounded();
@@ -93,7 +96,7 @@ impl McpServer {
             }
         });
 
-        for line in stdin.lock().lines() {
+        for line in input.lines() {
             let line = line?;
             if line.trim().is_empty() {
                 continue;
@@ -970,5 +973,161 @@ mod tests {
         let res_findings: Value =
             serde_json::from_str(res["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
         assert!(res_findings.as_array().unwrap().is_empty());
+    }
+
+    fn git(d: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(d)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_WORK_TREE")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    }
+
+    #[derive(Clone, Default)]
+    struct Sink(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Sink {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn committed_repo() -> tempfile::TempDir {
+        let d = repo();
+        std::fs::write(d.path().join("a.txt"), "one\n").unwrap();
+        git(d.path(), &["add", "a.txt"]);
+        git(d.path(), &["commit", "-q", "-m", "init"]);
+        std::fs::write(d.path().join("a.txt"), "one\ntwo\n").unwrap();
+        git(d.path(), &["commit", "-q", "-am", "second"]);
+        std::fs::write(d.path().join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        d
+    }
+
+    #[test]
+    fn serve_answers_requests_and_skips_noise() {
+        let sink = Sink::default();
+        let input =
+            "\n{not json}\n{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n\
+            {\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"ping\"}\n\
+            {\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"bogus\"}\n";
+        McpServer::new("does-not-exist-lgtm")
+            .serve(io::Cursor::new(input), sink.clone())
+            .unwrap();
+        let raw = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
+        let lines: Vec<Value> = raw
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0]["error"]["code"], -32700);
+        assert_eq!(lines[1]["id"], 7);
+        assert!(lines[1]["result"].is_object());
+        assert_eq!(lines[2]["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn diff_tool_and_resource_summarise_changes() {
+        let d = committed_repo();
+        let s = McpServer::new(d.path());
+        let out = |v: &Value| {
+            v["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let work = out(&call(&s, "lgtm_diff", json!({})));
+        assert!(work.contains("a.txt"), "{work}");
+        assert!(work.contains("+ three"), "{work}");
+        let rev = out(&call(&s, "lgtm_diff", json!({"rev_spec": "HEAD~1..HEAD"})));
+        assert!(rev.contains("+ two") && !rev.contains("three"), "{rev}");
+        let res = s
+            .handle_request(
+                "resources/read",
+                &json!({"uri": "lgtm://diff"}),
+                Some(json!(1)),
+            )
+            .unwrap();
+        assert_eq!(res["result"]["contents"][0]["mimeType"], "text/plain");
+        assert!(res["result"]["contents"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("+ three"));
+    }
+
+    #[test]
+    fn strict_scan_keeps_only_critical_and_high() {
+        let d = repo();
+        std::fs::write(
+            d.path().join("a.py"),
+            "import hashlib\nh = hashlib.md5(b'x')\n",
+        )
+        .unwrap();
+        git(d.path(), &["add", "-N", "a.py"]);
+        let s = McpServer::new(d.path());
+        let all = text(&call(&s, "lgtm_security_scan", json!({})));
+        let strict = text(&call(&s, "lgtm_security_scan", json!({"strict": true})));
+        let sev = |v: &Value| -> Vec<String> {
+            v.as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a["severity"].to_string())
+                .collect()
+        };
+        assert!(!all.as_array().unwrap().is_empty());
+        assert!(strict.as_array().unwrap().len() <= all.as_array().unwrap().len());
+        assert!(sev(&strict)
+            .iter()
+            .all(|x| x.contains("Critical") || x.contains("High")));
+    }
+
+    #[test]
+    fn directives_file_unknown_tool_and_unknown_resource() {
+        let d = repo();
+        let s = McpServer::new(d.path());
+        let out = |v: &Value| {
+            v["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(
+            out(&call(&s, "lgtm_list_directives", json!({}))),
+            "No active review directives found."
+        );
+        std::fs::create_dir_all(d.path().join(".lgtm")).unwrap();
+        std::fs::write(d.path().join(".lgtm/directives.jsonl"), "{\"x\":1}\n").unwrap();
+        assert_eq!(
+            out(&call(&s, "lgtm_list_directives", json!({}))),
+            "{\"x\":1}\n"
+        );
+        assert!(call(&s, "no_such_tool", json!({}))["error"].is_object());
+        let bad = s
+            .handle_request(
+                "resources/read",
+                &json!({"uri": "lgtm://nope"}),
+                Some(json!(2)),
+            )
+            .unwrap();
+        assert_eq!(bad["error"]["code"], -32602);
+        assert!(bad["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("lgtm://nope"));
+        let rs = s
+            .handle_request(
+                "resources/read",
+                &json!({"uri": "lgtm://review-state"}),
+                Some(json!(3)),
+            )
+            .unwrap();
+        assert_eq!(rs["result"]["contents"][0]["mimeType"], "application/json");
     }
 }

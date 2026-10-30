@@ -584,3 +584,45 @@ fn run_tui(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("lgtm-main-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn canonicalize_clean_resolves_existing_and_keeps_missing_paths() {
+        let dir = scratch("canon");
+        let resolved = canonicalize_clean(&dir.join("."));
+        assert_eq!(resolved, canonicalize_clean(&dir));
+        assert!(!resolved.ends_with("."));
+        let missing = dir.join("nope");
+        assert_eq!(canonicalize_clean(&missing), missing);
+    }
+
+    #[test]
+    fn run_check_maps_audit_outcome_to_exit_code() {
+        let dir = scratch("check");
+        let out = dir.join("report.json");
+        let ok = run_check(dir.clone(), "json", Some(&out), false, false, true, None);
+        assert_eq!(format!("{ok:?}"), format!("{:?}", ExitCode::SUCCESS));
+        assert_eq!(std::fs::read_to_string(&out).unwrap().trim(), "[]");
+
+        std::fs::write(dir.join(".lgtm.toml"), "not = [valid").unwrap();
+        let bad = run_check(dir, "json", None, false, false, true, None);
+        assert_eq!(format!("{bad:?}"), format!("{:?}", ExitCode::from(2)));
+    }
+
+    #[test]
+    fn list_prs_cli_reports_failure_outside_a_forge_repo() {
+        let dir = scratch("prs");
+        let code = list_prs_cli(&dir, "open");
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::from(1)));
+    }
+}

@@ -475,4 +475,41 @@ mod tests {
                 | SinkKind::Clipboard
         ));
     }
+
+    #[test]
+    fn pane_json_edge_cases() {
+        assert!(IpcBridge::parse_wezterm_panes_json("{}")
+            .unwrap()
+            .is_empty());
+        assert!(IpcBridge::parse_kitty_windows_json("{}")
+            .unwrap()
+            .is_empty());
+        assert!(IpcBridge::parse_wezterm_panes_json("nope").is_err());
+        assert!(IpcBridge::parse_kitty_windows_json("nope").is_err());
+
+        let panes = IpcBridge::parse_wezterm_panes_json(
+            r#"[{"pane_id": "7", "title": "t", "is_active": true},
+                {"pane_id": 8},
+                {"pane_id": ""},
+                {"title": "no id"}]"#,
+        )
+        .unwrap();
+        assert_eq!(panes.len(), 2);
+        assert_eq!((panes[0].id.as_str(), panes[0].title.as_str()), ("7", "t"));
+        assert!(panes[0].active);
+        assert_eq!(
+            (panes[1].id.as_str(), panes[1].title.as_str()),
+            ("8", "pane")
+        );
+        assert!(!panes[1].active);
+    }
+
+    #[test]
+    fn listing_panes_for_non_multiplexer_sinks_is_empty() {
+        assert!(IpcBridge::list_panes(SinkKind::Clipboard)
+            .unwrap()
+            .is_empty());
+        assert!(IpcBridge::list_panes(SinkKind::Dummy).unwrap().is_empty());
+        assert_eq!(IpcBridge::detect_agent_pane_for(SinkKind::Dummy), None);
+    }
 }

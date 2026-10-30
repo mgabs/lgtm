@@ -58,4 +58,100 @@ mod tests {
         app.handle_commit_modal_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.active_view, ActiveView::Diff);
     }
+
+    fn git(dir: &std::path::Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .current_dir(dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_PREFIX")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn app_with_staged_file() -> App {
+        let app = create_test_app();
+        let root = app.git_engine.repo_path.clone();
+        git(&root, &["init", "-q"]);
+        std::fs::write(root.join("a.txt"), "hello\n").unwrap();
+        git(&root, &["add", "a.txt"]);
+        app
+    }
+
+    #[test]
+    fn test_open_commit_modal_requires_staged_changes() {
+        let mut app = create_test_app();
+        git(&app.git_engine.repo_path.clone(), &["init", "-q"]);
+        app.commit_message_input = "stale".into();
+        app.open_commit_modal();
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("⚠️ No staged changes to commit (stage with 's' or 'S')")
+        );
+        assert_eq!(app.commit_message_input, "stale");
+    }
+
+    #[test]
+    fn test_open_commit_modal_with_staged_changes_clears_input() {
+        let mut app = app_with_staged_file();
+        app.commit_message_input = "stale".into();
+        app.open_commit_modal();
+        assert_eq!(app.active_view, ActiveView::CommitModal);
+        assert!(app.commit_message_input.is_empty());
+    }
+
+    #[test]
+    fn test_execute_commit_rejects_blank_message() {
+        let mut app = app_with_staged_file();
+        app.active_view = ActiveView::CommitModal;
+        app.commit_message_input = "   ".into();
+        app.execute_commit();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("⚠️ Commit message cannot be empty")
+        );
+        assert_eq!(app.active_view, ActiveView::CommitModal);
+    }
+
+    #[test]
+    fn test_execute_commit_creates_commit_and_returns_to_diff() {
+        let mut app = app_with_staged_file();
+        app.active_view = ActiveView::CommitModal;
+        app.commit_message_input = "  feat: add a  ".into();
+        app.execute_commit();
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert!(app.commit_message_input.is_empty());
+        let log = std::process::Command::new("git")
+            .current_dir(&app.git_engine.repo_path)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_WORK_TREE")
+            .args(["log", "-1", "--format=%s"])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&log.stdout).trim(), "feat: add a");
+    }
+
+    #[test]
+    fn test_execute_commit_failure_reports_error() {
+        let mut app = create_test_app();
+        app.commit_message_input = "msg".into();
+        app.active_view = ActiveView::CommitModal;
+        app.execute_commit();
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Commit failed: "));
+        assert_eq!(app.active_view, ActiveView::CommitModal);
+        assert_eq!(app.commit_message_input, "msg");
+    }
 }

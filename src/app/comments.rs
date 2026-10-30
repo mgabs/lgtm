@@ -858,4 +858,424 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::NONE));
         assert!(!app.comments[0].is_resolved);
     }
+
+    fn fixture_app() -> App {
+        let mut app = create_test_app();
+        let hunk = DiffHunk {
+            header: "@@ -1,3 +1,3 @@".into(),
+            old_start: 1,
+            old_lines: 3,
+            new_start: 1,
+            new_lines: 3,
+            lines: (1..=3)
+                .map(|i| DiffLine {
+                    line_type: LineType::Context,
+                    content: format!("line {}", i),
+                    old_line_num: Some(i),
+                    new_line_num: Some(i),
+                })
+                .collect(),
+            is_folded: false,
+            folded_blocks: Vec::new(),
+        };
+        app.snapshot = DiffSnapshot::new(vec![FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/lib.rs"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![hunk],
+            is_folded: false,
+            is_reviewed: false,
+        }]);
+        app
+    }
+
+    fn anchor(path: &str, line: u32, orphaned: bool) -> CommentAnchor {
+        CommentAnchor {
+            id: lgtm_core::comment::new_id(),
+            file_path: path.into(),
+            target_line_no: line,
+            target_code: format!("line {line}"),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: format!("note {line}"),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            orphaned,
+            track: Default::default(),
+        }
+    }
+
+    fn thread(path: &str, line: u32, resolved: bool) -> lgtm_core::github::Thread {
+        lgtm_core::github::Thread {
+            id: format!("t{line}"),
+            path: path.into(),
+            line: Some(line),
+            resolved,
+            comments: vec![],
+        }
+    }
+
+    #[test]
+    fn threads_modal_needs_a_pr_and_selects_the_thread_under_the_cursor() {
+        let mut app = fixture_app();
+        app.cursor_line_idx = 1;
+        assert_eq!(app.current_line_number(), Some(2));
+        app.cursor_line_idx = 9;
+        assert_eq!(app.current_line_number(), None);
+        app.cursor_line_idx = 1;
+
+        app.open_threads_modal();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+        assert_ne!(app.active_view, ActiveView::ThreadView);
+
+        app.pr.current_number = Some(7);
+        app.open_threads_modal();
+        assert_eq!(app.active_view, ActiveView::ThreadView);
+
+        app.active_view = ActiveView::Diff;
+        app.threads = vec![
+            thread("src/lib.rs", 1, false),
+            thread("src/lib.rs", 2, false),
+        ];
+        app.thread_selected_idx = 9;
+        app.thread_scroll_offset = 4;
+        assert_eq!(app.thread_at_cursor(), Some(1));
+        app.open_threads_modal();
+        assert_eq!(app.thread_selected_idx, 1);
+        assert_eq!(app.thread_scroll_offset, 0);
+
+        app.cursor_line_idx = 2;
+        assert_eq!(app.thread_at_cursor(), None);
+        app.thread_selected_idx = 9;
+        app.open_threads_modal();
+        assert_eq!(app.thread_selected_idx, 1);
+    }
+
+    #[test]
+    fn comment_list_preselects_the_comment_on_the_cursor_line() {
+        let mut app = fixture_app();
+        app.comment_store
+            .save_comments(&[
+                anchor("other.rs", 2, false),
+                anchor("./src/lib.rs", 2, false),
+            ])
+            .unwrap();
+        app.cursor_line_idx = 1;
+        app.open_comment_list();
+        assert_eq!(app.active_view, ActiveView::CommentList);
+        assert_eq!(app.comments.len(), 2);
+        assert_eq!(app.comment_list_selected_idx, 1);
+
+        app.cursor_line_idx = 2;
+        app.open_comment_list();
+        assert_eq!(app.comment_list_selected_idx, 0);
+
+        app.cursor_line_idx = 9;
+        app.comment_list_selected_idx = 1;
+        app.open_comment_list();
+        assert_eq!(app.comment_list_selected_idx, 0);
+
+        app.snapshot = DiffSnapshot::new(vec![]);
+        app.comment_list_selected_idx = 1;
+        app.open_comment_list();
+        assert_eq!(app.comment_list_selected_idx, 0);
+    }
+
+    #[test]
+    fn cursor_comment_queries_and_deletion_report_the_outcome() {
+        let mut app = fixture_app();
+        app.cursor_line_idx = 0;
+        assert!(!app.has_comment_on_cursor());
+        app.delete_current_line_comment();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No comment on src/lib.rs:1")
+        );
+        app.toggle_resolve_current_comment();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No directive on current line")
+        );
+        assert_eq!(app.comment_idx_at_cursor(), None);
+
+        app.comments = vec![
+            anchor("src/lib.rs", 1, true),
+            anchor("src/lib.rs", 2, false),
+        ];
+        assert!(
+            !app.has_comment_on_cursor(),
+            "orphans do not mark the gutter"
+        );
+        app.cursor_line_idx = 1;
+        assert!(app.has_comment_on_cursor());
+        app.cursor_line_idx = 7;
+        assert!(!app.has_comment_on_cursor());
+        assert_eq!(app.comment_idx_at_cursor(), None);
+
+        app.cursor_line_idx = 1;
+        app.delete_current_line_comment();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Deleted comment on src/lib.rs:2")
+        );
+        assert_eq!(app.comments.len(), 1);
+        assert!(app.comment_store.load_comments().len() == 1);
+
+        app.start_reply_to_comment(5);
+        assert_eq!(app.comment_reply_target_idx, None);
+    }
+
+    #[test]
+    fn sending_a_comment_to_the_agent_includes_replies_and_ignores_bad_indices() {
+        let mut app = fixture_app();
+        let mut c = anchor("src/lib.rs", 3, false);
+        c.replies.push("also this".into());
+        app.comments = vec![c];
+        app.status_message = None;
+        app.action_comment_to_agent(4);
+        assert_eq!(app.status_message, None);
+        app.action_comment_to_agent(0);
+        let msg = app.status_message.unwrap();
+        assert!(msg.starts_with("Sent to "), "{msg}");
+        assert!(msg.ends_with(": src/lib.rs:3"), "{msg}");
+    }
+
+    #[test]
+    fn github_results_are_summarised_and_errors_surface_verbatim() {
+        let mut app = fixture_app();
+        app.refresh_github_async(true);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+        app.status_message = None;
+        app.refresh_github_async(false);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+
+        app.apply_threads(Ok(vec![thread("a.rs", 4, false), thread("b.rs", 5, true)]));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("2 threads, 1 open: a.rs:4")
+        );
+        assert_eq!(app.threads.len(), 2);
+        app.apply_threads(Err(anyhow::anyhow!("rate limited")));
+        assert_eq!(app.status_message.as_deref(), Some("rate limited"));
+        assert_eq!(app.threads.len(), 2, "failure keeps the last good threads");
+
+        use lgtm_core::github::{Bucket, Check};
+        let check = |bucket| Check {
+            name: "ci".into(),
+            bucket,
+        };
+        app.apply_checks(Ok(vec![
+            check(Bucket::Pass),
+            check(Bucket::Pass),
+            check(Bucket::Fail),
+            check(Bucket::Pending),
+        ]));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("CI: 2 passed, 1 failed, 1 pending")
+        );
+        assert!(app.ci.is_some());
+        app.apply_checks(Err(anyhow::anyhow!("no checks")));
+        assert_eq!(app.status_message.as_deref(), Some("no checks"));
+    }
+
+    #[test]
+    fn orphans_command_lists_previews_drops_and_repins() {
+        let mut app = fixture_app();
+        app.orphans_command(&[]);
+        assert_eq!(app.status_message.as_deref(), Some("No orphaned comments"));
+
+        app.comments = vec![
+            anchor("gone.rs", 9, true),
+            anchor("src/lib.rs", 1, false),
+            anchor("gone2.rs", 4, true),
+        ];
+        app.orphans_command(&[]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("2 orphaned: 1) gone.rs:9, 2) gone2.rs:4")
+        );
+        app.orphans_command(&["bogus"]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Usage: :directives orphans [repin <n> | drop [--yes]]")
+        );
+        app.orphans_command(&["drop"]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Would delete 2 orphaned comment(s); add --yes to confirm")
+        );
+        assert_eq!(app.comments.len(), 3);
+
+        for args in [
+            &["repin"][..],
+            &["repin", "0"],
+            &["repin", "3"],
+            &["repin", "x"],
+        ] {
+            app.status_message = None;
+            app.orphans_command(args);
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some("Usage: :directives orphans repin <n>")
+            );
+        }
+
+        app.cursor_line_idx = 2;
+        app.orphans_command(&["repin", "2"]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Re-pinned to src/lib.rs:3")
+        );
+        let moved = &app.comments[2];
+        assert_eq!(
+            (moved.file_path.as_str(), moved.target_line_no),
+            ("src/lib.rs", 3)
+        );
+        assert!(!moved.orphaned);
+        assert_eq!(moved.target_code, "line 3");
+
+        app.orphans_command(&["drop", "--yes"]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Deleted 1 orphaned comment(s)")
+        );
+        assert_eq!(app.comments.len(), 2);
+        assert!(app.comments.iter().all(|c| !c.orphaned));
+    }
+
+    #[test]
+    fn repin_without_a_diff_or_cursor_line_changes_nothing() {
+        let mut app = fixture_app();
+        app.comments = vec![anchor("gone.rs", 9, true)];
+        app.status_message = None;
+        app.cursor_line_idx = 50;
+        app.orphans_command(&["repin", "1"]);
+        assert!(app.comments[0].orphaned);
+        assert_eq!(app.status_message, None);
+        app.snapshot = DiffSnapshot::new(vec![]);
+        app.orphans_command(&["repin", "1"]);
+        assert!(app.comments[0].orphaned);
+    }
+
+    #[test]
+    fn review_target_prefers_pr_then_revision_and_marks_persist() {
+        let mut app = fixture_app();
+        assert_eq!(app.review_target(), "working");
+        app.active_revision = Some("HEAD~1..HEAD".into());
+        assert_eq!(app.review_target(), "HEAD~1..HEAD");
+        app.pr.current_number = Some(12);
+        assert_eq!(app.review_target(), "pr-12");
+        app.pr.current_number = None;
+        app.active_revision = None;
+
+        app.toggle_review_current_hunk();
+        assert_eq!(app.status_message.as_deref(), Some("Hunk reviewed"));
+        assert!(app.snapshot.files[0].is_reviewed);
+        app.snapshot.files[0].is_reviewed = false;
+        app.marks.clear();
+        app.load_marks();
+        assert_eq!(app.marks.len(), 1);
+        assert!(app.snapshot.files[0].is_reviewed);
+
+        app.toggle_review_current_hunk();
+        assert_eq!(app.status_message.as_deref(), Some("Hunk unmarked"));
+        assert!(!app.snapshot.files[0].is_reviewed);
+    }
+
+    #[test]
+    fn toggling_file_review_marks_hunks_and_flips_empty_files() {
+        let mut app = fixture_app();
+        app.snapshot.files.push(FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("empty.bin"),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![],
+            is_folded: false,
+            is_reviewed: false,
+        });
+        app.toggle_review_current_file();
+        assert!(app.snapshot.files[0].is_reviewed);
+        assert_eq!(app.selected_file_idx, 1, "advances after reviewing");
+        app.toggle_review_current_file();
+        assert!(app.snapshot.files[1].is_reviewed);
+        app.toggle_review_current_file();
+        assert!(!app.snapshot.files[1].is_reviewed);
+    }
+
+    #[test]
+    fn finding_comments_anchor_to_the_alert_and_clear_the_target() {
+        let mut app = fixture_app();
+        app.comment_target_alert = Some(crate::guard::GuardAlert {
+            severity: crate::guard::Severity::High,
+            rule_id: "r".into(),
+            fingerprint: String::new(),
+            title: "Bad thing".into(),
+            description: "d".into(),
+            line_no: None,
+            file_path: "src/lib.rs".into(),
+        });
+        app.comment_input = "fix it".into();
+        assert!(app.save_current_line_comment());
+        assert!(app.comment_target_alert.is_none());
+        let c = &app.comments[0];
+        assert_eq!((c.file_path.as_str(), c.target_line_no), ("src/lib.rs", 1));
+        assert!(c.target_code.ends_with("Bad thing"));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Comment on finding added to .lgtm/directives.jsonl")
+        );
+
+        app.comment_target_alert = Some(crate::guard::GuardAlert {
+            severity: crate::guard::Severity::Warn,
+            rule_id: "r".into(),
+            fingerprint: String::new(),
+            title: "t".into(),
+            description: "d".into(),
+            line_no: Some(2),
+            file_path: "src/lib.rs".into(),
+        });
+        app.pr.current_number = Some(5);
+        assert!(app.save_current_line_comment());
+        assert_eq!(app.comments[1].pr_number, Some(5));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Comment on finding added to PR #5 review")
+        );
+    }
+
+    #[test]
+    fn line_comments_on_deleted_lines_anchor_to_the_old_line() {
+        let mut app = fixture_app();
+        app.snapshot.files[0].hunks[0].lines[1] = DiffLine {
+            line_type: LineType::Deletion,
+            content: "removed".into(),
+            old_line_num: Some(2),
+            new_line_num: None,
+        };
+        app.cursor_line_idx = 1;
+        app.comment_input = "why?".into();
+        assert!(app.save_current_line_comment());
+        assert_eq!(app.comments[0].target_line_no, 2);
+        assert_eq!(app.comments[0].target_code, "removed");
+        assert!(app.has_comment_on_cursor());
+
+        let mut empty = create_test_app();
+        assert!(!empty.save_current_line_comment());
+    }
 }

@@ -1986,4 +1986,1216 @@ mod tests {
         assert_eq!(app.pending_leader, None);
         assert!(app.status_message.is_some() || app.active_view == ActiveView::AgentPrompt);
     }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn press(app: &mut App, keys: &str) {
+        for c in keys.chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+    }
+
+    fn dl(t: LineType, content: &str, new: Option<u32>, old: Option<u32>) -> DiffLine {
+        DiffLine {
+            line_type: t,
+            content: content.into(),
+            old_line_num: old,
+            new_line_num: new,
+        }
+    }
+
+    fn hunk(start: u32) -> DiffHunk {
+        DiffHunk {
+            header: format!("@@ -{start},2 +{start},3 @@"),
+            old_start: start,
+            old_lines: 2,
+            new_start: start,
+            new_lines: 3,
+            lines: vec![
+                dl(LineType::Context, "fn a() {", Some(start), Some(start)),
+                dl(LineType::Addition, "    let v = 1;", Some(start + 1), None),
+                dl(LineType::Context, "}", Some(start + 2), Some(start + 1)),
+            ],
+            is_folded: false,
+            folded_blocks: Vec::new(),
+        }
+    }
+
+    fn diff_app() -> App {
+        let mut app = create_test_app();
+        let files = ["f0.rs", "f1.rs", "f2.rs"]
+            .iter()
+            .map(|name| FileDiff {
+                old_path: None,
+                new_path: PathBuf::from(name),
+                change_type: ChangeType::Modified,
+                additions: 2,
+                deletions: 0,
+                hunks: vec![hunk(1), hunk(20)],
+                is_folded: false,
+                is_reviewed: false,
+            })
+            .collect();
+        app.snapshot = DiffSnapshot::new(files);
+        app.selected_file_idx = 0;
+        app.cursor_line_idx = 0;
+        app
+    }
+
+    fn comment_at(file: &str, line: u32, text: &str) -> lgtm_core::comment::CommentAnchor {
+        lgtm_core::comment::CommentAnchor {
+            id: lgtm_core::comment::new_id(),
+            file_path: file.into(),
+            target_line_no: line,
+            target_code: "x".into(),
+            context_before: vec![],
+            context_after: vec![],
+            comment_text: text.into(),
+            replies: vec![],
+            created_at_turn: 1,
+            is_resolved: false,
+            pr_number: None,
+            orphaned: false,
+            track: Default::default(),
+        }
+    }
+
+    fn alert_at(file: &str, line: u32, sev: crate::guard::Severity) -> crate::guard::GuardAlert {
+        crate::guard::GuardAlert {
+            rule_id: "r/x".into(),
+            fingerprint: format!("{file}{line}"),
+            severity: sev,
+            title: "Title".into(),
+            description: "Desc".into(),
+            line_no: Some(line),
+            file_path: file.into(),
+        }
+    }
+
+    #[test]
+    fn audit_report_keys_navigate_filter_and_exit() {
+        use crate::guard::Severity;
+        let mut app = diff_app();
+        app.audit.has_result = true;
+        app.audit.alerts = vec![
+            alert_at("f0.rs", 1, Severity::High),
+            alert_at("f1.rs", 2, Severity::Critical),
+            alert_at("f2.rs", 3, Severity::Warn),
+        ];
+        app.active_view = ActiveView::AuditReport;
+        app.audit.focus = AuditPaneFocus::Issues;
+        app.audit.selected_idx = 0;
+        assert_eq!(app.filtered_audit_alerts().len(), 3);
+
+        // `]` jumps to the next file immediately; `c` then advances one issue
+        press(&mut app, "]c");
+        assert_eq!(app.audit.selected_idx, 2);
+        press(&mut app, "[c");
+        assert_eq!(app.audit.selected_idx, 0);
+        app.audit.selected_idx = 2;
+        press(&mut app, "gg");
+        assert_eq!(app.audit.selected_idx, 0);
+        press(&mut app, "]f");
+        press(&mut app, "[f");
+
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.audit.focus, AuditPaneFocus::Inspector);
+        press(&mut app, "gg");
+        assert_eq!(app.audit.inspector_scroll, 0);
+        app.handle_key(key(KeyCode::BackTab));
+        assert_eq!(app.audit.focus, AuditPaneFocus::Issues);
+
+        let shown = app.show_file_drawer;
+        press(&mut app, "b");
+        assert_eq!(app.show_file_drawer, !shown);
+
+        app.audit.maximized_inspector = true;
+        app.handle_key(key(KeyCode::Esc));
+        assert!(!app.audit.maximized_inspector);
+        app.audit.file_filter = Some("f1.rs".to_string());
+        app.handle_key(key(KeyCode::Esc));
+        assert!(app.audit.file_filter.is_none());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Cleared file filter: showing all issues")
+        );
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn diff_file_and_hunk_leaders_navigate() {
+        let mut app = diff_app();
+        press(&mut app, "]f");
+        assert_eq!(app.selected_file_idx, 1);
+        press(&mut app, "[f");
+        assert_eq!(app.selected_file_idx, 0);
+
+        press(&mut app, "]]");
+        assert_eq!((app.selected_file_idx, app.pending_leader), (1, Some(']')));
+        press(&mut app, "[");
+        assert_eq!((app.selected_file_idx, app.pending_leader), (0, Some('[')));
+        press(&mut app, "[");
+        assert_eq!((app.selected_file_idx, app.pending_leader), (0, Some('[')));
+        press(&mut app, "]");
+        assert_eq!((app.selected_file_idx, app.pending_leader), (1, Some(']')));
+        app.pending_leader = None;
+        press(&mut app, "[[");
+        assert_eq!((app.selected_file_idx, app.pending_leader), (0, Some('[')));
+        app.pending_leader = None;
+
+        app.snapshot.files[1].is_reviewed = true;
+        press(&mut app, "]u");
+        assert_eq!(app.selected_file_idx, 2);
+        press(&mut app, "[u");
+        assert_eq!(app.selected_file_idx, 0);
+
+        app.cursor_line_idx = 0;
+        press(&mut app, "]h");
+        assert_eq!(app.cursor_line_idx, 3);
+        press(&mut app, "[h");
+        assert_eq!(app.cursor_line_idx, 0);
+        assert_eq!(app.pending_leader, None);
+    }
+
+    #[test]
+    fn diff_comment_alert_and_thread_leaders() {
+        let mut app = diff_app();
+        app.comments.push(comment_at("f0.rs", 21, "later"));
+        press(&mut app, "]c");
+        assert_eq!(app.cursor_line_idx, 4);
+        app.cursor_line_idx = 5;
+        press(&mut app, "[c");
+        assert_eq!(app.cursor_line_idx, 4);
+
+        app.alerts
+            .push(alert_at("f0.rs", 21, crate::guard::Severity::High));
+        app.cursor_line_idx = 0;
+        press(&mut app, "]w");
+        assert_eq!(app.cursor_line_idx, 4);
+        app.cursor_line_idx = 5;
+        press(&mut app, "[w");
+        assert_eq!(app.cursor_line_idx, 4);
+        app.cursor_line_idx = 0;
+        press(&mut app, " w");
+        assert_eq!(app.cursor_line_idx, 4);
+
+        press(&mut app, "]t");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No threads; run :threads first")
+        );
+        app.status_message = None;
+        press(&mut app, "[t");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No threads; run :threads first")
+        );
+    }
+
+    #[test]
+    fn diff_view_and_fold_leaders() {
+        let mut app = diff_app();
+        app.cursor_line_idx = 40;
+        press(&mut app, "zz");
+        assert_eq!(app.diff_scroll_offset, 25);
+        press(&mut app, "zt");
+        assert_eq!(app.diff_scroll_offset, 40);
+        press(&mut app, "zb");
+        assert_eq!(app.diff_scroll_offset, 10);
+
+        app.cursor_line_idx = 0;
+        press(&mut app, "za");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Folded AST block (L1-L3)")
+        );
+        press(&mut app, "zo");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Unfolded AST block (L1-L3)")
+        );
+        press(&mut app, "zc");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Folded AST block (L1-L3)")
+        );
+        press(&mut app, "zM");
+        assert!(app
+            .snapshot
+            .files
+            .iter()
+            .flat_map(|f| &f.hunks)
+            .all(|h| h.is_folded));
+        press(&mut app, "zR");
+        assert!(app
+            .snapshot
+            .files
+            .iter()
+            .flat_map(|f| &f.hunks)
+            .all(|h| !h.is_folded && h.folded_blocks.is_empty()));
+    }
+
+    #[test]
+    fn diff_comment_leaders_prefill_templates() {
+        let cases = [
+            ("ca", "[COVERAGE]"),
+            ("cs", "[SECURITY]"),
+            ("cr", "[REFACTOR]"),
+            ("cp", "[PERF]"),
+            ("cw", "[WHY]"),
+        ];
+        for (keys, tag) in cases {
+            let mut app = diff_app();
+            press(&mut app, keys);
+            assert_eq!(app.active_view, ActiveView::CommentInput, "{keys}");
+            assert!(
+                app.comment_input.contains(tag),
+                "{keys}: {}",
+                app.comment_input
+            );
+        }
+        for keys in ["cc", "cz", " c"] {
+            let mut app = diff_app();
+            app.comment_input = "stale".into();
+            press(&mut app, keys);
+            assert_eq!(app.active_view, ActiveView::CommentInput, "{keys}");
+            assert!(app.comment_input.is_empty(), "{keys}");
+        }
+        let mut app = diff_app();
+        press(&mut app, "c");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.active_view, ActiveView::CommentInput);
+    }
+
+    #[test]
+    fn diff_space_leaders() {
+        let mut app = diff_app();
+        press(&mut app, " y");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Copied to clipboard: #ref f0.rs:1")
+        );
+        press(&mut app, " l");
+        assert_eq!(app.active_view, ActiveView::CommentList);
+        app.active_view = ActiveView::Diff;
+        press(&mut app, " P");
+        assert_eq!(app.active_view, ActiveView::PrPicker);
+        app.active_view = ActiveView::Diff;
+        press(&mut app, " t");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+
+        press(&mut app, " d");
+        assert_eq!(app.status_message.as_deref(), Some("No comment on f0.rs:1"));
+        press(&mut app, " r");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No directive on current line")
+        );
+        app.comments.push(comment_at("f0.rs", 1, "fix"));
+        press(&mut app, " r");
+        assert!(app.comments[0].is_resolved);
+        press(&mut app, " R");
+        assert!(!app.comments[0].is_resolved);
+        press(&mut app, " d");
+        assert!(app.comments.is_empty());
+
+        press(&mut app, " x");
+        assert_eq!(app.status_message.as_deref(), Some("Not a git repository"));
+        // Pane picking depends on whether tmux is available; either outcome must leave the leader consumed.
+        press(&mut app, " p");
+        assert_eq!(app.pending_leader, None);
+        app.active_view = ActiveView::Diff;
+
+        press(&mut app, " s");
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Exported .lgtm/review-"));
+    }
+
+    #[test]
+    fn diff_single_keys_drive_state() {
+        let mut app = diff_app();
+        press(&mut app, "?");
+        assert_eq!(app.active_view, ActiveView::Help);
+        app.active_view = ActiveView::Diff;
+
+        app.handle_key(ctrl('p'));
+        assert_eq!(app.active_view, ActiveView::FilePicker);
+        assert_eq!(app.file_picker.filtered_indices, vec![0, 1, 2]);
+        app.active_view = ActiveView::Diff;
+        press(&mut app, "f");
+        assert_eq!(app.active_view, ActiveView::FilePicker);
+        app.active_view = ActiveView::Diff;
+
+        app.handle_key(ctrl('s'));
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Exported"));
+
+        let drawer = app.show_file_drawer;
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.show_file_drawer, !drawer);
+
+        let split = app.is_split_view;
+        press(&mut app, "d");
+        assert_eq!(app.is_split_view, !split);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(if split {
+                "View mode: Unified View"
+            } else {
+                "View mode: Split View"
+            })
+        );
+        press(&mut app, "d");
+        assert_eq!(app.is_split_view, split);
+
+        press(&mut app, "G");
+        assert_eq!(app.cursor_line_idx, 5);
+        press(&mut app, "0");
+        assert_eq!(app.cursor_line_idx, 0);
+        press(&mut app, "$");
+        assert_eq!(app.cursor_line_idx, 5);
+        press(&mut app, "^");
+        assert_eq!(app.cursor_line_idx, 0);
+        press(&mut app, "j");
+        assert_eq!(app.cursor_line_idx, 1);
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.cursor_line_idx, 2);
+        press(&mut app, "k");
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.cursor_line_idx, 0);
+        press(&mut app, "}");
+        assert_eq!(app.cursor_line_idx, 5);
+        press(&mut app, "{");
+        assert_eq!(app.cursor_line_idx, 0);
+        app.handle_key(ctrl('d'));
+        assert_eq!(app.cursor_line_idx, 5);
+        app.handle_key(ctrl('u'));
+        assert_eq!(app.cursor_line_idx, 0);
+        app.handle_key(key(KeyCode::PageDown));
+        assert_eq!(app.cursor_line_idx, 5);
+        app.handle_key(key(KeyCode::PageUp));
+        assert_eq!(app.cursor_line_idx, 0);
+        app.handle_key(ctrl('f'));
+        assert_eq!(app.cursor_line_idx, 5);
+        app.handle_key(ctrl('b'));
+        assert_eq!(app.cursor_line_idx, 0);
+
+        press(&mut app, "y");
+        assert_eq!(app.status_message.as_deref(), Some("Yanked: \"fn a() {\""));
+        press(&mut app, "v");
+        assert!(app.snapshot.files[0].is_reviewed);
+        press(&mut app, "M");
+        assert_eq!(app.status_message.as_deref(), Some("Hunk reviewed"));
+        press(&mut app, "o");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Opened f1.rs:1 in nvim")
+        );
+        press(&mut app, "e");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Opened f1.rs:1 in nvim")
+        );
+        press(&mut app, "A");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No active agent gate waiting.")
+        );
+        press(&mut app, "T");
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .contains("No test neutering"));
+        press(&mut app, "t");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Open a PR first (:pr <n>)")
+        );
+        press(&mut app, "m");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Markdown preview only available for .md files")
+        );
+        press(&mut app, "P");
+        assert_eq!(app.active_view, ActiveView::AgentPrompt);
+        app.active_view = ActiveView::Diff;
+        press(&mut app, "p");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No targets detected for dummy sink (configure with :sink <name>)")
+        );
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Sent to"));
+    }
+
+    #[test]
+    fn diff_pending_leader_keys_and_prompts() {
+        let mut app = diff_app();
+        for (k, leader) in [("g", 'g'), ("z", 'z'), (" ", ' '), ("c", 'c')] {
+            press(&mut app, k);
+            assert_eq!(app.pending_leader, Some(leader));
+            app.pending_leader = None;
+        }
+        press(&mut app, "]");
+        assert_eq!(app.pending_leader, Some(']'));
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("] (f/]: file"));
+        press(&mut app, "x");
+        press(&mut app, "[");
+        assert_eq!(app.pending_leader, Some('['));
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("[ (f/[: file"));
+        app.pending_leader = None;
+
+        press(&mut app, "/");
+        assert_eq!(app.active_view, ActiveView::Search);
+        app.active_view = ActiveView::Diff;
+        press(&mut app, ":");
+        assert_eq!(app.active_view, ActiveView::CommandLine);
+        app.active_view = ActiveView::Diff;
+        press(&mut app, "C");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("⚠️ No staged changes to commit (stage with 's' or 'S')")
+        );
+        press(&mut app, "r");
+        assert_eq!(app.active_view, ActiveView::CommentInput);
+        app.active_view = ActiveView::Diff;
+        press(&mut app, "R");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No directive on current line")
+        );
+
+        app.comments.push(comment_at("f0.rs", 1, "hello"));
+        press(&mut app, "r");
+        assert_eq!(app.active_view, ActiveView::CommentReply);
+        app.active_view = ActiveView::Diff;
+        press(&mut app, "x");
+        assert!(app.comments.is_empty());
+
+        press(&mut app, "q");
+        assert!(app.should_quit || app.status_message.is_some());
+    }
+
+    #[test]
+    fn diff_search_and_symbol_keys() {
+        let mut app = diff_app();
+        press(&mut app, "n");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No search pattern active (press / to search)")
+        );
+        press(&mut app, "N");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("No search pattern active (press / to search)")
+        );
+        press(&mut app, "*");
+        assert_eq!(app.status_message.as_deref(), Some("Match 1/6 for 'fn'"));
+        press(&mut app, "#");
+        assert_eq!(app.status_message.as_deref(), Some("Match 6/6 for 'fn'"));
+        assert_eq!((app.selected_file_idx, app.cursor_line_idx), (2, 3));
+        press(&mut app, "n");
+        assert_eq!((app.selected_file_idx, app.cursor_line_idx), (0, 0));
+        press(&mut app, "N");
+        assert_eq!((app.selected_file_idx, app.cursor_line_idx), (2, 3));
+    }
+
+    #[test]
+    fn diff_visual_mode_and_git_keys_outside_repo() {
+        let mut app = diff_app();
+        press(&mut app, "V");
+        assert!(app.visual_mode);
+        app.handle_key(key(KeyCode::Esc));
+        assert!(!app.visual_mode);
+        app.handle_key(key(KeyCode::Esc));
+        assert!(!app.visual_mode);
+
+        for k in ["s", "u", "S", "U", "X", "x"] {
+            app.status_message = None;
+            press(&mut app, k);
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some("Not a git repository"),
+                "{k}"
+            );
+        }
+        press(&mut app, "V");
+        for k in ["s", "u", "x"] {
+            app.status_message = None;
+            press(&mut app, k);
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some("Not a git repository"),
+                "{k}"
+            );
+        }
+    }
+
+    #[test]
+    fn search_key_edits_and_executes_query() {
+        let mut app = diff_app();
+        app.active_view = ActiveView::Search;
+        press(&mut app, "lett");
+        app.handle_key(key(KeyCode::Backspace));
+        assert_eq!(app.search_query, "let");
+        app.handle_key(key(KeyCode::Left));
+        assert_eq!(app.search_query, "let");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.status_message.as_deref(), Some("Match 1/6 for 'let'"));
+        assert_eq!(app.cursor_line_idx, 1);
+
+        app.active_view = ActiveView::Search;
+        app.search_query.clear();
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        app.active_view = ActiveView::Search;
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    fn seeded_comments(app: &mut App) {
+        app.comments = vec![
+            comment_at("f0.rs", 1, "first"),
+            comment_at("f1.rs", 21, "second"),
+            comment_at("f2.rs", 2, "third"),
+        ];
+    }
+
+    #[test]
+    fn comment_list_navigation_and_resolution() {
+        let mut app = diff_app();
+        seeded_comments(&mut app);
+        app.active_view = ActiveView::CommentList;
+        press(&mut app, "j");
+        assert_eq!(app.comment_list_selected_idx, 1);
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.comment_list_selected_idx, 2);
+        press(&mut app, "k");
+        app.handle_key(key(KeyCode::Up));
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.comment_list_selected_idx, 0);
+        app.handle_key(key(KeyCode::PageDown));
+        assert_eq!(app.comment_list_selected_idx, 2);
+        app.handle_key(key(KeyCode::PageUp));
+        assert_eq!(app.comment_list_selected_idx, 0);
+        app.handle_key(ctrl('d'));
+        app.handle_key(ctrl('b'));
+        assert_eq!(app.comment_list_selected_idx, 0);
+        app.handle_key(ctrl('f'));
+        app.handle_key(ctrl('u'));
+        assert_eq!(app.comment_list_selected_idx, 0);
+
+        for k in ['v', ' ', 'R'] {
+            app.handle_key(key(KeyCode::Char(k)));
+            assert!(app.comments[0].is_resolved, "{k}");
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some("✅ Directive marked resolved")
+            );
+            app.handle_key(key(KeyCode::Char(k)));
+            assert!(!app.comments[0].is_resolved);
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some("💬 Directive marked active")
+            );
+        }
+        assert_eq!(app.active_view, ActiveView::CommentList);
+    }
+
+    #[test]
+    fn comment_list_actions() {
+        let mut app = diff_app();
+        seeded_comments(&mut app);
+        app.active_view = ActiveView::CommentList;
+        app.comment_list_selected_idx = 1;
+        press(&mut app, "r");
+        assert_eq!(app.active_view, ActiveView::CommentReply);
+        assert_eq!(app.comment_reply_target_idx, Some(1));
+
+        app.active_view = ActiveView::CommentList;
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.selected_file_idx, 1);
+
+        app.active_view = ActiveView::CommentList;
+        app.comment_list_selected_idx = 2;
+        press(&mut app, "d");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Deleted comment at f2.rs:2")
+        );
+        assert_eq!(app.comments.len(), 2);
+        assert_eq!(app.comment_list_selected_idx, 1);
+        app.handle_key(key(KeyCode::Delete));
+        press(&mut app, "x");
+        assert!(app.comments.is_empty());
+        press(&mut app, "x");
+        press(&mut app, "v");
+        press(&mut app, "a");
+        press(&mut app, "r");
+        press(&mut app, "j");
+        app.handle_key(key(KeyCode::PageDown));
+        assert_eq!(app.comment_list_selected_idx, 0);
+
+        seeded_comments(&mut app);
+        app.active_view = ActiveView::CommentList;
+        press(&mut app, "a");
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        app.active_view = ActiveView::CommentList;
+        app.handle_key(ctrl('s'));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Exported"));
+
+        for k in [KeyCode::Esc, KeyCode::Char('q')] {
+            app.active_view = ActiveView::CommentList;
+            app.handle_key(key(k));
+            assert_eq!(app.active_view, ActiveView::Diff);
+        }
+    }
+
+    fn thread(id: &str, path: &str, line: Option<u32>) -> lgtm_core::github::Thread {
+        lgtm_core::github::Thread {
+            id: id.into(),
+            path: path.into(),
+            line,
+            resolved: false,
+            comments: vec![],
+        }
+    }
+
+    #[test]
+    fn thread_view_keys() {
+        let mut app = diff_app();
+        app.threads = vec![thread("t1", "f0.rs", Some(1)), thread("t2", "f2.rs", None)];
+        app.active_view = ActiveView::ThreadView;
+        press(&mut app, "J");
+        assert_eq!(app.thread_scroll_offset, 3);
+        app.handle_key(key(KeyCode::PageDown));
+        app.handle_key(ctrl('d'));
+        assert_eq!(app.thread_scroll_offset, 9);
+        press(&mut app, "K");
+        app.handle_key(key(KeyCode::PageUp));
+        app.handle_key(ctrl('u'));
+        app.handle_key(key(KeyCode::PageUp));
+        assert_eq!(app.thread_scroll_offset, 0);
+
+        press(&mut app, "J");
+        press(&mut app, "j");
+        assert_eq!((app.thread_selected_idx, app.thread_scroll_offset), (1, 0));
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.thread_selected_idx, 1);
+        press(&mut app, "J");
+        press(&mut app, "k");
+        assert_eq!((app.thread_selected_idx, app.thread_scroll_offset), (0, 0));
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.thread_selected_idx, 0);
+
+        press(&mut app, "v");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Comments require a PR (:pr <n>)")
+        );
+        press(&mut app, "s");
+        assert!(app.status_message.is_some());
+
+        press(&mut app, "r");
+        assert_eq!(app.active_view, ActiveView::CommandLine);
+        assert_eq!(app.command.input, "thread reply 1 ");
+
+        app.active_view = ActiveView::ThreadView;
+        app.thread_selected_idx = 1;
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            (app.active_view, app.selected_file_idx),
+            (ActiveView::Diff, 2)
+        );
+
+        app.active_view = ActiveView::ThreadView;
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        app.active_view = ActiveView::ThreadView;
+        press(&mut app, "q");
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        app.threads.clear();
+        app.active_view = ActiveView::ThreadView;
+        press(&mut app, "j");
+        press(&mut app, "r");
+        assert_eq!(app.active_view, ActiveView::ThreadView);
+    }
+
+    fn pr_summary(n: u64) -> crate::pr::PullRequestSummary {
+        crate::pr::PullRequestSummary {
+            number: n,
+            title: format!("pr {n}"),
+            author: crate::pr::PrAuthor { login: "me".into() },
+            head_ref_name: "b".into(),
+            additions: 1,
+            deletions: 1,
+            state: "OPEN".into(),
+        }
+    }
+
+    #[test]
+    fn pr_picker_keys() {
+        let mut app = diff_app();
+        app.pr.list = (1..=8).map(pr_summary).collect();
+        app.active_view = ActiveView::PrPicker;
+        press(&mut app, "j");
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.pr.selected_idx, 2);
+        press(&mut app, "k");
+        app.handle_key(key(KeyCode::Up));
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.pr.selected_idx, 0);
+        app.handle_key(key(KeyCode::PageDown));
+        assert_eq!(app.pr.selected_idx, 5);
+        app.handle_key(ctrl('d'));
+        assert_eq!(app.pr.selected_idx, 7);
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.pr.selected_idx, 7);
+        app.handle_key(key(KeyCode::PageUp));
+        assert_eq!(app.pr.selected_idx, 2);
+        app.handle_key(ctrl('f'));
+        assert_eq!(app.pr.selected_idx, 7);
+        app.handle_key(ctrl('u'));
+        app.handle_key(ctrl('b'));
+        assert_eq!(app.pr.selected_idx, 0);
+
+        app.pr.selected_idx = 3;
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.pr_loading.map(|(n, _)| n), Some(4));
+
+        for (k, state) in [
+            ('1', crate::pr::PullRequestState::Open),
+            ('2', crate::pr::PullRequestState::Closed),
+            ('3', crate::pr::PullRequestState::All),
+        ] {
+            app.active_view = ActiveView::PrPicker;
+            press(&mut app, &k.to_string());
+            assert_eq!(app.pr.filter, state);
+            assert!(app.pr.list.is_empty());
+            assert_eq!(app.active_view, ActiveView::PrPicker);
+        }
+        press(&mut app, "q");
+        assert_eq!(app.active_view, ActiveView::Diff);
+        app.active_view = ActiveView::PrPicker;
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn worktree_picker_enter_and_guard_keys() {
+        use lgtm_core::git::WorktreeInfo;
+        let mut app = diff_app();
+        let target = app.git_engine.repo_path.join("elsewhere");
+        std::fs::create_dir_all(&target).unwrap();
+        app.worktree_picker.list = vec![
+            WorktreeInfo {
+                path: PathBuf::from("/bare"),
+                head: "0".into(),
+                branch: None,
+                is_bare: true,
+                is_current: false,
+            },
+            WorktreeInfo {
+                path: target.clone(),
+                head: "1".into(),
+                branch: Some("x".into()),
+                is_bare: false,
+                is_current: false,
+            },
+        ];
+        app.active_view = ActiveView::WorktreePicker;
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Cannot switch to bare worktree")
+        );
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.worktree_picker.selected_idx, 1);
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Switched to worktree: elsewhere")
+        );
+        assert_eq!(app.git_engine.repo_path, target);
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        app.active_view = ActiveView::WorktreePicker;
+        press(&mut app, "q");
+        assert_eq!(app.active_view, ActiveView::Diff);
+        app.active_view = ActiveView::WorktreeConfirmGuard;
+        for k in ['s', 'S', 'd', 'D'] {
+            app.worktree_picker.pending_target = None;
+            app.active_view = ActiveView::WorktreeConfirmGuard;
+            press(&mut app, &k.to_string());
+            assert_eq!(app.active_view, ActiveView::Diff, "{k}");
+        }
+        app.worktree_picker.pending_target = Some(target.clone());
+        app.comments = vec![comment_at("f0.rs", 1, "keep")];
+        app.active_view = ActiveView::WorktreeConfirmGuard;
+        press(&mut app, "s");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Switched to worktree: elsewhere")
+        );
+        assert_eq!(app.comments.len(), 1);
+
+        for k in [KeyCode::Esc, KeyCode::Char('C'), KeyCode::Char('q')] {
+            app.worktree_picker.pending_target = Some(target.clone());
+            app.active_view = ActiveView::WorktreeConfirmGuard;
+            app.handle_key(key(k));
+            assert_eq!(app.worktree_picker.pending_target, None);
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some("Worktree switch aborted")
+            );
+        }
+        app.active_view = ActiveView::WorktreeConfirmGuard;
+        press(&mut app, "z");
+        assert_eq!(app.active_view, ActiveView::WorktreeConfirmGuard);
+    }
+
+    #[test]
+    fn comment_reply_and_input_keys() {
+        let mut app = diff_app();
+        seeded_comments(&mut app);
+        app.active_view = ActiveView::CommentReply;
+        app.comment_reply_target_idx = Some(1);
+        press(&mut app, "okk");
+        app.handle_key(key(KeyCode::Backspace));
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.comments[1].replies, vec!["ok".to_string()]);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Reply added to comment on f1.rs:21")
+        );
+        assert!(app.comment_reply_input.is_empty());
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        app.active_view = ActiveView::CommentReply;
+        app.comment_reply_target_idx = Some(0);
+        press(&mut app, "  ");
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.comments[0].replies.is_empty());
+        assert_eq!(app.comment_reply_target_idx, None);
+
+        app.active_view = ActiveView::CommentReply;
+        app.comment_reply_target_idx = Some(0);
+        press(&mut app, "x");
+        app.handle_key(key(KeyCode::Esc));
+        assert!(app.comment_reply_input.is_empty());
+        assert_eq!(app.comment_reply_target_idx, None);
+        app.active_view = ActiveView::CommentReply;
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.active_view, ActiveView::CommentReply);
+
+        let mut app = diff_app();
+        app.comment_source_view = ActiveView::Diff;
+        app.active_view = ActiveView::CommentInput;
+        press(&mut app, "note!");
+        app.handle_key(key(KeyCode::Backspace));
+        assert_eq!(app.comment_input, "note");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.comments.len(), 1);
+        assert_eq!(app.comments[0].comment_text, "note");
+
+        app.active_view = ActiveView::CommentInput;
+        app.comment_input = "  ".into();
+        app.comment_target_alert = Some(alert_at("f0.rs", 1, crate::guard::Severity::High));
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.comment_target_alert.is_none());
+        assert_eq!(app.comments.len(), 1);
+
+        app.active_view = ActiveView::CommentInput;
+        app.comment_source_view = ActiveView::AuditReport;
+        app.comment_target_alert = Some(alert_at("f0.rs", 1, crate::guard::Severity::High));
+        app.handle_key(key(KeyCode::Esc));
+        assert!(app.comment_target_alert.is_none());
+        assert_eq!(app.active_view, ActiveView::AuditReport);
+        app.active_view = ActiveView::CommentInput;
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.active_view, ActiveView::CommentInput);
+    }
+
+    #[test]
+    fn help_tabs_wrap_and_jump() {
+        let mut app = diff_app();
+        app.active_view = ActiveView::Help;
+        for k in [
+            KeyCode::Tab,
+            KeyCode::Right,
+            KeyCode::Char('l'),
+            KeyCode::Char(']'),
+        ] {
+            app.help_selected_tab = 6;
+            app.handle_key(key(k));
+            assert_eq!(app.help_selected_tab, 0, "{k:?}");
+            app.handle_key(key(k));
+            assert_eq!(app.help_selected_tab, 1);
+        }
+        for k in [
+            KeyCode::BackTab,
+            KeyCode::Left,
+            KeyCode::Char('h'),
+            KeyCode::Char('['),
+        ] {
+            app.help_selected_tab = 0;
+            app.handle_key(key(k));
+            assert_eq!(app.help_selected_tab, 6, "{k:?}");
+            app.handle_key(key(k));
+            assert_eq!(app.help_selected_tab, 5);
+        }
+        for (i, c) in "1234567".chars().enumerate() {
+            app.handle_key(key(KeyCode::Char(c)));
+            assert_eq!(app.help_selected_tab, i);
+        }
+        for k in [KeyCode::Esc, KeyCode::Char('?'), KeyCode::Char('q')] {
+            app.active_view = ActiveView::Help;
+            app.handle_key(key(k));
+            assert_eq!(app.active_view, ActiveView::Diff);
+        }
+    }
+
+    #[test]
+    fn file_picker_filters_navigates_and_selects() {
+        let mut app = diff_app();
+        app.handle_key(ctrl('p'));
+        assert_eq!(app.file_picker.filtered_indices.len(), 3);
+        press(&mut app, "f2");
+        assert_eq!(app.file_picker.filtered_indices, vec![2]);
+        app.handle_key(key(KeyCode::Backspace));
+        press(&mut app, "1");
+        assert_eq!(app.file_picker.filtered_indices, vec![1]);
+        app.handle_key(key(KeyCode::Backspace));
+        app.handle_key(key(KeyCode::Backspace));
+        assert_eq!(app.file_picker.filtered_indices.len(), 3);
+
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(ctrl('j'));
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.file_picker.selected_idx, 2);
+        app.handle_key(key(KeyCode::Up));
+        app.handle_key(ctrl('k'));
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.file_picker.selected_idx, 0);
+        app.handle_key(key(KeyCode::PageDown));
+        assert_eq!(app.file_picker.selected_idx, 2);
+        app.handle_key(key(KeyCode::PageUp));
+        assert_eq!(app.file_picker.selected_idx, 0);
+        app.handle_key(ctrl('d'));
+        app.handle_key(ctrl('u'));
+        app.handle_key(ctrl('f'));
+        app.handle_key(ctrl('b'));
+        assert_eq!(app.file_picker.selected_idx, 0);
+
+        app.file_picker.selected_idx = 2;
+        app.cursor_line_idx = 4;
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            (app.active_view, app.selected_file_idx, app.cursor_line_idx),
+            (ActiveView::Diff, 2, 0)
+        );
+
+        app.active_view = ActiveView::FilePicker;
+        press(&mut app, "zzz");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.selected_file_idx, 2);
+        app.active_view = ActiveView::FilePicker;
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn pane_picker_keys() {
+        let mut app = diff_app();
+        app.pane_picker.list = (0..8)
+            .map(|i| crate::ipc::TmuxPane {
+                id: format!("%{i}"),
+                title: "t".into(),
+                active: false,
+            })
+            .collect();
+        app.active_view = ActiveView::PanePicker;
+        press(&mut app, "j");
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.pane_picker.selected_idx, 2);
+        press(&mut app, "k");
+        app.handle_key(key(KeyCode::Up));
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.pane_picker.selected_idx, 0);
+        app.handle_key(key(KeyCode::PageDown));
+        assert_eq!(app.pane_picker.selected_idx, 5);
+        app.handle_key(ctrl('d'));
+        assert_eq!(app.pane_picker.selected_idx, 7);
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.pane_picker.selected_idx, 7);
+        app.handle_key(ctrl('u'));
+        assert_eq!(app.pane_picker.selected_idx, 2);
+        app.handle_key(ctrl('f'));
+        app.handle_key(key(KeyCode::PageUp));
+        app.handle_key(ctrl('b'));
+        assert_eq!(app.pane_picker.selected_idx, 0);
+
+        app.pane_picker.selected_idx = 3;
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.agent_pane.as_deref(), Some("%3"));
+        assert_eq!(app.status_message.as_deref(), Some("Target pane set to %3"));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        app.active_view = ActiveView::PanePicker;
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        app.pane_picker.list.clear();
+        app.active_view = ActiveView::PanePicker;
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::PageDown));
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.agent_pane.as_deref(), Some("%3"));
+    }
+
+    #[test]
+    fn commit_modal_agent_prompt_and_command_keys() {
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommitModal;
+        press(&mut app, "wip");
+        app.handle_key(ctrl('u'));
+        assert!(app.commit_message_input.is_empty());
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("⚠️ Commit message cannot be empty")
+        );
+        app.handle_key(ctrl('s'));
+        assert_eq!(app.active_view, ActiveView::CommitModal);
+        app.handle_key(ctrl('c'));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        for k in [KeyCode::Esc, KeyCode::Char('q'), KeyCode::Char('P')] {
+            app.active_view = ActiveView::AgentPrompt;
+            app.handle_key(key(k));
+            assert_eq!(app.active_view, ActiveView::Diff);
+        }
+        app.active_view = ActiveView::AgentPrompt;
+        press(&mut app, "z");
+        assert_eq!(app.active_view, ActiveView::AgentPrompt);
+    }
+
+    #[test]
+    fn command_line_editing_history_and_completion() {
+        let mut app = diff_app();
+        app.command.history = vec!["first".into(), "second".into()];
+        app.active_view = ActiveView::CommandLine;
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.command.input, "second");
+        app.handle_key(key(KeyCode::Up));
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.command.input, "first");
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.command.input, "second");
+        app.handle_key(ctrl('n'));
+        assert_eq!(app.command.input, "");
+        app.handle_key(ctrl('p'));
+        assert_eq!(app.command.input, "second");
+
+        app.command.set_text("hello world".into());
+        app.handle_key(ctrl('w'));
+        assert_eq!(app.command.input, "hello ");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.command.input, "");
+        app.command.set_text("abcdef".into());
+        app.handle_key(key(KeyCode::Home));
+        app.handle_key(key(KeyCode::Right));
+        app.handle_key(key(KeyCode::Delete));
+        assert_eq!(app.command.input, "acdef");
+        app.handle_key(ctrl('d'));
+        assert_eq!(app.command.input, "adef");
+        app.handle_key(ctrl('k'));
+        assert_eq!(app.command.input, "a");
+        app.handle_key(key(KeyCode::End));
+        app.handle_key(key(KeyCode::Left));
+        app.handle_key(ctrl('e'));
+        app.handle_key(ctrl('a'));
+        press(&mut app, "X");
+        assert_eq!(app.command.input, "Xa");
+        app.handle_key(ctrl('u'));
+        assert_eq!(app.command.input, "a");
+        app.handle_key(key(KeyCode::End));
+        app.handle_key(ctrl('u'));
+        assert_eq!(app.command.input, "");
+
+        press(&mut app, "ab");
+        app.handle_key(key(KeyCode::Backspace));
+        app.handle_key(key(KeyCode::Backspace));
+        assert_eq!(app.active_view, ActiveView::CommandLine);
+        app.handle_key(key(KeyCode::Backspace));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        app.active_view = ActiveView::CommandLine;
+        press(&mut app, "wor");
+        app.handle_key(key(KeyCode::Tab));
+        assert!(app.command.input.starts_with("wor"));
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(
+            (app.active_view, app.command.input.as_str()),
+            (ActiveView::Diff, "")
+        );
+        app.active_view = ActiveView::CommandLine;
+        app.handle_key(ctrl('c'));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        app.active_view = ActiveView::CommandLine;
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        app.active_view = ActiveView::CommandLine;
+        app.command.history.clear();
+        press(&mut app, "nosuchcmd");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.command.history, vec!["nosuchcmd".to_string()]);
+        app.active_view = ActiveView::CommandLine;
+        app.command.set_text("nosuchcmd".into());
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.command.history.len(), 1);
+    }
 }

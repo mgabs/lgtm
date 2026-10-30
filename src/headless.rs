@@ -792,4 +792,141 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&tmp); // lgtm:ignore
     }
+
+    fn repo_with_file(name: &str, file: &str, body: &str) -> PathBuf {
+        let dir = test_dir(name);
+        lgtm_core::git2::Repository::init(&dir).unwrap();
+        std::fs::write(dir.join(file), body).unwrap();
+        dir
+    }
+
+    #[test]
+    fn risk_audit_flags_secrets_and_passes_clean_or_rejects_non_repos() {
+        let plain = test_dir("risk-plain");
+        assert_eq!(run_risk_audit(&plain).unwrap(), 1);
+
+        let clean = repo_with_file("risk-clean", "a.py", "a = 1\n");
+        assert_eq!(run_risk_audit(&clean).unwrap(), 0);
+
+        let bad = repo_with_file("risk-bad", "b.py", "key = \"AKIAABCDEFGHIJKLMNOP\"\n");
+        assert_eq!(run_risk_audit(&bad).unwrap(), 1);
+    }
+
+    #[test]
+    fn ci_audit_strict_fails_on_warnings_only_and_writes_sarif() {
+        let dir = repo_with_file("ci-sarif", "b.py", "key = \"AKIAABCDEFGHIJKLMNOP\"\n");
+        let out = dir.join("r.sarif");
+        assert_eq!(
+            run_ci_audit(&dir, "sarif", Some(&out), false, true, true, None).unwrap(),
+            1
+        );
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert_eq!(v["version"], "2.1.0");
+        assert_eq!(
+            run_ci_audit(&dir, "github", Some(&out), false, false, true, None).unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn report_suppressed_and_load_config_surface_warnings() {
+        let dir = test_dir("cfg-warn");
+        std::fs::write(dir.join(lgtm_core::config::REPO_FILE), "bogus_key = 1\n").unwrap();
+        assert!(load_config(&dir, true).is_ok());
+        let mut f = lgtm_core::findings::Findings::default();
+        report_suppressed(&f, true);
+        f.suppressed.push(guard::GuardAlert {
+            severity: guard::Severity::Warn,
+            rule_id: "r".into(),
+            fingerprint: String::new(),
+            title: "t".into(),
+            description: "d".into(),
+            line_no: None,
+            file_path: "f".into(),
+        });
+        report_suppressed(&f, true);
+        report_suppressed(&f, false);
+    }
+
+    #[test]
+    fn gate_handles_non_repo_clean_tree_timeout_and_decisions() {
+        let plain = test_dir("gate-plain");
+        assert_eq!(run_gate(&plain, 1, None).unwrap(), 1);
+
+        let clean = test_dir("gate-clean");
+        lgtm_core::git2::Repository::init(&clean).unwrap();
+        assert_eq!(run_gate(&clean, 1, None).unwrap(), 0);
+
+        let timeout = repo_with_file("gate-timeout", "a.txt", "x\n");
+        assert_eq!(run_gate(&timeout, 0, Some("msg")).unwrap(), 1);
+        assert!(!timeout.join(".lgtm/gate.json").exists());
+
+        for (status, feedback, expected) in [
+            ("approved", Some("ship it"), 0),
+            ("approved", None, 0),
+            ("rejected", Some("nope"), 1),
+            ("rejected", None, 1),
+        ] {
+            let dir = repo_with_file("gate-decide", "a.txt", "x\n");
+            let gate = dir.join(".lgtm/gate.json");
+            let writer = {
+                let gate = gate.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..100 {
+                        std::thread::sleep(Duration::from_millis(20));
+                        if gate.exists() {
+                            let mut v = serde_json::json!({ "status": status });
+                            if let Some(fb) = feedback {
+                                v["feedback"] = fb.into();
+                            }
+                            std::fs::write(&gate, v.to_string()).unwrap();
+                            return;
+                        }
+                    }
+                })
+            };
+            assert_eq!(run_gate(&dir, 30, None).unwrap(), expected, "{status}");
+            writer.join().unwrap();
+            assert!(!gate.exists());
+        }
+    }
+
+    #[test]
+    fn gate_resumes_when_gate_file_is_deleted() {
+        let dir = repo_with_file("gate-del", "a.txt", "x\n");
+        let gate = dir.join(".lgtm/gate.json");
+        let remover = {
+            let gate = gate.clone();
+            std::thread::spawn(move || {
+                for _ in 0..100 {
+                    std::thread::sleep(Duration::from_millis(20));
+                    if gate.exists() {
+                        std::fs::remove_file(&gate).unwrap();
+                        return;
+                    }
+                }
+            })
+        };
+        assert_eq!(run_gate(&dir, 30, None).unwrap(), 0);
+        remover.join().unwrap();
+    }
+
+    #[test]
+    fn hook_command_rejects_unknown_action_and_non_repos() {
+        let plain = test_dir("hook-plain");
+        assert_eq!(run_hook_command(&plain, "status").unwrap(), 1);
+        let repo = test_dir("hook-bad");
+        lgtm_core::git2::Repository::init(&repo).unwrap();
+        assert!(run_hook_command(&repo, "frobnicate").is_err());
+    }
+
+    #[test]
+    fn git_passthrough_returns_exit_status() {
+        assert_eq!(run_git_passthrough(&["--version".to_string()]).unwrap(), 0);
+        assert_ne!(
+            run_git_passthrough(&["definitely-not-a-subcommand".to_string()]).unwrap(),
+            0
+        );
+    }
 }
