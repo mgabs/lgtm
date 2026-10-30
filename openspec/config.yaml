@@ -1,0 +1,22 @@
+schema: spec-driven
+githubCopilot:
+  cloudAgent: true
+
+context: |
+  Work happens on a dedicated branch, never directly on main/master.
+  When another agent is running, use an isolated git worktree
+  (.worktrees/<name>); never force-remove worktrees, leave a clean status.
+  Implementation is test-first: Red, then Green, then Refactor; line and branch
+  coverage >= 95% (cargo llvm-cov); mutation kill rate 100% on lgtm_core
+  logic (cargo mutants); a surviving mutant is fixed by a test or by deleting
+  redundant code. Hot paths keep their budgets (< 1us keystroke, < 16ms frame).
+  Never delete assertions, add vacuous assertions or skip tests to get green.
+  lgtm_core stays free of I/O, network and external API dependencies.
+  Bugs are fixed in an isolated worktree with a failing regression test written
+  first; log them under docs/bug-reports/<date>-<slug>.md.
+  Shell commands in this repo are prefixed with `rtk`.
+
+rules:
+  tasks:
+    - Each feature slice lists test-first steps (BDD scenarios, unit tests, implementation) in that order
+    - Keep file touches localized to the slice
