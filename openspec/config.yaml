@@ -1,0 +1,41 @@
+schema: spec-driven
+githubCopilot:
+  cloudAgent: true
+
+context: |
+  Project: lgtm, a Rust (edition 2021) terminal diff reviewer, agent-steering
+  TUI and CI security scanner. Workspace: `lgtm` (ratatui/crossterm TUI + CLI,
+  src/), `lgtm-core` (pure review/audit logic), `lgtm-ast` (tree-sitter hunk
+  folding), `lgtm-mcp` (MCP server). Targets GitHub and Azure DevOps PRs; CI
+  runs on ubuntu, macos and windows, so changes must be cross-platform
+  (CRLF via core.autocrlf, `\\?\` canonical paths).
+  Specs live in openspec/specs (one folder per capability); legacy history is
+  in openspec/changes/archive. Docs: README.md, CHANGELOG.md, docs/.
+
+  Work happens on a dedicated branch, never directly on main/master.
+  When another agent is running, use an isolated git worktree
+  (.worktrees/<name>); never force-remove worktrees, leave a clean status.
+  Implementation is test-first: Red, then Green, then Refactor; line and branch
+  coverage >= 95% (cargo llvm-cov); mutation kill rate 100% on lgtm_core
+  logic (cargo mutants); a surviving mutant is fixed by a test or by deleting
+  redundant code. Hot paths keep their budgets (< 1us keystroke, < 16ms frame).
+  Never delete assertions, add vacuous assertions or skip tests to get green.
+  lgtm_core stays free of I/O, network and external API dependencies.
+  Bugs are fixed in an isolated worktree with a failing regression test written
+  first; log them under docs/bug-reports/<date>-<slug>.md.
+  Shell commands in this repo are prefixed with `rtk`.
+
+rules:
+  proposal:
+    - State non-goals and the affected crates
+    - When relevant, note CI impact on the ubuntu, macos and windows matrix
+  design:
+    - Record rejected alternatives and why
+    - When relevant, note impact on hot-path budgets and on lgtm_core staying free of I/O
+  specs:
+    - Write requirements with SHALL or MUST, each with at least one #### scenario
+    - Keep each requirement description at 500 characters or fewer
+  tasks:
+    - Each feature slice lists test-first steps (BDD scenarios, unit tests, implementation) in that order
+    - Keep file touches localized to the slice
+    - For user-visible changes, end with a task updating CHANGELOG.md and docs

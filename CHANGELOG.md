@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Windows CI: staging tests no longer depend on `core.autocrlf`; worktree jump-by-path matches paths without the `\\?\` prefix.
+
+### Changed
+- Specs now live in `openspec/` (legacy `specs/` archived under `openspec/changes/archive/`).
+- Removed unused command-registry metadata and `#[allow(dead_code)]` suppressions; refreshed `Cargo.lock`.
+
 ## 2.6.0
 
 ### Added
