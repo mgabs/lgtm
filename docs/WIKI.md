@@ -524,7 +524,7 @@ Or start Aider in one tmux/zellij/wezterm pane and `lgtm` in the other for real-
 | `lgtm_diff` | Get structured diff snapshot with file-by-file stats | `rev_spec` (optional string, e.g. `main..feat`) |
 | `lgtm_security_scan` | Run static analysis guardrails for OWASP leaks, complexity spikes, and test neutering | `strict` (boolean, flag only Critical/High) |
 | `lgtm_list_directives` | Read all human review directives from `.lgtm/directives.jsonl` | *(None)* |
-| `lgtm_add_directive` | Anchor a review directive to a specific file and line | `file` (string), `line` (integer), `content` (string) |
+| `lgtm_add_directive` | Anchor a review directive to a specific file and line; `line` must fit the stored 32-bit line number | `file` (string), `line` (integer, at most `4294967295`), `content` (string) |
 | `lgtm_directive_status` | Directives with 1-based `id`, outcome, claim and verdict | *(None)* |
 | `lgtm_review_state` | Reviewed hunk count and directive counts | *(None)* |
 | `lgtm_scan_changes` | Findings new since the previous call | *(None)* |
@@ -766,7 +766,9 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 
 ## 9. Configuration Reference (`.lgtm.toml`)
 
-Run `lgtm init` (or `lgtm --init`) to create a starter configuration file at `.lgtm.toml`:
+Run `lgtm init` (or `lgtm --init`) to create a starter configuration file at `.lgtm.toml` in the current directory. Use `lgtm init --repo <path>` or `lgtm --init --repo <path>` to initialize another repository. Existing configuration files are left unchanged.
+
+The starter configuration contains:
 
 ```toml
 # LGTM Configuration File (.lgtm.toml)

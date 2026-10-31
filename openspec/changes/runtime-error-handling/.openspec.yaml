@@ -1,0 +1,4 @@
+schema: spec-rails
+created: 2026-10-31
+goal: Preserve usable terminal state and truthful delivery status when runtime
+  operations fail.

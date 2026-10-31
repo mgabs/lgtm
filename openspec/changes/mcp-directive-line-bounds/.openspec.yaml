@@ -1,0 +1,4 @@
+schema: spec-rails
+created: 2026-10-31
+goal: Prevent malformed MCP line inputs from silently anchoring directives to
+  the wrong line.
