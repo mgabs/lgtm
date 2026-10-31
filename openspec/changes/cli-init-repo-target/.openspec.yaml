@@ -1,0 +1,3 @@
+schema: spec-rails
+created: 2026-10-31
+goal: Ensure init commands operate on the repository explicitly selected by the user.

@@ -118,6 +118,46 @@ fn bdd_cli_005_invalid_pr_state_fails_before_loading_the_picker() {
     assert_eq!(std::fs::read_dir(repo.path()).unwrap().count(), 0);
 }
 
+#[test]
+fn bdd_cli_010_init_flag_respects_repo_and_defaults_to_current_directory() {
+    // Given separate caller and target repositories.
+    let workspace = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).unwrap();
+    let caller = workspace.path().join("caller");
+    let target = caller.join("target repo");
+    std::fs::create_dir_all(&target).unwrap();
+    lgtm_core::git2::Repository::init(&caller).unwrap();
+    lgtm_core::git2::Repository::init(&target).unwrap();
+    let caller_config = caller.join(".lgtm.toml");
+    let target_config = target.join(".lgtm.toml");
+
+    // When --init selects a relative or absolute repository using CLI options.
+    for args in [
+        vec!["--init", "--repo", "target repo"],
+        vec!["--repo", target.to_str().unwrap(), "--init"],
+        vec!["--init", "-r", "target repo"],
+    ] {
+        assert_success(&lgtm(&caller, &args));
+
+        // Then only the selected repository receives the starter configuration.
+        assert!(target_config.is_file());
+        assert!(!caller_config.exists());
+        std::fs::remove_file(&target_config).unwrap();
+    }
+
+    // When no repository is selected, then initialization still uses the caller.
+    assert_success(&lgtm(&caller, &["--init"]));
+    assert!(caller_config.is_file());
+    assert!(!target_config.exists());
+
+    // Then initializing again preserves the existing configuration.
+    std::fs::write(&caller_config, "# custom configuration\n").unwrap();
+    assert_success(&lgtm(&caller, &["--init"]));
+    assert_eq!(
+        std::fs::read_to_string(&caller_config).unwrap(),
+        "# custom configuration\n"
+    );
+}
+
 #[cfg(unix)]
 mod pty_journey {
     use std::fs::File;

@@ -451,8 +451,9 @@ impl McpServer {
                 let line = args
                     .get("line")
                     .and_then(|l| l.as_u64())
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'line' parameter"))?
-                    as u32;
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'line' parameter"))?;
+                let line = u32::try_from(line)
+                    .map_err(|_| anyhow::anyhow!("'line' must be no greater than {}", u32::MAX))?;
                 let content = args
                     .get("content")
                     .and_then(|c| c.as_str())
@@ -816,6 +817,34 @@ mod tests {
         ] {
             assert!(call(&s, "lgtm_resolve_directive", bad)["error"].is_object());
         }
+    }
+
+    #[test]
+    fn test_add_directive_rejects_line_overflow_without_persisting() {
+        let d = repo();
+        let s = McpServer::new(d.path());
+        let path = d.path().join(".lgtm/directives.jsonl");
+
+        let overflow = call(
+            &s,
+            "lgtm_add_directive",
+            json!({"file": "a.rs", "line": u64::from(u32::MAX) + 1, "content": "overflow"}),
+        );
+        assert!(overflow["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("'line' must be no greater than {}", u32::MAX)));
+        assert!(!path.exists());
+
+        let max = call(
+            &s,
+            "lgtm_add_directive",
+            json!({"file": "a.rs", "line": u32::MAX, "content": "max"}),
+        );
+        assert!(max["result"].is_object());
+        let comments = lgtm_core::comment::CommentStore::new(d.path()).load_comments();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].target_line_no, u32::MAX);
     }
 
     #[test]

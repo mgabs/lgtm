@@ -1,16 +1,19 @@
 # Changelog
 
-## Unreleased
+## 2.6.1
 
 ### Added
 - Markdown preview: a highlighted cursor row (directive commands act on it) and mouse-wheel scrolling; mouse capture is enabled only while the preview is open.
 
 ### Fixed
 - Windows CI: staging tests no longer depend on `core.autocrlf`; worktree jump-by-path matches paths without the `\\?\` prefix.
+- Terminal state is restored after UI-loop errors, failed agent delivery is reported without advancing the review turn, `--init --repo` honors its target, and MCP directive line overflow is rejected before persistence.
 
 ### Changed
 - Specs now live in `openspec/` (legacy `specs/` archived under `openspec/changes/archive/`).
 - Removed unused command-registry metadata and `#[allow(dead_code)]` suppressions; refreshed `Cargo.lock`.
+
+## Unreleased
 
 ## 2.6.0
 

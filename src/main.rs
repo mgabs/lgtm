@@ -7,6 +7,7 @@ use anyhow::Result;
 use app::App;
 use clap::Parser;
 use crossterm::{
+    cursor::Show,
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -58,16 +59,6 @@ fn run_check(
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-
-    // Check for direct --init flag
-    if args.iter().any(|a| a == "--init") {
-        let repo_path = PathBuf::from(".");
-        if let Err(e) = run_init_config(&repo_path) {
-            eprintln!("Error initializing config: {}", e);
-            return ExitCode::from(1);
-        }
-        return ExitCode::SUCCESS;
-    }
 
     let cli = match Cli::try_parse() {
         Ok(c) => c,
@@ -538,78 +529,157 @@ fn run_tui(
 
     // Setup terminal
     enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    with_terminal_cleanup(
+        || {
+            let mut stdout = stdout();
+            execute!(stdout, EnterAlternateScreen)?;
+            let backend = CrosstermBackend::new(stdout);
+            let mut terminal = Terminal::new(backend)?;
 
-    // Initialize application state (handles non-git directory, PR mode, and revision diffs cleanly)
-    let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number, revision);
-    if let Some(sink_str) = agent_sink {
-        if let Ok(kind) = sink_str.parse() {
-            app.agent_sink_kind = Some(kind);
-        }
-    }
-
-    match start_audit {
-        Some(AuditStartMode::FullRepo) => {
-            app.trigger_repo_scan();
-        }
-        Some(AuditStartMode::DiffChanges) => {
-            app.open_initial_diff_audit();
-        }
-        None => {}
-    }
-
-    let mut event_loop = event_loop::UiLoop::default();
-    if _watcher.is_none() {
-        event_loop.enable_polling_fallback();
-    }
-    let mut input = event_loop::TerminalInput;
-    let mut diagnostics = lgtm_core::debug::enabled().then(diagnostics::UiLoop::default);
-    let mut mouse_captured = false;
-    while !app.should_quit {
-        event_loop.step(&mut app, &mut input, &mut diagnostics, |app| {
-            let want_mouse = app.wants_mouse_capture();
-            if want_mouse != mouse_captured {
-                let toggled = if want_mouse {
-                    execute!(std::io::stdout(), EnableMouseCapture)
-                } else {
-                    execute!(std::io::stdout(), DisableMouseCapture)
-                };
-                mouse_captured = want_mouse;
-                if let Err(e) = toggled {
-                    app.status_message = Some(format!("Mouse capture unavailable: {e}"));
+            // Initialize application state (handles non-git directory, PR mode, and revision diffs cleanly)
+            let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number, revision);
+            if let Some(sink_str) = agent_sink {
+                if let Ok(kind) = sink_str.parse() {
+                    app.agent_sink_kind = Some(kind);
                 }
             }
-            if app.needs_terminal_clear {
-                terminal.clear()?;
-                app.needs_terminal_clear = false;
-            }
-            lgtm_core::debug::measure("ui.draw", || terminal.draw(|f| ui::render(f, app)))?;
-            Ok(())
-        })?;
-    }
 
-    // Restore terminal
-    disable_raw_mode()?;
-    let mouse_release = if mouse_captured {
-        execute!(terminal.backend_mut(), DisableMouseCapture)
-    } else {
-        Ok(())
-    };
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
+            match start_audit {
+                Some(AuditStartMode::FullRepo) => {
+                    app.trigger_repo_scan();
+                }
+                Some(AuditStartMode::DiffChanges) => {
+                    app.open_initial_diff_audit();
+                }
+                None => {}
+            }
+
+            let mut event_loop = event_loop::UiLoop::default();
+            if _watcher.is_none() {
+                event_loop.enable_polling_fallback();
+            }
+            let mut input = event_loop::TerminalInput;
+            let mut diagnostics = lgtm_core::debug::enabled().then(diagnostics::UiLoop::default);
+            let mut mouse_captured = false;
+            while !app.should_quit {
+                event_loop.step(&mut app, &mut input, &mut diagnostics, |app| {
+                    let want_mouse = app.wants_mouse_capture();
+                    if want_mouse != mouse_captured {
+                        let toggled = if want_mouse {
+                            execute!(std::io::stdout(), EnableMouseCapture)
+                        } else {
+                            execute!(std::io::stdout(), DisableMouseCapture)
+                        };
+                        mouse_captured = want_mouse;
+                        if let Err(e) = toggled {
+                            app.status_message = Some(format!("Mouse capture unavailable: {e}"));
+                        }
+                    }
+                    if app.needs_terminal_clear {
+                        terminal.clear()?;
+                        app.needs_terminal_clear = false;
+                    }
+                    lgtm_core::debug::measure("ui.draw", || terminal.draw(|f| ui::render(f, app)))?;
+                    Ok(())
+                })?;
+            }
+
+            Ok(())
+        },
+        restore_terminal,
+    )
+}
+
+fn with_terminal_cleanup(
+    run: impl FnOnce() -> Result<()>,
+    restore: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let result = run();
+    let cleanup = restore();
+    match (result, cleanup) {
+        (Err(error), Err(cleanup)) => {
+            let message = format!("{error}; terminal cleanup failed: {cleanup:#}");
+            Err(error.context(message))
+        }
+        (result, cleanup) => result.and(cleanup),
+    }
+}
+
+fn restore_terminal() -> Result<()> {
+    // Attempt every restoration step even if an earlier one fails.
+    let raw_mode = disable_raw_mode();
+    let mouse_release = execute!(stdout(), DisableMouseCapture);
+    let screen = execute!(stdout(), LeaveAlternateScreen);
+    let cursor = execute!(stdout(), Show);
     if let Err(e) = mouse_release {
         eprintln!("Warning: failed to release mouse capture: {e}");
     }
-
+    raw_mode.and(screen).and(cursor)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_cleanup_runs_on_runtime_error_and_preserves_it() {
+        struct Input(bool);
+        impl event_loop::Input for Input {
+            fn poll(&mut self, _: std::time::Duration) -> std::io::Result<bool> {
+                if self.0 {
+                    Err(std::io::Error::other("event loop failed"))
+                } else {
+                    Ok(false)
+                }
+            }
+
+            fn read(&mut self) -> std::io::Result<crossterm::event::Event> {
+                unreachable!()
+            }
+        }
+
+        for fail_poll in [true, false] {
+            let mut app = app::test_util::create_test_app();
+            let mut restored = false;
+            let error = with_terminal_cleanup(
+                || {
+                    event_loop::UiLoop::default().step(
+                        &mut app,
+                        &mut Input(fail_poll),
+                        &mut None,
+                        |_| anyhow::bail!("event loop failed"),
+                    )
+                },
+                || {
+                    restored = true;
+                    anyhow::bail!("cleanup failed")
+                },
+            )
+            .unwrap_err();
+            assert!(restored);
+            assert_eq!(error.root_cause().to_string(), "event loop failed");
+            assert!(error.to_string().contains("event loop failed"));
+            assert!(error.to_string().contains("cleanup failed"));
+        }
+    }
+
+    #[test]
+    fn terminal_cleanup_runs_on_success_and_reports_cleanup_errors() {
+        let mut restored = false;
+        with_terminal_cleanup(
+            || Ok(()),
+            || {
+                restored = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(restored);
+        let error =
+            with_terminal_cleanup(|| Ok(()), || anyhow::bail!("cleanup failed")).unwrap_err();
+        assert_eq!(error.to_string(), "cleanup failed");
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("lgtm-main-{}-{}", name, std::process::id()));

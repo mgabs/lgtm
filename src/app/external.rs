@@ -2,6 +2,13 @@ use super::*;
 
 impl App {
     pub fn export_and_send_batch_review(&mut self) {
+        self.export_and_send_batch_review_with(|sink, text| sink.send(text));
+    }
+
+    fn export_and_send_batch_review_with(
+        &mut self,
+        send: impl FnOnce(&crate::ipc::AgentSink<'_>, &str) -> anyhow::Result<()>,
+    ) {
         if let Some(pr_num) = self.pr.current_number {
             if self.review_posting_prs.contains(&pr_num) {
                 self.status_message = Some("A review for this PR is already being posted".into());
@@ -38,9 +45,10 @@ impl App {
             } else {
                 prompt.clone()
             };
-            let _ = sink.send(&text);
-            let label = sink.label();
-            notes.push(format!("Delivered to {}", label));
+            notes.push(match send(&sink, &text) {
+                Ok(()) => format!("Delivered to {}", sink.label()),
+                Err(error) => format!("Send failed: {error}; saved review retained"),
+            });
 
             self.review_posting_prs.insert(pr_num);
             let repo = self.git_engine.repo_path.clone();
@@ -96,7 +104,13 @@ impl App {
         } else {
             prompt.clone()
         };
-        let _ = sink.send(&text);
+        if let Err(error) = send(&sink, &text) {
+            self.status_message = Some(format!(
+                "Exported {} | Send failed: {error}; saved review retained",
+                file_path.display()
+            ));
+            return;
+        }
         let label = sink.label();
         self.status_message = Some(format!(
             "Exported {} and delivered to {}",
@@ -640,6 +654,51 @@ mod tests {
             assert!(body.contains("rename this"));
             assert_eq!(app.turn_manager.load_state().current_turn, turn_before + 1);
         }
+    }
+
+    #[test]
+    fn test_batch_review_send_failure_retains_export_and_turn() {
+        let mut app = setup_app_with_line(10);
+        app.comments.push(comment("retry this directive", None));
+        let turn_before = app.turn_manager.load_state().current_turn;
+        app.export_and_send_batch_review_with(|_, _| anyhow::bail!("agent unavailable"));
+        let status = app.status_message.as_deref().unwrap();
+        assert!(
+            status.ends_with("Send failed: agent unavailable; saved review retained"),
+            "{status}"
+        );
+        assert!(!status.contains("delivered"));
+        let exported = status
+            .trim_start_matches("Exported ")
+            .split(" | ")
+            .next()
+            .unwrap();
+        let body = std::fs::read_to_string(app.git_engine.repo_path.join(exported)).unwrap();
+        assert!(body.contains("retry this directive"));
+        assert_eq!(app.turn_manager.load_state().current_turn, turn_before);
+    }
+
+    #[test]
+    fn test_pr_batch_review_send_failure_survives_post_result() {
+        let mut app = setup_app_with_line(10);
+        app.pr.current_number = Some(7);
+        app.comments.push(comment("pr note", Some(7)));
+        app.export_and_send_batch_review_with(|_, _| anyhow::bail!("agent unavailable"));
+        let status = app.status_message.as_deref().unwrap();
+        assert!(
+            status.contains("Send failed: agent unavailable"),
+            "{status}"
+        );
+        assert!(!status.contains("Delivered"));
+        assert!(app.review_posting_prs.contains(&7));
+        wait_for_post(&mut app, 7);
+        let status = app.status_message.as_deref().unwrap();
+        assert!(
+            status.contains("Send failed: agent unavailable"),
+            "{status}"
+        );
+        assert!(status.contains("Review not posted:"), "{status}");
+        assert!(!status.contains("Delivered"));
     }
 
     #[test]
