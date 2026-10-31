@@ -1,4 +1,4 @@
-schema: spec-driven
+schema: spec-rails
 githubCopilot:
   cloudAgent: true
 

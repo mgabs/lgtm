@@ -31,6 +31,7 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
             app.markdown_preview.cached_file_idx = Some(app.selected_file_idx);
             app.markdown_preview.cached_width = width;
             app.markdown_preview.scroll_offset = 0;
+            app.markdown_preview.cursor_row = 0;
         }
     }
 
@@ -90,9 +91,20 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
         .scroll_offset
         .min(app.markdown_preview.max_scroll(viewport_height));
     app.markdown_preview.scroll_offset = scroll;
+    let cursor_row = app
+        .markdown_preview
+        .cursor_row
+        .min(total_rows.saturating_sub(1));
+    app.markdown_preview.cursor_row = cursor_row;
 
     let mut lines = Vec::new();
-    for row in app.markdown_preview.rendered_rows.iter().skip(scroll) {
+    for (idx, row) in app
+        .markdown_preview
+        .rendered_rows
+        .iter()
+        .enumerate()
+        .skip(scroll)
+    {
         if lines.len() >= viewport_height {
             break;
         }
@@ -110,7 +122,12 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
             Style::default().fg(marker_color),
         )];
         row_spans.extend(row.spans.clone());
-        lines.push(Line::from(row_spans));
+        let line = Line::from(row_spans);
+        lines.push(if idx == cursor_row {
+            line.style(Style::default().bg(Color::Rgb(45, 45, 70)))
+        } else {
+            line
+        });
 
         for c in directives_for(row) {
             let (icon, color) = if c.is_resolved {
@@ -284,7 +301,7 @@ mod tests {
         assert_eq!(app.markdown_preview.viewport_height, 10);
         app.markdown_preview.rendered_rows.truncate(100);
         let vh = app.markdown_preview.viewport_height;
-        app.markdown_preview.scroll_to_bottom(vh);
+        app.markdown_preview.cursor_to_bottom(vh);
         assert_eq!(app.markdown_preview.scroll_offset, 90);
     }
 
@@ -337,7 +354,7 @@ mod tests {
         };
         draw(&mut app);
         let vh = app.markdown_preview.viewport_height;
-        app.markdown_preview.scroll_to_bottom(vh);
+        app.markdown_preview.cursor_to_bottom(vh);
         let out = draw(&mut app);
         assert!(out.contains("row30"));
         assert!(out.contains("↳ r3"));

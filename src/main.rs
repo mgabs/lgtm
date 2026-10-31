@@ -7,6 +7,7 @@ use anyhow::Result;
 use app::App;
 use clap::Parser;
 use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -566,8 +567,21 @@ fn run_tui(
     }
     let mut input = event_loop::TerminalInput;
     let mut diagnostics = lgtm_core::debug::enabled().then(diagnostics::UiLoop::default);
+    let mut mouse_captured = false;
     while !app.should_quit {
         event_loop.step(&mut app, &mut input, &mut diagnostics, |app| {
+            let want_mouse = app.wants_mouse_capture();
+            if want_mouse != mouse_captured {
+                let toggled = if want_mouse {
+                    execute!(std::io::stdout(), EnableMouseCapture)
+                } else {
+                    execute!(std::io::stdout(), DisableMouseCapture)
+                };
+                mouse_captured = want_mouse;
+                if let Err(e) = toggled {
+                    app.status_message = Some(format!("Mouse capture unavailable: {e}"));
+                }
+            }
             if app.needs_terminal_clear {
                 terminal.clear()?;
                 app.needs_terminal_clear = false;
@@ -579,8 +593,16 @@ fn run_tui(
 
     // Restore terminal
     disable_raw_mode()?;
+    let mouse_release = if mouse_captured {
+        execute!(terminal.backend_mut(), DisableMouseCapture)
+    } else {
+        Ok(())
+    };
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
+    if let Err(e) = mouse_release {
+        eprintln!("Warning: failed to release mouse capture: {e}");
+    }
 
     Ok(())
 }

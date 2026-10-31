@@ -160,7 +160,7 @@ lgtm
 | — | Scrollbar | A right-edge scrollbar appears when the diff or markdown preview is taller than the view; the cursor row (including wrapped lines) always stays visible |
 | `Tab` | Drawer Sidebar | Toggle 35-column changed file list on the left |
 | — | Clean tree | With no changes, a large LGTM logo, "looks good to me" and the one-line purpose are shown |
-| `m` | Markdown Preview | Rendered preview for `.md` files (`:md`). `Tab` toggles the drawer; directives show under their line; `c` / `l` / `R` / `x` add, list, resolve and delete a directive at the top visible line; `m` / `Esc` returns to the diff. The bottom border shows `first-last/total` |
+| `m` | Markdown Preview | Rendered preview for `.md` files (`:md`). `Tab` toggles the drawer; `j` / `k` / `Ctrl-d` / `Ctrl-u` / `g` / `G` move a highlighted cursor row and the mouse wheel scrolls (capture is on only in the preview); directives show under their line; `c` / `l` / `R` / `x` add, list, resolve and delete a directive at the cursor row; `m` / `Esc` returns to the diff. The bottom border shows `first-last/total` |
 | `d` | Split View Toggle | Toggle between Unified Diff and Side-by-Side Dual Pane Diff |
 | `o` / `e` | Open in Editor | Open current file and line in configured editor (default: `nvim`, configurable: `:editor <name>` or config `editor = "vscode"`) |
 | `?` / `h` | **Help Modal** | Open 7-tab interactive documentation modal |
