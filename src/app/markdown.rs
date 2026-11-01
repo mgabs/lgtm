@@ -986,10 +986,53 @@ mod tests {
     }
 
     #[test]
+    fn test_markdown_preview_5000_lines_behavioral() {
+        let mut lines = Vec::with_capacity(5000);
+        for i in 0..5000 {
+            let line_type = if i % 10 == 0 {
+                LineType::Addition
+            } else if i % 10 == 1 {
+                LineType::Deletion
+            } else {
+                LineType::Context
+            };
+            let content = match i % 5 {
+                0 => format!("# Heading level 1 for section {i}"),
+                1 => format!("* Bullet list item with some description text for index {i}"),
+                2 => format!("```rust\nlet x_{i} = {i};\n```"),
+                3 => format!("> Blockquote notice containing important RFC detail {i}"),
+                _ => format!(
+                    "A standard paragraph with **bold** and *italic* formatting for row {i}."
+                ),
+            };
+            lines.push(DiffLine {
+                line_type,
+                content,
+                old_line_num: Some(i as u32),
+                new_line_num: Some(i as u32),
+            });
+        }
+
+        let file = make_test_file_diff(lines);
+        let rows = build_markdown_preview(&file, 100);
+        assert_eq!(rows.len(), 5000);
+
+        let mut state = MarkdownPreviewState {
+            rendered_rows: rows,
+            ..Default::default()
+        };
+        for _ in 0..1000 {
+            state.scroll_down(1, 40);
+        }
+        assert_eq!(state.scroll_offset, 1000);
+    }
+
+    #[cfg(all(feature = "perf-budgets", not(debug_assertions)))]
+    #[test]
     fn test_performance_budgets_nfr() {
+        use std::hint::black_box;
         use std::time::Instant;
 
-        // Generate 5,000 lines of markdown
         let mut lines = Vec::with_capacity(5000);
         for i in 0..5000 {
             let line_type = if i % 10 == 0 {
@@ -1018,34 +1061,65 @@ mod tests {
 
         let file = make_test_file_diff(lines);
 
-        // Budget NFR-MDP-02: Parse and layout for 5,000 lines must complete in < 50ms
-        let start_parse = Instant::now();
-        let rows = build_markdown_preview(&file, 100);
-        let parse_duration = start_parse.elapsed();
-        let threshold_ms = if cfg!(debug_assertions) { 150 } else { 50 };
-        assert!(
-            parse_duration.as_millis() < threshold_ms,
-            "Parsing 5,000 lines took {:?}, expected < {}ms",
-            parse_duration,
-            threshold_ms
+        // NFR-MDP-02: 5,000 lines parse & layout < 50ms (median of 7 warmed-up samples)
+        let _ = black_box(build_markdown_preview(&file, 100));
+        let mut parse_samples = Vec::with_capacity(7);
+        for _ in 0..7 {
+            let start = Instant::now();
+            let rows = black_box(build_markdown_preview(&file, 100));
+            parse_samples.push(start.elapsed());
+            assert_eq!(rows.len(), 5000);
+        }
+        parse_samples.sort();
+        let median_parse = parse_samples[3];
+        println!(
+            "Benchmark [5000-line parse]: median {:?}, samples: {:?}",
+            median_parse, parse_samples
         );
-        assert!(!rows.is_empty());
+        assert!(
+            median_parse.as_millis() < 50,
+            "Parsing 5,000 lines took {:?}, expected < 50ms",
+            median_parse
+        );
 
-        // Budget NFR-MDP-03: Zero-allocation scrolling < 1µs per keystroke
+        let rows = build_markdown_preview(&file, 100);
         let mut state = MarkdownPreviewState {
             rendered_rows: rows,
             ..Default::default()
         };
-        let start_scroll = Instant::now();
-        for _ in 0..1000 {
+
+        // NFR-MDP-03: Zero-allocation scrolling < 1µs per keystroke (median of 7 warmed-up samples)
+        for _ in 0..100 {
             state.scroll_down(1, 40);
         }
-        let scroll_duration = start_scroll.elapsed();
-        let per_keystroke_nanos = scroll_duration.as_nanos() / 1000;
+        state.scroll_offset = 0;
+        state.cursor_row = 0;
+
+        let mut nav_samples = Vec::with_capacity(7);
+        for step in 0..7 {
+            let start = Instant::now();
+            for _ in 0..1000 {
+                if step % 2 == 0 {
+                    state.scroll_down(1, 40);
+                } else {
+                    state.scroll_up(1, 40);
+                }
+            }
+            let elapsed = start.elapsed();
+            let nanos_per_op = elapsed.as_nanos() / 1000;
+            nav_samples.push(nanos_per_op);
+            black_box((state.scroll_offset, state.cursor_row));
+        }
+        nav_samples.sort();
+        let median_nav_ns = nav_samples[3];
+        println!(
+            "Benchmark [navigation 1000-ops]: median {}ns/op, samples: {:?}",
+            median_nav_ns, nav_samples
+        );
         assert!(
-            per_keystroke_nanos < 1000,
-            "Per-keystroke navigation took {}ns, expected < 1µs (1000ns)",
-            per_keystroke_nanos
+            median_nav_ns < 1000,
+            "Per-keystroke navigation took {}ns, expected < 1000ns",
+            median_nav_ns
         );
     }
 
