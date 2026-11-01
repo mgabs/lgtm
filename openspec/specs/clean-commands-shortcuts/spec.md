@@ -104,4 +104,3 @@ The CLI MUST initialize the repository selected by `--repo` when `--init` is sup
 #### Scenario: Initialize default repository
 - **WHEN** the user runs `lgtm --init` without `--repo`
 - **THEN** initialization targets the current directory
-

@@ -142,4 +142,3 @@ Optimized, non-instrumented measurements MUST enforce scrolling below 1 microsec
 #### Scenario: Parsing and rendering budgets
 - **WHEN** optimized checks measure a 5,000-line preview and its cached rendering
 - **THEN** parsing/wrapping takes less than 50 ms and cached rendering takes less than 16 ms
-
