@@ -109,3 +109,69 @@ Feature: Markdown Preview with Diff Highlighting
     When scrolling down with "j"
     Then the frame render executes in less than 16 milliseconds
     And zero full-document re-parses occur
+
+  # REQ-MDPERF-1; Rust test: navigation_heights_match_reference_and_reuse_buffers
+  Scenario: Navigate populated uniform row heights
+    Given 150 cached markdown rows with a prepared height of 1 for every row
+    And a viewport height of 40
+    When the reviewer scrolls down and up and moves the cursor to both document ends
+    Then cursor and scroll bounds match the reference row-height calculation
+    And viewport bounds use constant-time arithmetic
+    And cached rows, source line numbers, and span buffers remain unchanged
+
+  # REQ-MDPERF-1; Rust test: navigation_heights_match_reference_and_reuse_buffers
+  Scenario: Navigate directive and reply expansions
+    Given cached markdown rows with heights 1, 3, 1, 4, 1, and 2
+    And the extra height represents directives and their replies
+    When the reviewer scrolls and moves the cursor through each row in a 5-line viewport
+    Then cursor visibility and maximum scroll match the reference full-row fit calculation
+    And navigation does not repeatedly scan overlapping row ranges
+    And cached rows and span buffers are reused without reparsing
+
+  # REQ-MDPERF-1; Rust test: navigation_heights_match_reference_and_reuse_buffers
+  Scenario: Navigate a row taller than the viewport
+    Given cached markdown rows with heights 1, 8, and 1
+    And a viewport height of 3
+    When the reviewer navigates to and away from the expanded row
+    Then the first row at the viewport offset remains selectable even when it cannot fit
+    And subsequent bounds preserve the reference full-row fit behavior
+    And cursor and offset stay within the document
+
+  # REQ-MDPERF-2; Rust tests: navigation_heights_match_reference_and_reuse_buffers, directives_render_under_their_line
+  Scenario: Directive edits refresh cached navigation bounds
+    Given cached markdown rows with prepared uniform heights
+    When a directive and a reply expand a row
+    And the renderer replaces the prepared heights
+    Then subsequent navigation uses the expanded height
+    When the directive and reply are removed and heights are replaced again
+    Then navigation returns to the uniform bounds without stale prefix data
+
+  # REQ-MDPERF-2; Rust test: directives_render_under_their_line
+  Scenario: Width changes and document rebuilds replace navigation metadata
+    Given a preview with expanded row metadata and a cursor near the document end
+    When the preview is rebuilt for a narrower width or a different document
+    Then navigation metadata describes the current rendered rows
+    And cursor and offset are valid for the rebuilt document
+    And navigation never uses heights from the previous document
+
+  # REQ-MDPERF-2; Rust test: navigation_empty_and_zero_viewport_are_bounded
+  Scenario Outline: Navigate empty rows and zero-height viewports safely
+    Given a cached preview with <rows> rows
+    And a viewport height of <height>
+    When the reviewer scrolls in both directions and moves to both document ends
+    Then no panic occurs
+    And cursor and offset are zero for an empty document
+    And cursor and offset never exceed the final row for a nonempty document
+
+    Examples:
+      | rows | height |
+      | 0    | 0      |
+      | 0    | 40     |
+      | 5    | 0      |
+
+  # REQ-MDPERF-1/2; Rust test: navigation_heights_match_reference_and_reuse_buffers
+  Scenario: Missing row heights retain the one-line fallback
+    Given cached markdown rows whose height metadata is empty or shorter than the document
+    When navigation metadata is prepared and the reviewer scrolls
+    Then missing row heights count as one screen line
+    And cursor and scroll bounds match the reference calculation

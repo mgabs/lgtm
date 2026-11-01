@@ -35,30 +35,40 @@ pub struct MarkdownPreviewState {
     /// Rows visible in the last render; scrolling clamps against it.
     pub viewport_height: usize,
     /// Screen lines per row (the row plus its directives), set by the renderer.
-    pub row_heights: Vec<usize>,
+    row_heights: Vec<usize>,
+    height_prefix: Vec<usize>,
 }
 
 impl MarkdownPreviewState {
-    fn height(&self, row: usize) -> usize {
-        self.row_heights.get(row).copied().unwrap_or(1)
+    pub fn set_row_heights(&mut self, heights: Vec<usize>) {
+        self.row_heights = heights;
+        self.height_prefix.clear();
+        if self.row_heights.iter().any(|&height| height > 1) {
+            self.height_prefix.push(0);
+            for row in 0..self.rendered_rows.len() {
+                let height = self.row_heights.get(row).copied().unwrap_or(1).max(1);
+                self.height_prefix
+                    .push(self.height_prefix[row].saturating_add(height));
+            }
+        }
     }
 
     /// Largest offset that still fills the viewport, counting directive rows under each line.
     pub fn max_scroll(&self, viewport_height: usize) -> usize {
-        if self.row_heights.is_empty() {
+        if self.height_prefix.is_empty() {
             return self.rendered_rows.len().saturating_sub(viewport_height);
         }
-        let mut used = 0;
-        let mut first = self.rendered_rows.len();
-        while first > 0 && used + self.height(first - 1) <= viewport_height {
-            first -= 1;
-            used += self.height(first);
-        }
-        first
+        let total = *self.height_prefix.last().unwrap();
+        self.height_prefix
+            .partition_point(|&sum| sum < total.saturating_sub(viewport_height))
     }
 
     pub fn scroll_down(&mut self, amount: usize, viewport_height: usize) {
-        self.scroll_offset = (self.scroll_offset + amount).min(self.max_scroll(viewport_height));
+        self.scroll_offset = self
+            .scroll_offset
+            .saturating_add(amount)
+            .min(self.max_scroll(viewport_height))
+            .min(self.rendered_rows.len().saturating_sub(1));
         self.clamp_cursor_into_view(viewport_height);
     }
 
@@ -69,16 +79,19 @@ impl MarkdownPreviewState {
 
     /// Last row that starts inside the viewport at the current offset.
     fn last_visible_row(&self, viewport_height: usize) -> usize {
-        let mut used = 0;
-        let mut last = self.scroll_offset;
-        for row in self.scroll_offset..self.rendered_rows.len() {
-            used += self.height(row);
-            if used > viewport_height && row > self.scroll_offset {
-                break;
-            }
-            last = row;
+        let last = self.rendered_rows.len().saturating_sub(1);
+        if self.height_prefix.is_empty() {
+            return self
+                .scroll_offset
+                .saturating_add(viewport_height.saturating_sub(1))
+                .min(last);
         }
-        last
+        let limit = self.height_prefix[self.scroll_offset].saturating_add(viewport_height);
+        self.height_prefix
+            .partition_point(|&sum| sum <= limit)
+            .saturating_sub(2)
+            .max(self.scroll_offset)
+            .min(last)
     }
 
     fn clamp_cursor_into_view(&mut self, viewport_height: usize) {
@@ -104,17 +117,22 @@ impl MarkdownPreviewState {
     }
 
     fn ensure_cursor_visible(&mut self, viewport_height: usize) {
-        if self.cursor_row < self.scroll_offset {
-            self.scroll_offset = self.cursor_row;
+        if self.rendered_rows.is_empty() {
+            self.cursor_row = 0;
+            self.scroll_offset = 0;
+            return;
         }
-        while self.scroll_offset < self.cursor_row
-            && (self.scroll_offset..=self.cursor_row)
-                .map(|r| self.height(r))
-                .sum::<usize>()
-                > viewport_height
-        {
-            self.scroll_offset += 1;
+        self.scroll_offset = self.scroll_offset.min(self.cursor_row);
+        let first = if self.height_prefix.is_empty() {
+            self.cursor_row
+                .saturating_add(1)
+                .saturating_sub(viewport_height)
+        } else {
+            let limit = self.height_prefix[self.cursor_row + 1].saturating_sub(viewport_height);
+            self.height_prefix.partition_point(|&sum| sum < limit)
         }
+        .min(self.cursor_row);
+        self.scroll_offset = self.scroll_offset.max(first);
         self.scroll_offset = self.scroll_offset.min(self.max_scroll(viewport_height));
     }
 }
@@ -866,6 +884,78 @@ mod tests {
                 })
                 .collect(),
             ..Default::default()
+        }
+    }
+    #[test]
+    fn navigation_empty_and_zero_viewport_are_bounded() {
+        for (count, viewport) in [(0, 0), (0, 40), (5, 0)] {
+            let mut state = rows(count);
+            state.scroll_down(usize::MAX, viewport);
+            assert!(state.scroll_offset <= count.saturating_sub(1));
+            state.scroll_up(usize::MAX, viewport);
+            state.cursor_to_bottom(viewport);
+            state.cursor_to_top(viewport);
+            assert_eq!((state.cursor_row, state.scroll_offset), (0, 0));
+        }
+    }
+
+    #[test]
+    fn navigation_heights_match_reference_and_reuse_buffers() {
+        for heights in [
+            vec![],
+            vec![1; 6],
+            vec![1, 3, 1, 4, 1, 2],
+            vec![1, 8, 1],
+            vec![3],
+        ] {
+            let mut state = rows(6);
+            // Exercise replacement as well as the initial layout.
+            state.set_row_heights(vec![2; 6]);
+            state.set_row_heights(heights.clone());
+            assert_eq!(
+                state.height_prefix.is_empty(),
+                heights.iter().all(|&height| height <= 1)
+            );
+            let original = state.rendered_rows.clone();
+            let buffer = state.rendered_rows.as_ptr();
+            let height = |row: usize| heights.get(row).copied().unwrap_or(1);
+            for viewport in 1..10 {
+                let mut expected_max = 6;
+                let mut used = 0;
+                while expected_max > 0 && used + height(expected_max - 1) <= viewport {
+                    expected_max -= 1;
+                    used += height(expected_max);
+                }
+                assert_eq!(state.max_scroll(viewport), expected_max);
+                for offset in 0..6 {
+                    state.scroll_offset = offset;
+                    let mut expected_last = offset;
+                    let mut used = 0;
+                    for row in offset..6 {
+                        used += height(row);
+                        if used > viewport && row > offset {
+                            break;
+                        }
+                        expected_last = row;
+                    }
+                    assert_eq!(state.last_visible_row(viewport), expected_last);
+                    for cursor in 0..6 {
+                        state.scroll_offset = offset;
+                        state.cursor_row = cursor;
+                        let mut expected = offset.min(cursor);
+                        while expected < cursor
+                            && (expected..=cursor).map(height).sum::<usize>() > viewport
+                        {
+                            expected += 1;
+                        }
+                        expected = expected.min(expected_max);
+                        state.ensure_cursor_visible(viewport);
+                        assert_eq!(state.scroll_offset, expected);
+                    }
+                }
+            }
+            assert_eq!(state.rendered_rows, original);
+            assert_eq!(state.rendered_rows.as_ptr(), buffer);
         }
     }
 
