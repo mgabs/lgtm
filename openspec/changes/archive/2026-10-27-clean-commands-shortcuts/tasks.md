@@ -2,7 +2,7 @@
 
 > **Goal:** Eliminate overlapping CLI subcommands, resolve shadowed/dead keyboard shortcuts, establish a unified Command Registry for Wildmenu completion and execution, and synchronize the 7-tab Help Modal.
 
-**Architecture:** [`design.md`](design.md)  
+**Architecture:** [`design.md`](design.md)
 **Specification:** [`spec.md`](spec.md)
 
 ---

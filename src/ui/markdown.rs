@@ -32,6 +32,7 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
             app.markdown_preview.cached_width = width;
             app.markdown_preview.scroll_offset = 0;
             app.markdown_preview.cursor_row = 0;
+            app.markdown_preview.set_row_heights(Vec::new());
         }
     }
 
@@ -83,7 +84,7 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
                 .sum::<usize>()
         })
         .collect();
-    app.markdown_preview.row_heights = heights;
+    app.markdown_preview.set_row_heights(heights);
 
     let total_rows = app.markdown_preview.rendered_rows.len();
     let scroll = app
@@ -282,6 +283,20 @@ mod tests {
         assert!(out.contains("↳ a reply"));
         assert!(out.contains("✅ done one"));
         assert_eq!(out.matches("open one").count(), 1);
+        app.markdown_preview.cursor_to_bottom(2);
+        assert_eq!(app.markdown_preview.scroll_offset, 1);
+        app.comments.clear();
+        terminal
+            .draw(|f| render_markdown_preview(f, f.area(), &mut app))
+            .unwrap();
+        app.markdown_preview.cursor_to_bottom(2);
+        assert_eq!(app.markdown_preview.scroll_offset, 0);
+        app.markdown_preview.cached_width = 1;
+        terminal
+            .draw(|f| render_markdown_preview(f, f.area(), &mut app))
+            .unwrap();
+        assert_eq!(app.markdown_preview.rendered_rows.len(), 1);
+        assert_eq!(app.markdown_preview.max_scroll(2), 0);
     }
 
     #[test]
