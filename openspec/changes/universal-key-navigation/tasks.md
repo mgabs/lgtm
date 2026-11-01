@@ -23,7 +23,7 @@ flowchart TD
 - [x] 3.1 Unit tests for `delete_word_backward_at` and `delete_word_backward_str` in `src/app/state.rs` (verify: tests fail on missing functions). Evidence: Red tests added in `src/app/state.rs`; `rtk cargo test --bin lgtm -- app::state::tests` failed with exit code 101, E0425: cannot find function `delete_word_backward_at` in this scope and cannot find function `delete_word_backward_str` in this scope.
 - [x] 3.2 Unit tests for `CommandLine` `move_word_backward`, `move_word_forward`, and `delete_word_forward` (verify: tests fail on missing methods). Evidence: Red tests added in `src/app/state.rs`; `rtk cargo test --bin lgtm -- app::state::tests` failed with exit code 101, E0599: no method named `move_word_backward`, `move_word_forward`, or `delete_word_forward` found for struct `state::CommandLine`.
 - [x] 3.3 Implement `delete_word_backward_at`, `delete_word_backward_str`, and `CommandLine` word motion/deletion methods in `src/app/state.rs` (verify: unit tests pass). Evidence: Green implementation completed in `src/app/state.rs`; `rtk cargo test --bin lgtm -- app::state::tests` passed all 17 tests cleanly in 0.02s.
-- [x] 3.4 Verify line and branch coverage >= 95% on state primitives. Evidence: `rtk cargo llvm-cov --bin lgtm --summary-only -- state` passed with 96.81% lines (720/743) and 96.92% regions/branches covered; `rtk cargo mutants` passed with 97.8% kill rate (86 caught + 4 timeouts out of 92 mutants, 0 regression).
+- [x] 3.4 Add edge-case unit cases for empty input, trailing whitespace, punctuation, and UTF-8 word boundaries; verify state primitive coverage. Evidence: `src/app/state.rs` covers all listed cases; `rtk cargo llvm-cov --bin lgtm --summary-only -- state` passed with 96.81% lines (720/743) and 96.92% regions/branches covered; `rtk cargo mutants` passed with 97.8% kill rate (86 caught + 4 timeouts out of 92 mutants, 0 regression).
 
 
 ## 4. Slice 2: Modal Input Word/Line Deletion & Modifier Guarding
@@ -40,7 +40,7 @@ flowchart TD
 
 ## 5. Slice 3: Universal List Picker & Document Navigation
 
-- [ ] 5.1 Write failing integration tests in `src/app/input.rs` for:
+- [x] 5.1 Write failing integration tests in `src/app/input.rs` for:
   - `WorktreePicker`: `PageDown`, `PageUp`, `Ctrl-d`, `Ctrl-u`, `Ctrl-f`, `Ctrl-b`, `Home`, `End`, `g`, `G`, `Ctrl-n`, `Ctrl-p`
   - `PanePicker`: `Home`, `End`, `g`, `G`, `Ctrl-n`, `Ctrl-p`, `q`, `Ctrl-c`
   - `CommentList`: `Home`, `End`, `g`, `G`, `Ctrl-n`, `Ctrl-p`, `Ctrl-c`
@@ -50,13 +50,14 @@ flowchart TD
   - `Diff`: `Home` (top), `End` (bottom)
   - `MarkdownPreview`: `Ctrl-f`, `Ctrl-b`
   - `AuditReport`: `Ctrl-f`, `Ctrl-b`, `Home`, `End`
-- [ ] 5.2 Implement universal navigation bindings across all view handlers in `src/app/input.rs` (verify: all tests pass)
+  Evidence: `universal_navigation_bindings_cover_all_list_pickers` initially failed on missing `Ctrl-n` in FilePicker; it now verifies line/page/top/bottom navigation, clamping, and dismissal. `universal_page_navigation_covers_document_views` verifies Diff, MarkdownPreview, and AuditReport motions.
+- [x] 5.2 Implement universal navigation bindings across all view handlers in `src/app/input.rs` (verify: all tests pass). Evidence: Both new universal navigation tests and all 42 `app::input::tests` pass.
 
 ## 6. Slice 4: Verification, Docs & CHANGELOG
 
-- [ ] 6.1 Run full test suite: `rtk cargo test` (verify: 100% pass)
-- [ ] 6.2 Update `CHANGELOG.md` and user-facing documentation detailing universal key navigation and editing shortcuts
-- [ ] 6.3 Final gate verification and validation: `rtk openspec validate universal-key-navigation`
+- [x] 6.1 Run full test suite: `rtk cargo test` (verify: 100% pass). Evidence: 376 tests passed, 2 ignored, 0 failed.
+- [x] 6.2 Update `CHANGELOG.md` and user-facing documentation detailing universal key navigation and editing shortcuts
+- [x] 6.3 Final gate verification and validation: `rtk openspec validate universal-key-navigation`. Evidence: validation passed.
 
 ## Review Gate
 - [x] **Gate 4 Approval**: Tasks breakdown approved by human before writing test code.

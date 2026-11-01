@@ -15,6 +15,10 @@
 
 ## Unreleased
 
+### Added
+- Consistent `Ctrl-n` / `Ctrl-p` item navigation, page movement, and top/bottom jumps across pickers and document views; non-text pickers also close with `Ctrl-c` and `q`.
+- Shared word deletion in text inputs (`Ctrl-w`, `Alt-Backspace`, `Ctrl-Backspace`), command-line word motion/deletion (`Alt-b` / `Alt-f`, `Ctrl-Left` / `Ctrl-Right`, `Alt-d`), and line deletion (`Ctrl-u` / `Ctrl-k`).
+
 ## 2.6.0
 
 ### Added

@@ -144,6 +144,7 @@ lgtm
 | Key | Action | Description |
 |---|---|---|
 | `j` / `k` or `↓` / `↑` | Line Cursor | Move cursor down / up across diff lines |
+| `Home` / `End` | Top / Bottom | Jump to the first / last diff line |
 | `]` / `[` | **File Navigation** | **Single tap immediately jumps to Next / Previous changed file** |
 | `]h` / `[h` | Hunk Navigation | Jump to next / previous diff hunk |
 | `]w` / `[w` or `w` / `W` | Alert Jump | Jump to next / previous security / quality guardrail alert |
@@ -166,6 +167,17 @@ lgtm
 | `?` / `h` | **Help Modal** | Open 7-tab interactive documentation modal |
 | `q` | Quit | Exit `lgtm` |
 
+Pickers and text inputs use these shared shortcuts:
+
+| Keys | Action |
+|---|---|
+| `Ctrl-n` / `Ctrl-j` / `Down`; `Ctrl-p` / `Ctrl-k` / `Up` | Move to the next / previous item in list pickers. `j` / `k` also work in pickers without text entry. |
+| `PageDown` / `Ctrl-d` / `Ctrl-f`; `PageUp` / `Ctrl-u` / `Ctrl-b` | Move by a page in pickers and document views. |
+| `Home` / `End` | Jump to the first / last item or line; `g` / `G` also work where those letters are not used for text input. |
+| `Ctrl-w` / `Alt-Backspace` / `Ctrl-Backspace` | Delete the previous word in text inputs. |
+| `Alt-b` / `Ctrl-Left`; `Alt-f` / `Ctrl-Right`; `Alt-d` / `Alt-Delete` | Move by words and delete the next word in the command line. |
+| `Ctrl-u` / `Ctrl-k` | Delete line text in command, search, comment, reply, and commit inputs; command-line `Ctrl-u` deletes to the cursor and `Ctrl-k` deletes to the end. In the file picker, `Ctrl-u` remains Page Up and `Ctrl-k` moves up. |
+| `Esc` / `Ctrl-c` | Close modal inputs and pickers; `q` also closes pickers without text entry. |
 ---
 
 ### Interactive Hunk & Visual Line Staging

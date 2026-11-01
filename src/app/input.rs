@@ -317,6 +317,12 @@ impl App {
             (_, KeyCode::Char('G')) => {
                 self.cursor_to_bottom();
             }
+            (_, KeyCode::Home) => {
+                self.cursor_to_top();
+            }
+            (_, KeyCode::End) => {
+                self.cursor_to_bottom();
+            }
             (_, KeyCode::Char(']')) => {
                 self.pending_leader = Some(']');
                 self.status_message = Some(
@@ -618,7 +624,9 @@ impl App {
 
     pub(crate) fn handle_comment_list_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.leave_directive_modal();
             }
             (_, KeyCode::Enter) => {
@@ -629,16 +637,28 @@ impl App {
                 }
                 self.leave_directive_modal();
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.comment_list_selected_idx > 0 {
                     self.comment_list_selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.comments.is_empty()
                     && self.comment_list_selected_idx < self.comments.len() - 1
                 {
                     self.comment_list_selected_idx += 1;
+                }
+            }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.comment_list_selected_idx = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.comments.is_empty() {
+                    self.comment_list_selected_idx = self.comments.len() - 1;
                 }
             }
             (_, KeyCode::PageDown)
@@ -705,7 +725,9 @@ impl App {
 
     pub(crate) fn handle_thread_view_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Enter) => {
@@ -716,25 +738,41 @@ impl App {
                 }
                 self.active_view = ActiveView::Diff;
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.thread_selected_idx > 0 {
                     self.thread_selected_idx -= 1;
                     self.thread_scroll_offset = 0;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.threads.is_empty() && self.thread_selected_idx < self.threads.len() - 1 {
                     self.thread_selected_idx += 1;
                     self.thread_scroll_offset = 0;
                 }
             }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.thread_selected_idx = 0;
+                self.thread_scroll_offset = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.threads.is_empty() {
+                    self.thread_selected_idx = self.threads.len() - 1;
+                    self.thread_scroll_offset = 0;
+                }
+            }
             (_, KeyCode::PageDown)
             | (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('f'))
             | (_, KeyCode::Char('J')) => {
                 self.thread_scroll_offset += 3;
             }
             (_, KeyCode::PageUp)
             | (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('b'))
             | (_, KeyCode::Char('K')) => {
                 self.thread_scroll_offset = self.thread_scroll_offset.saturating_sub(3);
             }
@@ -751,17 +789,31 @@ impl App {
 
     pub(crate) fn handle_pr_picker_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.active_view = ActiveView::Diff;
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.pr.selected_idx > 0 {
                     self.pr.selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.pr.list.is_empty() && self.pr.selected_idx < self.pr.list.len() - 1 {
                     self.pr.selected_idx += 1;
+                }
+            }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.pr.selected_idx = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.pr.list.is_empty() {
+                    self.pr.selected_idx = self.pr.list.len() - 1;
                 }
             }
             (_, KeyCode::PageDown)
@@ -793,19 +845,47 @@ impl App {
 
     pub(crate) fn handle_worktree_picker_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.active_view = ActiveView::Diff;
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.worktree_picker.selected_idx > 0 {
                     self.worktree_picker.selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.worktree_picker.list.is_empty()
                     && self.worktree_picker.selected_idx < self.worktree_picker.list.len() - 1
                 {
                     self.worktree_picker.selected_idx += 1;
+                }
+            }
+            (_, KeyCode::PageDown)
+            | (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('f')) => {
+                if !self.worktree_picker.list.is_empty() {
+                    self.worktree_picker.selected_idx = (self.worktree_picker.selected_idx + 5)
+                        .min(self.worktree_picker.list.len() - 1);
+                }
+            }
+            (_, KeyCode::PageUp)
+            | (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
+                self.worktree_picker.selected_idx =
+                    self.worktree_picker.selected_idx.saturating_sub(5);
+            }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.worktree_picker.selected_idx = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.worktree_picker.list.is_empty() {
+                    self.worktree_picker.selected_idx = self.worktree_picker.list.len() - 1;
                 }
             }
             (_, KeyCode::Enter) => {
@@ -1017,11 +1097,26 @@ impl App {
                     self.file_picker.selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
                 if !self.file_picker.filtered_indices.is_empty()
                     && self.file_picker.selected_idx < self.file_picker.filtered_indices.len() - 1
                 {
                     self.file_picker.selected_idx += 1;
+                }
+            }
+            (_, KeyCode::Home) => {
+                self.file_picker.selected_idx = 0;
+            }
+            (_, KeyCode::End) => {
+                if !self.file_picker.filtered_indices.is_empty() {
+                    self.file_picker.selected_idx = self.file_picker.filtered_indices.len() - 1;
+                }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                if self.file_picker.selected_idx > 0 {
+                    self.file_picker.selected_idx -= 1;
                 }
             }
             (_, KeyCode::PageDown)
@@ -1059,7 +1154,9 @@ impl App {
 
     pub(crate) fn handle_pane_picker_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Enter) => {
@@ -1069,16 +1166,28 @@ impl App {
                 }
                 self.active_view = ActiveView::Diff;
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.pane_picker.selected_idx > 0 {
                     self.pane_picker.selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.pane_picker.list.is_empty()
                     && self.pane_picker.selected_idx < self.pane_picker.list.len() - 1
                 {
                     self.pane_picker.selected_idx += 1;
+                }
+            }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.pane_picker.selected_idx = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.pane_picker.list.is_empty() {
+                    self.pane_picker.selected_idx = self.pane_picker.list.len() - 1;
                 }
             }
             (_, KeyCode::PageDown)
@@ -1182,7 +1291,7 @@ impl App {
                 self.cycle_audit_focus(true);
             }
             // Toggle sidebar drawer
-            (_, KeyCode::Char('b')) => {
+            (KeyModifiers::NONE, KeyCode::Char('b')) => {
                 self.show_file_drawer = !self.show_file_drawer;
                 if !self.show_file_drawer && self.audit.focus == AuditPaneFocus::Files {
                     self.audit.focus = AuditPaneFocus::Issues;
@@ -1245,43 +1354,41 @@ impl App {
                     self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_sub(1);
                 }
             },
-            (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::PageDown) => {
-                match self.audit.focus {
-                    AuditPaneFocus::Files => {
-                        if !self.audit.files.is_empty() {
-                            self.selected_file_idx =
-                                (self.selected_file_idx + 10).min(self.audit.files.len() - 1);
-                        }
-                    }
-                    AuditPaneFocus::Issues => {
-                        if total > 0 {
-                            self.audit.selected_idx = (self.audit.selected_idx + 10).min(total - 1);
-                            self.audit.inspector_scroll = 0;
-                            self.sync_audit_selected_file();
-                        }
-                    }
-                    AuditPaneFocus::Inspector => {
-                        self.audit.inspector_scroll =
-                            self.audit.inspector_scroll.saturating_add(10);
+            (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('f'))
+            | (_, KeyCode::PageDown) => match self.audit.focus {
+                AuditPaneFocus::Files => {
+                    if !self.audit.files.is_empty() {
+                        self.selected_file_idx =
+                            (self.selected_file_idx + 10).min(self.audit.files.len() - 1);
                     }
                 }
-            }
-            (KeyModifiers::CONTROL, KeyCode::Char('u')) | (_, KeyCode::PageUp) => {
-                match self.audit.focus {
-                    AuditPaneFocus::Files => {
-                        self.selected_file_idx = self.selected_file_idx.saturating_sub(10);
-                    }
-                    AuditPaneFocus::Issues => {
-                        self.audit.selected_idx = self.audit.selected_idx.saturating_sub(10);
+                AuditPaneFocus::Issues => {
+                    if total > 0 {
+                        self.audit.selected_idx = (self.audit.selected_idx + 10).min(total - 1);
                         self.audit.inspector_scroll = 0;
                         self.sync_audit_selected_file();
                     }
-                    AuditPaneFocus::Inspector => {
-                        self.audit.inspector_scroll =
-                            self.audit.inspector_scroll.saturating_sub(10);
-                    }
                 }
-            }
+                AuditPaneFocus::Inspector => {
+                    self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_add(10);
+                }
+            },
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('b'))
+            | (_, KeyCode::PageUp) => match self.audit.focus {
+                AuditPaneFocus::Files => {
+                    self.selected_file_idx = self.selected_file_idx.saturating_sub(10);
+                }
+                AuditPaneFocus::Issues => {
+                    self.audit.selected_idx = self.audit.selected_idx.saturating_sub(10);
+                    self.audit.inspector_scroll = 0;
+                    self.sync_audit_selected_file();
+                }
+                AuditPaneFocus::Inspector => {
+                    self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_sub(10);
+                }
+            },
             (_, KeyCode::Char('}')) => match self.audit.focus {
                 AuditPaneFocus::Inspector => {
                     self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_add(5);
@@ -1308,6 +1415,35 @@ impl App {
                 self.pending_leader = Some('g');
             }
             (_, KeyCode::Char('G')) => match self.audit.focus {
+                AuditPaneFocus::Files => {
+                    if !self.audit.files.is_empty() {
+                        self.selected_file_idx = self.audit.files.len() - 1;
+                    }
+                }
+                AuditPaneFocus::Issues => {
+                    if total > 0 {
+                        self.audit.selected_idx = total - 1;
+                        self.sync_audit_selected_file();
+                    }
+                }
+                AuditPaneFocus::Inspector => {
+                    self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_add(50);
+                }
+            },
+            (_, KeyCode::Home) => match self.audit.focus {
+                AuditPaneFocus::Files => {
+                    self.selected_file_idx = 0;
+                }
+                AuditPaneFocus::Issues => {
+                    self.audit.selected_idx = 0;
+                    self.audit.inspector_scroll = 0;
+                    self.sync_audit_selected_file();
+                }
+                AuditPaneFocus::Inspector => {
+                    self.audit.inspector_scroll = 0;
+                }
+            },
+            (_, KeyCode::End) => match self.audit.focus {
                 AuditPaneFocus::Files => {
                     if !self.audit.files.is_empty() {
                         self.selected_file_idx = self.audit.files.len() - 1;
@@ -1610,10 +1746,13 @@ impl App {
                 self.markdown_preview.move_cursor(-1, vh);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('f'))
             | (KeyModifiers::NONE, KeyCode::PageDown) => {
                 self.markdown_preview.move_cursor(15, vh);
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('u')) | (KeyModifiers::NONE, KeyCode::PageUp) => {
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('b'))
+            | (KeyModifiers::NONE, KeyCode::PageUp) => {
                 self.markdown_preview.move_cursor(-15, vh);
             }
             (KeyModifiers::NONE, KeyCode::Char('g')) | (KeyModifiers::NONE, KeyCode::Home) => {
@@ -3815,5 +3954,204 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
         assert_eq!(app.command.input, "hello  rocket");
         assert_eq!(app.command.cursor, 6);
+    }
+
+    fn picker_selection(app: &App, view: ActiveView) -> usize {
+        match view {
+            ActiveView::FilePicker => app.file_picker.selected_idx,
+            ActiveView::PanePicker => app.pane_picker.selected_idx,
+            ActiveView::CommentList => app.comment_list_selected_idx,
+            ActiveView::ThreadView => app.thread_selected_idx,
+            ActiveView::PrPicker => app.pr.selected_idx,
+            ActiveView::WorktreePicker => app.worktree_picker.selected_idx,
+            _ => panic!("not a list picker: {view:?}"),
+        }
+    }
+
+    fn set_picker_selection(app: &mut App, view: ActiveView, index: usize) {
+        match view {
+            ActiveView::FilePicker => app.file_picker.selected_idx = index,
+            ActiveView::PanePicker => app.pane_picker.selected_idx = index,
+            ActiveView::CommentList => app.comment_list_selected_idx = index,
+            ActiveView::ThreadView => app.thread_selected_idx = index,
+            ActiveView::PrPicker => app.pr.selected_idx = index,
+            ActiveView::WorktreePicker => app.worktree_picker.selected_idx = index,
+            _ => panic!("not a list picker: {view:?}"),
+        }
+    }
+
+    #[test]
+    fn universal_navigation_bindings_cover_all_list_pickers() {
+        use lgtm_core::git::WorktreeInfo;
+
+        let mut app = diff_app();
+        app.file_picker.filtered_indices = (0..8).collect();
+        app.pane_picker.list = (0..8)
+            .map(|i| crate::ipc::TmuxPane {
+                id: format!("%{i}"),
+                title: "t".into(),
+                active: false,
+            })
+            .collect();
+        app.comments = (0..8)
+            .map(|i| comment_at(&format!("f{i}.rs"), i + 1, "comment"))
+            .collect();
+        app.threads = (0..8)
+            .map(|i| thread(&format!("t{i}"), &format!("f{i}.rs"), Some(i + 1)))
+            .collect();
+        app.pr.list = (1..=8).map(pr_summary).collect();
+        app.worktree_picker.list = (0..8)
+            .map(|i| WorktreeInfo {
+                path: PathBuf::from(format!("/wt{i}")),
+                head: i.to_string(),
+                branch: Some(format!("branch-{i}")),
+                is_bare: false,
+                is_current: false,
+            })
+            .collect();
+
+        let pickers = [
+            ActiveView::FilePicker,
+            ActiveView::PanePicker,
+            ActiveView::CommentList,
+            ActiveView::ThreadView,
+            ActiveView::PrPicker,
+            ActiveView::WorktreePicker,
+        ];
+        for view in pickers {
+            app.active_view = view;
+            set_picker_selection(&mut app, view, 0);
+            for (event, expected) in [(ctrl('n'), 1), (ctrl('j'), 2)] {
+                app.handle_key(event);
+                assert_eq!(picker_selection(&app, view), expected, "{view:?}");
+            }
+            for (event, expected) in [(ctrl('p'), 1), (ctrl('k'), 0)] {
+                app.handle_key(event);
+                assert_eq!(picker_selection(&app, view), expected, "{view:?}");
+            }
+
+            for event in [KeyCode::PageDown, KeyCode::Char('d'), KeyCode::Char('f')] {
+                let event = if event == KeyCode::PageDown {
+                    key(event)
+                } else {
+                    ctrl(match event {
+                        KeyCode::Char(c) => c,
+                        _ => unreachable!(),
+                    })
+                };
+                if view == ActiveView::ThreadView {
+                    app.thread_scroll_offset = 0;
+                    app.handle_key(event);
+                    assert_eq!(app.thread_scroll_offset, 3, "{view:?}");
+                    app.handle_key(event);
+                    assert_eq!(app.thread_scroll_offset, 6, "{view:?}");
+                } else {
+                    set_picker_selection(&mut app, view, 0);
+                    app.handle_key(event);
+                    assert_eq!(picker_selection(&app, view), 5, "{view:?}");
+                    app.handle_key(event);
+                    assert_eq!(picker_selection(&app, view), 7, "{view:?}");
+                }
+            }
+            for event in [KeyCode::PageUp, KeyCode::Char('u'), KeyCode::Char('b')] {
+                let event = if event == KeyCode::PageUp {
+                    key(event)
+                } else {
+                    ctrl(match event {
+                        KeyCode::Char(c) => c,
+                        _ => unreachable!(),
+                    })
+                };
+                if view == ActiveView::ThreadView {
+                    app.thread_scroll_offset = 6;
+                    app.handle_key(event);
+                    assert_eq!(app.thread_scroll_offset, 3, "{view:?}");
+                    app.handle_key(event);
+                    assert_eq!(app.thread_scroll_offset, 0, "{view:?}");
+                } else {
+                    set_picker_selection(&mut app, view, 7);
+                    app.handle_key(event);
+                    assert_eq!(picker_selection(&app, view), 2, "{view:?}");
+                    app.handle_key(event);
+                    assert_eq!(picker_selection(&app, view), 0, "{view:?}");
+                }
+            }
+
+            set_picker_selection(&mut app, view, 4);
+            app.handle_key(key(KeyCode::Home));
+            assert_eq!(picker_selection(&app, view), 0, "{view:?}");
+            app.handle_key(key(KeyCode::End));
+            assert_eq!(picker_selection(&app, view), 7, "{view:?}");
+            if view != ActiveView::FilePicker {
+                app.handle_key(key(KeyCode::Char('g')));
+                assert_eq!(picker_selection(&app, view), 0, "{view:?}");
+                app.handle_key(key(KeyCode::Char('G')));
+                assert_eq!(picker_selection(&app, view), 7, "{view:?}");
+            }
+        }
+
+        for view in [
+            ActiveView::PanePicker,
+            ActiveView::CommentList,
+            ActiveView::ThreadView,
+            ActiveView::PrPicker,
+            ActiveView::WorktreePicker,
+        ] {
+            for event in [ctrl('c'), key(KeyCode::Char('q'))] {
+                app.active_view = view;
+                app.handle_key(event);
+                assert_eq!(app.active_view, ActiveView::Diff, "{view:?}");
+            }
+        }
+        app.active_view = ActiveView::FilePicker;
+        app.handle_key(ctrl('c'));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn universal_page_navigation_covers_document_views() {
+        let mut app = diff_app();
+        app.active_view = ActiveView::Diff;
+        app.cursor_line_idx = 2;
+        app.handle_key(key(KeyCode::Home));
+        assert_eq!(app.cursor_line_idx, 0);
+        app.handle_key(key(KeyCode::End));
+        assert_eq!(app.cursor_line_idx, app.current_file_line_count() - 1);
+
+        app.markdown_preview.rendered_rows = (0..30)
+            .map(|_| crate::app::markdown::RenderedMarkdownRow {
+                line_number: None,
+                diff_kind: crate::app::markdown::MarkdownDiffKind::Unchanged,
+                spans: vec![],
+            })
+            .collect();
+        app.markdown_preview.viewport_height = 5;
+        app.active_view = ActiveView::MarkdownPreview;
+        app.handle_key(ctrl('f'));
+        assert_eq!(app.markdown_preview.cursor_row, 15);
+        app.handle_key(ctrl('b'));
+        assert_eq!(app.markdown_preview.cursor_row, 0);
+        app.handle_key(key(KeyCode::End));
+        assert_eq!(app.markdown_preview.cursor_row, 29);
+        app.handle_key(key(KeyCode::Home));
+        assert_eq!(app.markdown_preview.cursor_row, 0);
+
+        use crate::guard::Severity;
+        app.audit.alerts = (0..15)
+            .map(|i| alert_at(&format!("f{}.rs", i % 3), i + 1, Severity::High))
+            .collect();
+        app.audit.focus = AuditPaneFocus::Issues;
+        app.audit.selected_idx = 0;
+        app.active_view = ActiveView::AuditReport;
+        app.handle_key(ctrl('f'));
+        assert_eq!(app.audit.selected_idx, 10);
+        app.handle_key(ctrl('f'));
+        assert_eq!(app.audit.selected_idx, 14);
+        app.handle_key(ctrl('b'));
+        assert_eq!(app.audit.selected_idx, 4);
+        app.handle_key(key(KeyCode::Home));
+        assert_eq!(app.audit.selected_idx, 0);
+        app.handle_key(key(KeyCode::End));
+        assert_eq!(app.audit.selected_idx, 14);
     }
 }
