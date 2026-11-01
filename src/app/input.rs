@@ -453,21 +453,32 @@ impl App {
     }
 
     pub(crate) fn handle_search_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.active_view = ActiveView::Diff;
             }
-            KeyCode::Enter => {
+            (_, KeyCode::Enter) => {
                 let query = self.search_query.clone();
                 if !query.is_empty() {
                     self.execute_search(&query);
                 }
                 self.active_view = ActiveView::Diff;
             }
-            KeyCode::Backspace => {
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.search_query);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                self.search_query.clear();
+            }
+            (_, KeyCode::Backspace) => {
                 self.search_query.pop();
             }
-            KeyCode::Char(c) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.search_query.push(c);
             }
             _ => {}
@@ -479,6 +490,12 @@ impl App {
             (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.command.reset();
                 self.active_view = ActiveView::Diff;
+            }
+            (KeyModifiers::ALT, KeyCode::Char('b')) | (KeyModifiers::CONTROL, KeyCode::Left) => {
+                self.command.move_word_backward();
+            }
+            (KeyModifiers::ALT, KeyCode::Char('f')) | (KeyModifiers::CONTROL, KeyCode::Right) => {
+                self.command.move_word_forward();
             }
             (_, KeyCode::Left) => {
                 self.command.move_left();
@@ -492,8 +509,15 @@ impl App {
             (_, KeyCode::End) | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
                 self.command.move_end();
             }
+            (KeyModifiers::ALT, KeyCode::Char('d')) | (KeyModifiers::ALT, KeyCode::Delete) => {
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
+                self.command.delete_word_forward();
+            }
             (KeyModifiers::CONTROL, KeyCode::Char('w'))
-            | (KeyModifiers::ALT, KeyCode::Backspace) => {
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
                 self.command.completions.clear();
                 self.command.completion_idx = None;
                 self.command.prefix.clear();
@@ -580,7 +604,9 @@ impl App {
                     self.active_view = ActiveView::Diff;
                 }
             }
-            (_, KeyCode::Char(c)) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.command.completions.clear();
                 self.command.completion_idx = None;
                 self.command.prefix.clear();
@@ -857,13 +883,13 @@ impl App {
     }
 
     pub(crate) fn handle_comment_reply_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.comment_reply_input.clear();
                 self.comment_reply_target_idx = None;
                 self.active_view = ActiveView::Diff;
             }
-            KeyCode::Enter => {
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) | (_, KeyCode::Enter) => {
                 if !self.comment_reply_input.trim().is_empty() {
                     if let Some(idx) = self.comment_reply_target_idx {
                         if idx < self.comments.len() {
@@ -885,10 +911,21 @@ impl App {
                 self.comment_reply_target_idx = None;
                 self.active_view = ActiveView::Diff;
             }
-            KeyCode::Backspace => {
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.comment_reply_input);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                self.comment_reply_input.clear();
+            }
+            (_, KeyCode::Backspace) => {
                 self.comment_reply_input.pop();
             }
-            KeyCode::Char(c) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.comment_reply_input.push(c);
             }
             _ => {}
@@ -896,12 +933,12 @@ impl App {
     }
 
     pub(crate) fn handle_comment_input_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.comment_target_alert = None;
                 self.active_view = self.comment_source_view;
             }
-            KeyCode::Enter => {
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) | (_, KeyCode::Enter) => {
                 if !self.comment_input.trim().is_empty() {
                     if !self.save_current_line_comment() {
                         return;
@@ -911,10 +948,21 @@ impl App {
                 }
                 self.active_view = self.comment_source_view;
             }
-            KeyCode::Backspace => {
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.comment_input);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                self.comment_input.clear();
+            }
+            (_, KeyCode::Backspace) => {
                 self.comment_input.pop();
             }
-            KeyCode::Char(c) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.comment_input.push(c);
             }
             _ => {}
@@ -949,7 +997,7 @@ impl App {
 
     pub(crate) fn handle_file_picker_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Enter) => {
@@ -989,11 +1037,19 @@ impl App {
             | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
                 self.file_picker.selected_idx = self.file_picker.selected_idx.saturating_sub(5);
             }
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.file_picker.query);
+                self.update_file_picker_filter();
+            }
             (_, KeyCode::Backspace) => {
                 self.file_picker.query.pop();
                 self.update_file_picker_filter();
             }
-            (_, KeyCode::Char(c)) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.file_picker.query.push(c);
                 self.update_file_picker_filter();
             }
@@ -1468,13 +1524,21 @@ impl App {
             (KeyModifiers::CONTROL, KeyCode::Char('s')) | (_, KeyCode::Enter) => {
                 self.execute_commit();
             }
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.commit_message_input);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                self.commit_message_input.clear();
+            }
             (_, KeyCode::Backspace) => {
                 self.commit_message_input.pop();
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
-                self.commit_message_input.clear();
-            }
-            (_, KeyCode::Char(c)) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.commit_message_input.push(c);
             }
             _ => {}
@@ -3248,5 +3312,508 @@ mod tests {
         app.command.set_text("nosuchcmd".into());
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(app.command.history.len(), 1);
+    }
+
+    #[test]
+    fn test_search_modal_key_editing_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::Search;
+        app.search_query.clear();
+
+        // 1. Safe character insertion
+        press(&mut app, "foo bar baz");
+        assert_eq!(app.search_query, "foo bar baz");
+
+        // 2. Ctrl-w backward word deletion
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "foo bar ");
+
+        // 3. Alt-Backspace backward word deletion
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.search_query, "foo ");
+
+        // 4. Ctrl-Backspace backward word deletion
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "");
+
+        // 5. Normal backspace
+        press(&mut app, "abc");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.search_query, "ab");
+
+        // 6. Ctrl-k clears query
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "");
+
+        // 7. Ctrl-u clears query
+        press(&mut app, "testing");
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "");
+
+        // 8. Modifier guard: Control and Alt chords MUST NOT insert characters
+        press(&mut app, "safe");
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "safe");
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::ALT));
+        assert_eq!(app.search_query, "safe");
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('z'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
+        assert_eq!(app.search_query, "safe");
+        app.search_query.clear();
+
+        // 9. Ctrl-c dismisses search modal
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // 10. Esc dismisses search modal
+        app.active_view = ActiveView::Search;
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_comment_input_key_editing_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.comment_source_view = ActiveView::Diff;
+        app.active_view = ActiveView::CommentInput;
+        app.comment_input.clear();
+
+        // 1. Safe character insertion
+        press(&mut app, "needs refactor later");
+        assert_eq!(app.comment_input, "needs refactor later");
+
+        // 2. Ctrl-w backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "needs refactor ");
+
+        // 3. Alt-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.comment_input, "needs ");
+
+        // 4. Ctrl-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "");
+
+        // 5. Ctrl-k clears input
+        press(&mut app, "draft 1");
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "");
+
+        // 6. Ctrl-u clears input
+        press(&mut app, "draft 2");
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "");
+
+        // 7. Modifier guard: Control and Alt chords MUST NOT insert characters
+        press(&mut app, "safe");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.comment_input, "saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.comment_input, "saf");
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
+        assert_eq!(app.comment_input, "saf");
+        app.comment_input.clear();
+
+        // 8. Ctrl-c dismisses CommentInput
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // 9. Ctrl-s saves non-empty comment
+        app.active_view = ActiveView::CommentInput;
+        press(&mut app, "approved line");
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.comments.len(), 1);
+        assert_eq!(app.comments[0].comment_text, "approved line");
+    }
+
+    #[test]
+    fn test_comment_reply_key_editing_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        seeded_comments(&mut app);
+        app.active_view = ActiveView::CommentReply;
+        app.comment_reply_target_idx = Some(1);
+        app.comment_reply_input.clear();
+
+        // 1. Safe character insertion
+        press(&mut app, "first second third");
+        assert_eq!(app.comment_reply_input, "first second third");
+
+        // 2. Ctrl-w backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "first second ");
+
+        // 3. Alt-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.comment_reply_input, "first ");
+
+        // 4. Ctrl-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "");
+
+        // 5. Ctrl-k clears reply
+        press(&mut app, "draft reply");
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "");
+
+        // 6. Ctrl-u clears reply
+        press(&mut app, "another reply");
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "");
+
+        // 7. Modifier guard: Control and Alt chords MUST NOT insert characters
+        press(&mut app, "reply safe");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.comment_reply_input, "reply saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "reply saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::ALT));
+        assert_eq!(app.comment_reply_input, "reply saf");
+        app.comment_reply_input.clear();
+
+        // 8. Ctrl-c dismisses CommentReply and clears input
+        press(&mut app, "discard this");
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert!(app.comment_reply_input.is_empty());
+        assert_eq!(app.comment_reply_target_idx, None);
+
+        // 9. Ctrl-s saves reply
+        app.active_view = ActiveView::CommentReply;
+        app.comment_reply_target_idx = Some(1);
+        press(&mut app, "looks great");
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert!(app.comments[1].replies.contains(&"looks great".to_string()));
+
+        // 10. Out-of-bounds comment reply index does not panic
+        app.active_view = ActiveView::CommentReply;
+        app.comment_reply_target_idx = Some(app.comments.len());
+        press(&mut app, "orphan reply");
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_commit_modal_key_editing_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommitModal;
+        app.commit_message_input.clear();
+
+        // 1. Safe character insertion
+        press(&mut app, "feat: implement nav");
+        assert_eq!(app.commit_message_input, "feat: implement nav");
+
+        // 2. Ctrl-w backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "feat: implement ");
+
+        // 3. Alt-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.commit_message_input, "feat: ");
+
+        // 4. Ctrl-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "feat");
+
+        // 5. Ctrl-k clears message
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "");
+
+        // 6. Ctrl-u clears message
+        press(&mut app, "fix bug");
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "");
+
+        // 7. Plain Backspace & Modifier guard: Control and Alt chords MUST NOT insert characters
+        press(&mut app, "safe");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.commit_message_input, "saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT));
+        assert_eq!(app.commit_message_input, "saf");
+        app.commit_message_input.clear();
+
+        // 8. Ctrl-c dismisses CommitModal
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_file_picker_key_editing_refiltering_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::FilePicker;
+        app.file_picker.query.clear();
+        app.update_file_picker_filter();
+        assert_eq!(app.file_picker.filtered_indices.len(), 3);
+
+        // 1. Safe character typing filters list
+        press(&mut app, "f2");
+        assert_eq!(app.file_picker.query, "f2");
+        assert_eq!(app.file_picker.filtered_indices, vec![2]);
+
+        // 2. Ctrl-w backward word deletion + refiltering
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.query, "");
+        assert_eq!(app.file_picker.filtered_indices.len(), 3);
+
+        // 3. Alt-Backspace backward word deletion + refiltering
+        press(&mut app, "f1 extra");
+        assert_eq!(app.file_picker.query, "f1 extra");
+        assert_eq!(app.file_picker.filtered_indices, Vec::<usize>::new());
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.file_picker.query, "f1 ");
+        assert_eq!(app.file_picker.filtered_indices, Vec::<usize>::new());
+
+        // 4. Ctrl-Backspace backward word deletion + refiltering
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.query, "");
+        assert_eq!(app.file_picker.filtered_indices.len(), 3);
+
+        // 5. Retaining Ctrl-u for PageUp and Ctrl-k for Up (ASM-GEN-2)
+        press(&mut app, "f");
+        app.file_picker.selected_idx = 2;
+        // Ctrl-k navigates UP, does NOT clear query
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.selected_idx, 1);
+        assert_eq!(app.file_picker.query, "f");
+
+        // Ctrl-u navigates PageUp, does NOT clear query
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.selected_idx, 0);
+        assert_eq!(app.file_picker.query, "f");
+
+        // 6. Modifier guard: unhandled Control and Alt chords MUST NOT append to query
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.query, "f");
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::ALT));
+        assert_eq!(app.file_picker.query, "f");
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('z'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
+        assert_eq!(app.file_picker.query, "f");
+
+        // 7. Ctrl-c dismisses FilePicker
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn command_line_forward_word_deletion_alt_d_and_alt_delete() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+
+        // 1. Alt-d from start of line
+        app.command.set_text("audit issues".into());
+        app.command.cursor = 0;
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, " issues");
+        assert_eq!(app.command.cursor, 0);
+
+        // 2. Alt-Delete from within word
+        app.command.set_text("audit issues".into());
+        app.command.cursor = 2; // "au|dit issues"
+        app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::ALT));
+        assert_eq!(app.command.input, "au issues");
+        assert_eq!(app.command.cursor, 2);
+
+        // 3. Alt-d across whitespace and next word
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "au");
+        assert_eq!(app.command.cursor, 2);
+
+        // 4. Alt-Delete at end of input is a no-op
+        app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::ALT));
+        assert_eq!(app.command.input, "au");
+        assert_eq!(app.command.cursor, 2);
+
+        // 5. Alt-d on punctuation tokens
+        app.command.set_text("foo-bar".into());
+        app.command.cursor = 0;
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "-bar");
+        assert_eq!(app.command.cursor, 0);
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "bar");
+        assert_eq!(app.command.cursor, 0);
+
+        // 6. Completions and prefix clearing on forward word deletion
+        app.command.completions = vec!["completion".into()];
+        app.command.completion_idx = Some(0);
+        app.command.prefix = "comp".into();
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert!(app.command.completions.is_empty());
+        assert_eq!(app.command.completion_idx, None);
+        assert!(app.command.prefix.is_empty());
+    }
+
+    #[test]
+    fn command_line_word_navigation_alt_b_ctrl_left_alt_f_ctrl_right() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+        app.command.set_text("audit issues --all".into());
+        assert_eq!(app.command.cursor, 18);
+
+        // 1. Alt-b moves backward past "all"
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 15);
+
+        // 2. Ctrl-Left moves backward past "--"
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 13);
+
+        // 3. Alt-b moves backward past "issues"
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 6);
+
+        // 4. Ctrl-Left moves backward past "audit" to 0
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 0);
+
+        // 5. Clamping at 0: further Alt-b or Ctrl-Left remains at 0
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 0);
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 0);
+
+        // 6. Alt-f moves forward past "audit"
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 5);
+
+        // 7. Ctrl-Right moves forward past "issues"
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 12);
+
+        // 8. Alt-f moves forward past "--"
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 15);
+
+        // 9. Ctrl-Right moves forward past "all" to end (18)
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 18);
+
+        // 10. Clamping at end: further Alt-f or Ctrl-Right remains at 18
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 18);
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 18);
+    }
+
+    #[test]
+    fn command_line_backward_word_deletion_ctrl_backspace() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+
+        // 1. Ctrl-Backspace backward deletion
+        app.command.set_text("git status --short".into());
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "git status --");
+        assert_eq!(app.command.cursor, 13);
+
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "git status ");
+        assert_eq!(app.command.cursor, 11);
+
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "git ");
+        assert_eq!(app.command.cursor, 4);
+
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+
+        // 2. Ctrl-Backspace on empty input MUST NOT exit command line mode
+        // (unlike plain Backspace which exits to ActiveView::Diff)
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::CommandLine);
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+
+        // Compare with plain Backspace on empty input
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn command_line_modifier_guard_rejects_control_and_alt_chords() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+        app.command.set_text("test".into());
+
+        // 1. Chords with CONTROL modifier must NOT insert characters
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "test");
+
+        // 2. Chords with ALT modifier must NOT insert characters
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT));
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::ALT));
+        app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "test");
+
+        // 3. Combined CONTROL | ALT chords must NOT insert characters
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('a'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
+        assert_eq!(app.command.input, "test");
+
+        // 4. Normal character input without CONTROL or ALT must insert
+        app.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+        assert_eq!(app.command.input, "testi");
+
+        // 5. Shifted character input must insert
+        app.handle_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT));
+        assert_eq!(app.command.input, "testiN");
+
+        // 6. BackTab and Shift-Tab cycling autocomplete_prev
+        app.command.completions = vec!["apple".into(), "banana".into(), "cherry".into()];
+        app.command.completion_idx = Some(2);
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
+        assert_eq!(app.command.completion_idx, Some(1));
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT));
+        assert_eq!(app.command.completion_idx, Some(0));
+    }
+
+    #[test]
+    fn command_line_utf8_word_navigation_and_deletion() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+
+        app.command.set_text("hello 🦀 rocket".into());
+        assert_eq!(app.command.cursor, 14);
+
+        // Move word backward
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 8); // at start of "rocket"
+
+        // Move word backward over emoji
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 6); // at start of "🦀"
+
+        // Delete forward word over emoji
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "hello  rocket");
+        assert_eq!(app.command.cursor, 6);
     }
 }
