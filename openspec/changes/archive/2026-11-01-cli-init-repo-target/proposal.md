@@ -36,4 +36,4 @@ The early `--init` path bypasses CLI parsing and hardcodes the current directory
 - `--init` without `--repo` retains existing default behavior.
 
 ## Review Gate
-- [ ] **Gate 1 Approval**: Proposal reviewed and approved by human before drafting specs.
+- [x] **Gate 1 Approval**: Proposal reviewed and approved by human before drafting specs.

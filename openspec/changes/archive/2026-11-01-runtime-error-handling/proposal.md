@@ -37,4 +37,4 @@ The UI loop can return before restoring terminal modes, leaving the user's termi
 - Focused regression tests cover both failures.
 
 ## Review Gate
-- [ ] **Gate 1 Approval**: Proposal reviewed and approved by human before drafting specs.
+- [x] **Gate 1 Approval**: Proposal reviewed and approved by human before drafting specs.

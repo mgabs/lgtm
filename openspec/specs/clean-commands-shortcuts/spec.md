@@ -93,3 +93,15 @@ The help modal's seven tabs (Overview & Modes, Motions & Navigation, Review & Ag
 #### Scenario: Staging tab
 - **WHEN** the Staging & Commit Forge tab is opened
 - **THEN** it lists `s/S`, `u/U`, `x/X` as hunk/file pairs and `C` / `:commit`
+
+### Requirement: REQ-CLI-1 Initialization Repository Target
+The CLI MUST initialize the repository selected by `--repo` when `--init` is supplied, and MUST use the current directory when no repository is selected.
+
+#### Scenario: Initialize selected repository
+- **WHEN** the user runs `lgtm --init --repo <path>`
+- **THEN** initialization targets `<path>` and does not initialize the current directory instead
+
+#### Scenario: Initialize default repository
+- **WHEN** the user runs `lgtm --init` without `--repo`
+- **THEN** initialization targets the current directory
+
