@@ -317,6 +317,12 @@ impl App {
             (_, KeyCode::Char('G')) => {
                 self.cursor_to_bottom();
             }
+            (_, KeyCode::Home) => {
+                self.cursor_to_top();
+            }
+            (_, KeyCode::End) => {
+                self.cursor_to_bottom();
+            }
             (_, KeyCode::Char(']')) => {
                 self.pending_leader = Some(']');
                 self.status_message = Some(
@@ -453,21 +459,32 @@ impl App {
     }
 
     pub(crate) fn handle_search_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.active_view = ActiveView::Diff;
             }
-            KeyCode::Enter => {
+            (_, KeyCode::Enter) => {
                 let query = self.search_query.clone();
                 if !query.is_empty() {
                     self.execute_search(&query);
                 }
                 self.active_view = ActiveView::Diff;
             }
-            KeyCode::Backspace => {
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.search_query);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                self.search_query.clear();
+            }
+            (_, KeyCode::Backspace) => {
                 self.search_query.pop();
             }
-            KeyCode::Char(c) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.search_query.push(c);
             }
             _ => {}
@@ -479,6 +496,12 @@ impl App {
             (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.command.reset();
                 self.active_view = ActiveView::Diff;
+            }
+            (KeyModifiers::ALT, KeyCode::Char('b')) | (KeyModifiers::CONTROL, KeyCode::Left) => {
+                self.command.move_word_backward();
+            }
+            (KeyModifiers::ALT, KeyCode::Char('f')) | (KeyModifiers::CONTROL, KeyCode::Right) => {
+                self.command.move_word_forward();
             }
             (_, KeyCode::Left) => {
                 self.command.move_left();
@@ -492,8 +515,15 @@ impl App {
             (_, KeyCode::End) | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
                 self.command.move_end();
             }
+            (KeyModifiers::ALT, KeyCode::Char('d')) | (KeyModifiers::ALT, KeyCode::Delete) => {
+                self.command.completions.clear();
+                self.command.completion_idx = None;
+                self.command.prefix.clear();
+                self.command.delete_word_forward();
+            }
             (KeyModifiers::CONTROL, KeyCode::Char('w'))
-            | (KeyModifiers::ALT, KeyCode::Backspace) => {
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
                 self.command.completions.clear();
                 self.command.completion_idx = None;
                 self.command.prefix.clear();
@@ -580,7 +610,9 @@ impl App {
                     self.active_view = ActiveView::Diff;
                 }
             }
-            (_, KeyCode::Char(c)) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.command.completions.clear();
                 self.command.completion_idx = None;
                 self.command.prefix.clear();
@@ -592,7 +624,9 @@ impl App {
 
     pub(crate) fn handle_comment_list_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.leave_directive_modal();
             }
             (_, KeyCode::Enter) => {
@@ -603,16 +637,28 @@ impl App {
                 }
                 self.leave_directive_modal();
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.comment_list_selected_idx > 0 {
                     self.comment_list_selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.comments.is_empty()
                     && self.comment_list_selected_idx < self.comments.len() - 1
                 {
                     self.comment_list_selected_idx += 1;
+                }
+            }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.comment_list_selected_idx = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.comments.is_empty() {
+                    self.comment_list_selected_idx = self.comments.len() - 1;
                 }
             }
             (_, KeyCode::PageDown)
@@ -679,7 +725,9 @@ impl App {
 
     pub(crate) fn handle_thread_view_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Enter) => {
@@ -690,25 +738,41 @@ impl App {
                 }
                 self.active_view = ActiveView::Diff;
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.thread_selected_idx > 0 {
                     self.thread_selected_idx -= 1;
                     self.thread_scroll_offset = 0;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.threads.is_empty() && self.thread_selected_idx < self.threads.len() - 1 {
                     self.thread_selected_idx += 1;
                     self.thread_scroll_offset = 0;
                 }
             }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.thread_selected_idx = 0;
+                self.thread_scroll_offset = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.threads.is_empty() {
+                    self.thread_selected_idx = self.threads.len() - 1;
+                    self.thread_scroll_offset = 0;
+                }
+            }
             (_, KeyCode::PageDown)
             | (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('f'))
             | (_, KeyCode::Char('J')) => {
                 self.thread_scroll_offset += 3;
             }
             (_, KeyCode::PageUp)
             | (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('b'))
             | (_, KeyCode::Char('K')) => {
                 self.thread_scroll_offset = self.thread_scroll_offset.saturating_sub(3);
             }
@@ -725,17 +789,31 @@ impl App {
 
     pub(crate) fn handle_pr_picker_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.active_view = ActiveView::Diff;
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.pr.selected_idx > 0 {
                     self.pr.selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.pr.list.is_empty() && self.pr.selected_idx < self.pr.list.len() - 1 {
                     self.pr.selected_idx += 1;
+                }
+            }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.pr.selected_idx = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.pr.list.is_empty() {
+                    self.pr.selected_idx = self.pr.list.len() - 1;
                 }
             }
             (_, KeyCode::PageDown)
@@ -767,19 +845,47 @@ impl App {
 
     pub(crate) fn handle_worktree_picker_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.active_view = ActiveView::Diff;
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.worktree_picker.selected_idx > 0 {
                     self.worktree_picker.selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.worktree_picker.list.is_empty()
                     && self.worktree_picker.selected_idx < self.worktree_picker.list.len() - 1
                 {
                     self.worktree_picker.selected_idx += 1;
+                }
+            }
+            (_, KeyCode::PageDown)
+            | (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('f')) => {
+                if !self.worktree_picker.list.is_empty() {
+                    self.worktree_picker.selected_idx = (self.worktree_picker.selected_idx + 5)
+                        .min(self.worktree_picker.list.len() - 1);
+                }
+            }
+            (_, KeyCode::PageUp)
+            | (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
+                self.worktree_picker.selected_idx =
+                    self.worktree_picker.selected_idx.saturating_sub(5);
+            }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.worktree_picker.selected_idx = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.worktree_picker.list.is_empty() {
+                    self.worktree_picker.selected_idx = self.worktree_picker.list.len() - 1;
                 }
             }
             (_, KeyCode::Enter) => {
@@ -857,13 +963,13 @@ impl App {
     }
 
     pub(crate) fn handle_comment_reply_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.comment_reply_input.clear();
                 self.comment_reply_target_idx = None;
                 self.active_view = ActiveView::Diff;
             }
-            KeyCode::Enter => {
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) | (_, KeyCode::Enter) => {
                 if !self.comment_reply_input.trim().is_empty() {
                     if let Some(idx) = self.comment_reply_target_idx {
                         if idx < self.comments.len() {
@@ -885,10 +991,21 @@ impl App {
                 self.comment_reply_target_idx = None;
                 self.active_view = ActiveView::Diff;
             }
-            KeyCode::Backspace => {
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.comment_reply_input);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                self.comment_reply_input.clear();
+            }
+            (_, KeyCode::Backspace) => {
                 self.comment_reply_input.pop();
             }
-            KeyCode::Char(c) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.comment_reply_input.push(c);
             }
             _ => {}
@@ -896,12 +1013,12 @@ impl App {
     }
 
     pub(crate) fn handle_comment_input_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.comment_target_alert = None;
                 self.active_view = self.comment_source_view;
             }
-            KeyCode::Enter => {
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) | (_, KeyCode::Enter) => {
                 if !self.comment_input.trim().is_empty() {
                     if !self.save_current_line_comment() {
                         return;
@@ -911,10 +1028,21 @@ impl App {
                 }
                 self.active_view = self.comment_source_view;
             }
-            KeyCode::Backspace => {
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.comment_input);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                self.comment_input.clear();
+            }
+            (_, KeyCode::Backspace) => {
                 self.comment_input.pop();
             }
-            KeyCode::Char(c) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.comment_input.push(c);
             }
             _ => {}
@@ -949,7 +1077,7 @@ impl App {
 
     pub(crate) fn handle_file_picker_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Enter) => {
@@ -969,11 +1097,26 @@ impl App {
                     self.file_picker.selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('j')) => {
                 if !self.file_picker.filtered_indices.is_empty()
                     && self.file_picker.selected_idx < self.file_picker.filtered_indices.len() - 1
                 {
                     self.file_picker.selected_idx += 1;
+                }
+            }
+            (_, KeyCode::Home) => {
+                self.file_picker.selected_idx = 0;
+            }
+            (_, KeyCode::End) => {
+                if !self.file_picker.filtered_indices.is_empty() {
+                    self.file_picker.selected_idx = self.file_picker.filtered_indices.len() - 1;
+                }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                if self.file_picker.selected_idx > 0 {
+                    self.file_picker.selected_idx -= 1;
                 }
             }
             (_, KeyCode::PageDown)
@@ -989,11 +1132,19 @@ impl App {
             | (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
                 self.file_picker.selected_idx = self.file_picker.selected_idx.saturating_sub(5);
             }
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.file_picker.query);
+                self.update_file_picker_filter();
+            }
             (_, KeyCode::Backspace) => {
                 self.file_picker.query.pop();
                 self.update_file_picker_filter();
             }
-            (_, KeyCode::Char(c)) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.file_picker.query.push(c);
                 self.update_file_picker_filter();
             }
@@ -1003,7 +1154,9 @@ impl App {
 
     pub(crate) fn handle_pane_picker_key(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
+            (_, KeyCode::Esc)
+            | (KeyModifiers::CONTROL, KeyCode::Char('c'))
+            | (_, KeyCode::Char('q')) => {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Enter) => {
@@ -1013,16 +1166,28 @@ impl App {
                 }
                 self.active_view = ActiveView::Diff;
             }
-            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+            (_, KeyCode::Up)
+            | (KeyModifiers::CONTROL, KeyCode::Char('p'))
+            | (_, KeyCode::Char('k')) => {
                 if self.pane_picker.selected_idx > 0 {
                     self.pane_picker.selected_idx -= 1;
                 }
             }
-            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            (_, KeyCode::Down)
+            | (KeyModifiers::CONTROL, KeyCode::Char('n'))
+            | (_, KeyCode::Char('j')) => {
                 if !self.pane_picker.list.is_empty()
                     && self.pane_picker.selected_idx < self.pane_picker.list.len() - 1
                 {
                     self.pane_picker.selected_idx += 1;
+                }
+            }
+            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
+                self.pane_picker.selected_idx = 0;
+            }
+            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
+                if !self.pane_picker.list.is_empty() {
+                    self.pane_picker.selected_idx = self.pane_picker.list.len() - 1;
                 }
             }
             (_, KeyCode::PageDown)
@@ -1126,7 +1291,7 @@ impl App {
                 self.cycle_audit_focus(true);
             }
             // Toggle sidebar drawer
-            (_, KeyCode::Char('b')) => {
+            (KeyModifiers::NONE, KeyCode::Char('b')) => {
                 self.show_file_drawer = !self.show_file_drawer;
                 if !self.show_file_drawer && self.audit.focus == AuditPaneFocus::Files {
                     self.audit.focus = AuditPaneFocus::Issues;
@@ -1189,43 +1354,41 @@ impl App {
                     self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_sub(1);
                 }
             },
-            (KeyModifiers::CONTROL, KeyCode::Char('d')) | (_, KeyCode::PageDown) => {
-                match self.audit.focus {
-                    AuditPaneFocus::Files => {
-                        if !self.audit.files.is_empty() {
-                            self.selected_file_idx =
-                                (self.selected_file_idx + 10).min(self.audit.files.len() - 1);
-                        }
-                    }
-                    AuditPaneFocus::Issues => {
-                        if total > 0 {
-                            self.audit.selected_idx = (self.audit.selected_idx + 10).min(total - 1);
-                            self.audit.inspector_scroll = 0;
-                            self.sync_audit_selected_file();
-                        }
-                    }
-                    AuditPaneFocus::Inspector => {
-                        self.audit.inspector_scroll =
-                            self.audit.inspector_scroll.saturating_add(10);
+            (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('f'))
+            | (_, KeyCode::PageDown) => match self.audit.focus {
+                AuditPaneFocus::Files => {
+                    if !self.audit.files.is_empty() {
+                        self.selected_file_idx =
+                            (self.selected_file_idx + 10).min(self.audit.files.len() - 1);
                     }
                 }
-            }
-            (KeyModifiers::CONTROL, KeyCode::Char('u')) | (_, KeyCode::PageUp) => {
-                match self.audit.focus {
-                    AuditPaneFocus::Files => {
-                        self.selected_file_idx = self.selected_file_idx.saturating_sub(10);
-                    }
-                    AuditPaneFocus::Issues => {
-                        self.audit.selected_idx = self.audit.selected_idx.saturating_sub(10);
+                AuditPaneFocus::Issues => {
+                    if total > 0 {
+                        self.audit.selected_idx = (self.audit.selected_idx + 10).min(total - 1);
                         self.audit.inspector_scroll = 0;
                         self.sync_audit_selected_file();
                     }
-                    AuditPaneFocus::Inspector => {
-                        self.audit.inspector_scroll =
-                            self.audit.inspector_scroll.saturating_sub(10);
-                    }
                 }
-            }
+                AuditPaneFocus::Inspector => {
+                    self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_add(10);
+                }
+            },
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('b'))
+            | (_, KeyCode::PageUp) => match self.audit.focus {
+                AuditPaneFocus::Files => {
+                    self.selected_file_idx = self.selected_file_idx.saturating_sub(10);
+                }
+                AuditPaneFocus::Issues => {
+                    self.audit.selected_idx = self.audit.selected_idx.saturating_sub(10);
+                    self.audit.inspector_scroll = 0;
+                    self.sync_audit_selected_file();
+                }
+                AuditPaneFocus::Inspector => {
+                    self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_sub(10);
+                }
+            },
             (_, KeyCode::Char('}')) => match self.audit.focus {
                 AuditPaneFocus::Inspector => {
                     self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_add(5);
@@ -1252,6 +1415,35 @@ impl App {
                 self.pending_leader = Some('g');
             }
             (_, KeyCode::Char('G')) => match self.audit.focus {
+                AuditPaneFocus::Files => {
+                    if !self.audit.files.is_empty() {
+                        self.selected_file_idx = self.audit.files.len() - 1;
+                    }
+                }
+                AuditPaneFocus::Issues => {
+                    if total > 0 {
+                        self.audit.selected_idx = total - 1;
+                        self.sync_audit_selected_file();
+                    }
+                }
+                AuditPaneFocus::Inspector => {
+                    self.audit.inspector_scroll = self.audit.inspector_scroll.saturating_add(50);
+                }
+            },
+            (_, KeyCode::Home) => match self.audit.focus {
+                AuditPaneFocus::Files => {
+                    self.selected_file_idx = 0;
+                }
+                AuditPaneFocus::Issues => {
+                    self.audit.selected_idx = 0;
+                    self.audit.inspector_scroll = 0;
+                    self.sync_audit_selected_file();
+                }
+                AuditPaneFocus::Inspector => {
+                    self.audit.inspector_scroll = 0;
+                }
+            },
+            (_, KeyCode::End) => match self.audit.focus {
                 AuditPaneFocus::Files => {
                     if !self.audit.files.is_empty() {
                         self.selected_file_idx = self.audit.files.len() - 1;
@@ -1468,13 +1660,21 @@ impl App {
             (KeyModifiers::CONTROL, KeyCode::Char('s')) | (_, KeyCode::Enter) => {
                 self.execute_commit();
             }
+            (KeyModifiers::CONTROL, KeyCode::Char('w'))
+            | (KeyModifiers::ALT, KeyCode::Backspace)
+            | (KeyModifiers::CONTROL, KeyCode::Backspace) => {
+                crate::app::state::delete_word_backward_str(&mut self.commit_message_input);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+                self.commit_message_input.clear();
+            }
             (_, KeyCode::Backspace) => {
                 self.commit_message_input.pop();
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
-                self.commit_message_input.clear();
-            }
-            (_, KeyCode::Char(c)) => {
+            (mods, KeyCode::Char(c))
+                if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.commit_message_input.push(c);
             }
             _ => {}
@@ -1546,10 +1746,13 @@ impl App {
                 self.markdown_preview.move_cursor(-1, vh);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('d'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('f'))
             | (KeyModifiers::NONE, KeyCode::PageDown) => {
                 self.markdown_preview.move_cursor(15, vh);
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('u')) | (KeyModifiers::NONE, KeyCode::PageUp) => {
+            (KeyModifiers::CONTROL, KeyCode::Char('u'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('b'))
+            | (KeyModifiers::NONE, KeyCode::PageUp) => {
                 self.markdown_preview.move_cursor(-15, vh);
             }
             (KeyModifiers::NONE, KeyCode::Char('g')) | (KeyModifiers::NONE, KeyCode::Home) => {
@@ -3248,5 +3451,707 @@ mod tests {
         app.command.set_text("nosuchcmd".into());
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(app.command.history.len(), 1);
+    }
+
+    #[test]
+    fn test_search_modal_key_editing_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::Search;
+        app.search_query.clear();
+
+        // 1. Safe character insertion
+        press(&mut app, "foo bar baz");
+        assert_eq!(app.search_query, "foo bar baz");
+
+        // 2. Ctrl-w backward word deletion
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "foo bar ");
+
+        // 3. Alt-Backspace backward word deletion
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.search_query, "foo ");
+
+        // 4. Ctrl-Backspace backward word deletion
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "");
+
+        // 5. Normal backspace
+        press(&mut app, "abc");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.search_query, "ab");
+
+        // 6. Ctrl-k clears query
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "");
+
+        // 7. Ctrl-u clears query
+        press(&mut app, "testing");
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "");
+
+        // 8. Modifier guard: Control and Alt chords MUST NOT insert characters
+        press(&mut app, "safe");
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        assert_eq!(app.search_query, "safe");
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::ALT));
+        assert_eq!(app.search_query, "safe");
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('z'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
+        assert_eq!(app.search_query, "safe");
+        app.search_query.clear();
+
+        // 9. Ctrl-c dismisses search modal
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // 10. Esc dismisses search modal
+        app.active_view = ActiveView::Search;
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_comment_input_key_editing_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.comment_source_view = ActiveView::Diff;
+        app.active_view = ActiveView::CommentInput;
+        app.comment_input.clear();
+
+        // 1. Safe character insertion
+        press(&mut app, "needs refactor later");
+        assert_eq!(app.comment_input, "needs refactor later");
+
+        // 2. Ctrl-w backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "needs refactor ");
+
+        // 3. Alt-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.comment_input, "needs ");
+
+        // 4. Ctrl-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "");
+
+        // 5. Ctrl-k clears input
+        press(&mut app, "draft 1");
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "");
+
+        // 6. Ctrl-u clears input
+        press(&mut app, "draft 2");
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "");
+
+        // 7. Modifier guard: Control and Alt chords MUST NOT insert characters
+        press(&mut app, "safe");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.comment_input, "saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_input, "saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.comment_input, "saf");
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
+        assert_eq!(app.comment_input, "saf");
+        app.comment_input.clear();
+
+        // 8. Ctrl-c dismisses CommentInput
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+
+        // 9. Ctrl-s saves non-empty comment
+        app.active_view = ActiveView::CommentInput;
+        press(&mut app, "approved line");
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.comments.len(), 1);
+        assert_eq!(app.comments[0].comment_text, "approved line");
+    }
+
+    #[test]
+    fn test_comment_reply_key_editing_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        seeded_comments(&mut app);
+        app.active_view = ActiveView::CommentReply;
+        app.comment_reply_target_idx = Some(1);
+        app.comment_reply_input.clear();
+
+        // 1. Safe character insertion
+        press(&mut app, "first second third");
+        assert_eq!(app.comment_reply_input, "first second third");
+
+        // 2. Ctrl-w backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "first second ");
+
+        // 3. Alt-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.comment_reply_input, "first ");
+
+        // 4. Ctrl-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "");
+
+        // 5. Ctrl-k clears reply
+        press(&mut app, "draft reply");
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "");
+
+        // 6. Ctrl-u clears reply
+        press(&mut app, "another reply");
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "");
+
+        // 7. Modifier guard: Control and Alt chords MUST NOT insert characters
+        press(&mut app, "reply safe");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.comment_reply_input, "reply saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        assert_eq!(app.comment_reply_input, "reply saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::ALT));
+        assert_eq!(app.comment_reply_input, "reply saf");
+        app.comment_reply_input.clear();
+
+        // 8. Ctrl-c dismisses CommentReply and clears input
+        press(&mut app, "discard this");
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert!(app.comment_reply_input.is_empty());
+        assert_eq!(app.comment_reply_target_idx, None);
+
+        // 9. Ctrl-s saves reply
+        app.active_view = ActiveView::CommentReply;
+        app.comment_reply_target_idx = Some(1);
+        press(&mut app, "looks great");
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert!(app.comments[1].replies.contains(&"looks great".to_string()));
+
+        // 10. Out-of-bounds comment reply index does not panic
+        app.active_view = ActiveView::CommentReply;
+        app.comment_reply_target_idx = Some(app.comments.len());
+        press(&mut app, "orphan reply");
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_commit_modal_key_editing_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommitModal;
+        app.commit_message_input.clear();
+
+        // 1. Safe character insertion
+        press(&mut app, "feat: implement nav");
+        assert_eq!(app.commit_message_input, "feat: implement nav");
+
+        // 2. Ctrl-w backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "feat: implement ");
+
+        // 3. Alt-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.commit_message_input, "feat: ");
+
+        // 4. Ctrl-Backspace backward word delete
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "feat");
+
+        // 5. Ctrl-k clears message
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "");
+
+        // 6. Ctrl-u clears message
+        press(&mut app, "fix bug");
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "");
+
+        // 7. Plain Backspace & Modifier guard: Control and Alt chords MUST NOT insert characters
+        press(&mut app, "safe");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.commit_message_input, "saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::CONTROL));
+        assert_eq!(app.commit_message_input, "saf");
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT));
+        assert_eq!(app.commit_message_input, "saf");
+        app.commit_message_input.clear();
+
+        // 8. Ctrl-c dismisses CommitModal
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn test_file_picker_key_editing_refiltering_and_modifier_guard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::FilePicker;
+        app.file_picker.query.clear();
+        app.update_file_picker_filter();
+        assert_eq!(app.file_picker.filtered_indices.len(), 3);
+
+        // 1. Safe character typing filters list
+        press(&mut app, "f2");
+        assert_eq!(app.file_picker.query, "f2");
+        assert_eq!(app.file_picker.filtered_indices, vec![2]);
+
+        // 2. Ctrl-w backward word deletion + refiltering
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.query, "");
+        assert_eq!(app.file_picker.filtered_indices.len(), 3);
+
+        // 3. Alt-Backspace backward word deletion + refiltering
+        press(&mut app, "f1 extra");
+        assert_eq!(app.file_picker.query, "f1 extra");
+        assert_eq!(app.file_picker.filtered_indices, Vec::<usize>::new());
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.file_picker.query, "f1 ");
+        assert_eq!(app.file_picker.filtered_indices, Vec::<usize>::new());
+
+        // 4. Ctrl-Backspace backward word deletion + refiltering
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.query, "");
+        assert_eq!(app.file_picker.filtered_indices.len(), 3);
+
+        // 5. Retaining Ctrl-u for PageUp and Ctrl-k for Up (ASM-GEN-2)
+        press(&mut app, "f");
+        app.file_picker.selected_idx = 2;
+        // Ctrl-k navigates UP, does NOT clear query
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.selected_idx, 1);
+        assert_eq!(app.file_picker.query, "f");
+
+        // Ctrl-u navigates PageUp, does NOT clear query
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.selected_idx, 0);
+        assert_eq!(app.file_picker.query, "f");
+
+        // 6. Modifier guard: unhandled Control and Alt chords MUST NOT append to query
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        assert_eq!(app.file_picker.query, "f");
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::ALT));
+        assert_eq!(app.file_picker.query, "f");
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('z'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
+        assert_eq!(app.file_picker.query, "f");
+
+        // 7. Ctrl-c dismisses FilePicker
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn command_line_forward_word_deletion_alt_d_and_alt_delete() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+
+        // 1. Alt-d from start of line
+        app.command.set_text("audit issues".into());
+        app.command.cursor = 0;
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, " issues");
+        assert_eq!(app.command.cursor, 0);
+
+        // 2. Alt-Delete from within word
+        app.command.set_text("audit issues".into());
+        app.command.cursor = 2; // "au|dit issues"
+        app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::ALT));
+        assert_eq!(app.command.input, "au issues");
+        assert_eq!(app.command.cursor, 2);
+
+        // 3. Alt-d across whitespace and next word
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "au");
+        assert_eq!(app.command.cursor, 2);
+
+        // 4. Alt-Delete at end of input is a no-op
+        app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::ALT));
+        assert_eq!(app.command.input, "au");
+        assert_eq!(app.command.cursor, 2);
+
+        // 5. Alt-d on punctuation tokens
+        app.command.set_text("foo-bar".into());
+        app.command.cursor = 0;
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "-bar");
+        assert_eq!(app.command.cursor, 0);
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "bar");
+        assert_eq!(app.command.cursor, 0);
+
+        // 6. Completions and prefix clearing on forward word deletion
+        app.command.completions = vec!["completion".into()];
+        app.command.completion_idx = Some(0);
+        app.command.prefix = "comp".into();
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert!(app.command.completions.is_empty());
+        assert_eq!(app.command.completion_idx, None);
+        assert!(app.command.prefix.is_empty());
+    }
+
+    #[test]
+    fn command_line_word_navigation_alt_b_ctrl_left_alt_f_ctrl_right() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+        app.command.set_text("audit issues --all".into());
+        assert_eq!(app.command.cursor, 18);
+
+        // 1. Alt-b moves backward past "all"
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 15);
+
+        // 2. Ctrl-Left moves backward past "--"
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 13);
+
+        // 3. Alt-b moves backward past "issues"
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 6);
+
+        // 4. Ctrl-Left moves backward past "audit" to 0
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 0);
+
+        // 5. Clamping at 0: further Alt-b or Ctrl-Left remains at 0
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 0);
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 0);
+
+        // 6. Alt-f moves forward past "audit"
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 5);
+
+        // 7. Ctrl-Right moves forward past "issues"
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 12);
+
+        // 8. Alt-f moves forward past "--"
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 15);
+
+        // 9. Ctrl-Right moves forward past "all" to end (18)
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 18);
+
+        // 10. Clamping at end: further Alt-f or Ctrl-Right remains at 18
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 18);
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 18);
+    }
+
+    #[test]
+    fn command_line_backward_word_deletion_ctrl_backspace() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+
+        // 1. Ctrl-Backspace backward deletion
+        app.command.set_text("git status --short".into());
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "git status --");
+        assert_eq!(app.command.cursor, 13);
+
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "git status ");
+        assert_eq!(app.command.cursor, 11);
+
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "git ");
+        assert_eq!(app.command.cursor, 4);
+
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+
+        // 2. Ctrl-Backspace on empty input MUST NOT exit command line mode
+        // (unlike plain Backspace which exits to ActiveView::Diff)
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(app.active_view, ActiveView::CommandLine);
+        assert_eq!(app.command.input, "");
+        assert_eq!(app.command.cursor, 0);
+
+        // Compare with plain Backspace on empty input
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn command_line_modifier_guard_rejects_control_and_alt_chords() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+        app.command.set_text("test".into());
+
+        // 1. Chords with CONTROL modifier must NOT insert characters
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
+        assert_eq!(app.command.input, "test");
+
+        // 2. Chords with ALT modifier must NOT insert characters
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT));
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::ALT));
+        app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "test");
+
+        // 3. Combined CONTROL | ALT chords must NOT insert characters
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('a'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
+        assert_eq!(app.command.input, "test");
+
+        // 4. Normal character input without CONTROL or ALT must insert
+        app.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+        assert_eq!(app.command.input, "testi");
+
+        // 5. Shifted character input must insert
+        app.handle_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT));
+        assert_eq!(app.command.input, "testiN");
+
+        // 6. BackTab and Shift-Tab cycling autocomplete_prev
+        app.command.completions = vec!["apple".into(), "banana".into(), "cherry".into()];
+        app.command.completion_idx = Some(2);
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
+        assert_eq!(app.command.completion_idx, Some(1));
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT));
+        assert_eq!(app.command.completion_idx, Some(0));
+    }
+
+    #[test]
+    fn command_line_utf8_word_navigation_and_deletion() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = diff_app();
+        app.active_view = ActiveView::CommandLine;
+
+        app.command.set_text("hello 🦀 rocket".into());
+        assert_eq!(app.command.cursor, 14);
+
+        // Move word backward
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_eq!(app.command.cursor, 8); // at start of "rocket"
+
+        // Move word backward over emoji
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(app.command.cursor, 6); // at start of "🦀"
+
+        // Delete forward word over emoji
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT));
+        assert_eq!(app.command.input, "hello  rocket");
+        assert_eq!(app.command.cursor, 6);
+    }
+
+    fn picker_selection(app: &App, view: ActiveView) -> usize {
+        match view {
+            ActiveView::FilePicker => app.file_picker.selected_idx,
+            ActiveView::PanePicker => app.pane_picker.selected_idx,
+            ActiveView::CommentList => app.comment_list_selected_idx,
+            ActiveView::ThreadView => app.thread_selected_idx,
+            ActiveView::PrPicker => app.pr.selected_idx,
+            ActiveView::WorktreePicker => app.worktree_picker.selected_idx,
+            _ => panic!("not a list picker: {view:?}"),
+        }
+    }
+
+    fn set_picker_selection(app: &mut App, view: ActiveView, index: usize) {
+        match view {
+            ActiveView::FilePicker => app.file_picker.selected_idx = index,
+            ActiveView::PanePicker => app.pane_picker.selected_idx = index,
+            ActiveView::CommentList => app.comment_list_selected_idx = index,
+            ActiveView::ThreadView => app.thread_selected_idx = index,
+            ActiveView::PrPicker => app.pr.selected_idx = index,
+            ActiveView::WorktreePicker => app.worktree_picker.selected_idx = index,
+            _ => panic!("not a list picker: {view:?}"),
+        }
+    }
+
+    #[test]
+    fn universal_navigation_bindings_cover_all_list_pickers() {
+        use lgtm_core::git::WorktreeInfo;
+
+        let mut app = diff_app();
+        app.file_picker.filtered_indices = (0..8).collect();
+        app.pane_picker.list = (0..8)
+            .map(|i| crate::ipc::TmuxPane {
+                id: format!("%{i}"),
+                title: "t".into(),
+                active: false,
+            })
+            .collect();
+        app.comments = (0..8)
+            .map(|i| comment_at(&format!("f{i}.rs"), i + 1, "comment"))
+            .collect();
+        app.threads = (0..8)
+            .map(|i| thread(&format!("t{i}"), &format!("f{i}.rs"), Some(i + 1)))
+            .collect();
+        app.pr.list = (1..=8).map(pr_summary).collect();
+        app.worktree_picker.list = (0..8)
+            .map(|i| WorktreeInfo {
+                path: PathBuf::from(format!("/wt{i}")),
+                head: i.to_string(),
+                branch: Some(format!("branch-{i}")),
+                is_bare: false,
+                is_current: false,
+            })
+            .collect();
+
+        let pickers = [
+            ActiveView::FilePicker,
+            ActiveView::PanePicker,
+            ActiveView::CommentList,
+            ActiveView::ThreadView,
+            ActiveView::PrPicker,
+            ActiveView::WorktreePicker,
+        ];
+        for view in pickers {
+            app.active_view = view;
+            set_picker_selection(&mut app, view, 0);
+            for (event, expected) in [(ctrl('n'), 1), (ctrl('j'), 2)] {
+                app.handle_key(event);
+                assert_eq!(picker_selection(&app, view), expected, "{view:?}");
+            }
+            for (event, expected) in [(ctrl('p'), 1), (ctrl('k'), 0)] {
+                app.handle_key(event);
+                assert_eq!(picker_selection(&app, view), expected, "{view:?}");
+            }
+
+            for event in [KeyCode::PageDown, KeyCode::Char('d'), KeyCode::Char('f')] {
+                let event = if event == KeyCode::PageDown {
+                    key(event)
+                } else {
+                    ctrl(match event {
+                        KeyCode::Char(c) => c,
+                        _ => unreachable!(),
+                    })
+                };
+                if view == ActiveView::ThreadView {
+                    app.thread_scroll_offset = 0;
+                    app.handle_key(event);
+                    assert_eq!(app.thread_scroll_offset, 3, "{view:?}");
+                    app.handle_key(event);
+                    assert_eq!(app.thread_scroll_offset, 6, "{view:?}");
+                } else {
+                    set_picker_selection(&mut app, view, 0);
+                    app.handle_key(event);
+                    assert_eq!(picker_selection(&app, view), 5, "{view:?}");
+                    app.handle_key(event);
+                    assert_eq!(picker_selection(&app, view), 7, "{view:?}");
+                }
+            }
+            for event in [KeyCode::PageUp, KeyCode::Char('u'), KeyCode::Char('b')] {
+                let event = if event == KeyCode::PageUp {
+                    key(event)
+                } else {
+                    ctrl(match event {
+                        KeyCode::Char(c) => c,
+                        _ => unreachable!(),
+                    })
+                };
+                if view == ActiveView::ThreadView {
+                    app.thread_scroll_offset = 6;
+                    app.handle_key(event);
+                    assert_eq!(app.thread_scroll_offset, 3, "{view:?}");
+                    app.handle_key(event);
+                    assert_eq!(app.thread_scroll_offset, 0, "{view:?}");
+                } else {
+                    set_picker_selection(&mut app, view, 7);
+                    app.handle_key(event);
+                    assert_eq!(picker_selection(&app, view), 2, "{view:?}");
+                    app.handle_key(event);
+                    assert_eq!(picker_selection(&app, view), 0, "{view:?}");
+                }
+            }
+
+            set_picker_selection(&mut app, view, 4);
+            app.handle_key(key(KeyCode::Home));
+            assert_eq!(picker_selection(&app, view), 0, "{view:?}");
+            app.handle_key(key(KeyCode::End));
+            assert_eq!(picker_selection(&app, view), 7, "{view:?}");
+            if view != ActiveView::FilePicker {
+                app.handle_key(key(KeyCode::Char('g')));
+                assert_eq!(picker_selection(&app, view), 0, "{view:?}");
+                app.handle_key(key(KeyCode::Char('G')));
+                assert_eq!(picker_selection(&app, view), 7, "{view:?}");
+            }
+        }
+
+        for view in [
+            ActiveView::PanePicker,
+            ActiveView::CommentList,
+            ActiveView::ThreadView,
+            ActiveView::PrPicker,
+            ActiveView::WorktreePicker,
+        ] {
+            for event in [ctrl('c'), key(KeyCode::Char('q'))] {
+                app.active_view = view;
+                app.handle_key(event);
+                assert_eq!(app.active_view, ActiveView::Diff, "{view:?}");
+            }
+        }
+        app.active_view = ActiveView::FilePicker;
+        app.handle_key(ctrl('c'));
+        assert_eq!(app.active_view, ActiveView::Diff);
+    }
+
+    #[test]
+    fn universal_page_navigation_covers_document_views() {
+        let mut app = diff_app();
+        app.active_view = ActiveView::Diff;
+        app.cursor_line_idx = 2;
+        app.handle_key(key(KeyCode::Home));
+        assert_eq!(app.cursor_line_idx, 0);
+        app.handle_key(key(KeyCode::End));
+        assert_eq!(app.cursor_line_idx, app.current_file_line_count() - 1);
+
+        app.markdown_preview.rendered_rows = (0..30)
+            .map(|_| crate::app::markdown::RenderedMarkdownRow {
+                line_number: None,
+                diff_kind: crate::app::markdown::MarkdownDiffKind::Unchanged,
+                spans: vec![],
+            })
+            .collect();
+        app.markdown_preview.viewport_height = 5;
+        app.active_view = ActiveView::MarkdownPreview;
+        app.handle_key(ctrl('f'));
+        assert_eq!(app.markdown_preview.cursor_row, 15);
+        app.handle_key(ctrl('b'));
+        assert_eq!(app.markdown_preview.cursor_row, 0);
+        app.handle_key(key(KeyCode::End));
+        assert_eq!(app.markdown_preview.cursor_row, 29);
+        app.handle_key(key(KeyCode::Home));
+        assert_eq!(app.markdown_preview.cursor_row, 0);
+
+        use crate::guard::Severity;
+        app.audit.alerts = (0..15)
+            .map(|i| alert_at(&format!("f{}.rs", i % 3), i + 1, Severity::High))
+            .collect();
+        app.audit.focus = AuditPaneFocus::Issues;
+        app.audit.selected_idx = 0;
+        app.active_view = ActiveView::AuditReport;
+        app.handle_key(ctrl('f'));
+        assert_eq!(app.audit.selected_idx, 10);
+        app.handle_key(ctrl('f'));
+        assert_eq!(app.audit.selected_idx, 14);
+        app.handle_key(ctrl('b'));
+        assert_eq!(app.audit.selected_idx, 4);
+        app.handle_key(key(KeyCode::Home));
+        assert_eq!(app.audit.selected_idx, 0);
+        app.handle_key(key(KeyCode::End));
+        assert_eq!(app.audit.selected_idx, 14);
     }
 }

@@ -145,3 +145,64 @@ Feature: Command Line Vim/Readline Editing Shortcuts
     Given the command input is "audit" with cursor at index 5
     When the status bar is rendered
     Then a cursor block symbol is appended at the end of the input
+
+  @REQ-4 @word_deletion_forward
+  Scenario: Forward word deletion with Alt-d from start of line
+    Given the command input is "audit issues" with cursor at index 0
+    When the user presses "Alt-d"
+    Then the command input is " issues"
+    And the cursor position is 0
+
+  @REQ-4 @word_deletion_forward_midword
+  Scenario: Forward word deletion with Alt-d from within word
+    Given the command input is "audit issues" with cursor at index 2
+    When the user presses "Alt-d"
+    Then the command input is "au issues"
+    And the cursor position is 2
+
+  @REQ-4 @word_deletion_forward_punctuation
+  Scenario: Forward word deletion with Alt-d on punctuation tokens
+    Given the command input is "foo-bar" with cursor at index 0
+    When the user presses "Alt-d"
+    Then the command input is "-bar"
+    And the cursor position is 0
+    When the user presses "Alt-d"
+    Then the command input is "bar"
+    And the cursor position is 0
+
+  @REQ-1 @word_motion_backward
+  Scenario: Backward word motion with Alt-b and Ctrl-Left
+    Given the command input is "audit issues" with cursor at index 12
+    When the user presses "Alt-b"
+    Then the cursor position is 6
+    When the user presses "Ctrl-Left"
+    Then the cursor position is 0
+    When the user presses "Alt-b"
+    Then the cursor position remains 0
+
+  @REQ-1 @word_motion_forward
+  Scenario: Forward word motion with Alt-f and Ctrl-Right
+    Given the command input is "audit issues" with cursor at index 0
+    When the user presses "Alt-f"
+    Then the cursor position is 5
+    When the user presses "Ctrl-Right"
+    Then the cursor position is 12
+    When the user presses "Alt-f"
+    Then the cursor position remains 12
+
+  @REQ-4 @utf8_word_editing
+  Scenario: Backward and forward word deletion across multi-byte UTF-8
+    Given the command input is "hello 🦀 rocket" with cursor at index 15
+    When the user presses "Ctrl-w"
+    Then the command input is "hello 🦀 "
+    And the cursor position is 8
+    When the user presses "Ctrl-w"
+    Then the command input is "hello "
+    And the cursor position is 6
+
+  @NFR-INPUT-1 @latency
+  Scenario: Keystroke latency budget compliance for word navigation
+    Given a command line buffer with 100 characters
+    When word motion operations are benchmarked over 10,000 iterations
+    Then the average latency per operation is under 1 microsecond
+
