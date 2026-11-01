@@ -1,10 +1,10 @@
-# Spec Delta
+# runtime-error-handling Specification
 
 ## Purpose
 
 Runtime failures must leave the terminal usable and must not be presented as successful agent-message delivery.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: REQ-RUNTIME-1 Restore Terminal State on Errors
 The application MUST restore terminal modes enabled during startup before returning from a UI-loop error, while preserving the original operation error.
@@ -27,6 +27,3 @@ The application MUST report agent-message delivery as successful only after the 
 #### Scenario: Batch delivery is accepted
 - **WHEN** the agent sink accepts a batch message
 - **THEN** the user is shown successful delivery and the review turn advances
-
-## Review Gate
-- [ ] **Gate 2 Approval**: Specifications reviewed and approved by human before technical design.

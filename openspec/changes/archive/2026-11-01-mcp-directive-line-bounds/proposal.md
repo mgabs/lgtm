@@ -36,4 +36,4 @@ The MCP directive tool accepts a `u64` line and casts it unchecked to a stored `
 - `u32::MAX` is converted without loss.
 
 ## Review Gate
-- [ ] **Gate 1 Approval**: Proposal reviewed and approved by human before drafting specs.
+- [x] **Gate 1 Approval**: Proposal reviewed and approved by human before drafting specs.

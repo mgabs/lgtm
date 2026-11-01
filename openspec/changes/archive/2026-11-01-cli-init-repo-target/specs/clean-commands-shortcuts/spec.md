@@ -14,4 +14,4 @@ The CLI MUST initialize the repository selected by `--repo` when `--init` is sup
 - **THEN** initialization targets the current directory
 
 ## Review Gate
-- [ ] **Gate 2 Approval**: Specifications reviewed and approved by human before technical design.
+- [x] **Gate 2 Approval**: Specifications reviewed and approved by human before technical design.
