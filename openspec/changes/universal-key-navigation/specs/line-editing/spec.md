@@ -97,3 +97,6 @@ Keypress handlers MUST perform in-memory input/state processing and MUST NOT per
 #### Scenario: Key handling avoids blocking I/O
 - **WHEN** key handling executes
 - **THEN** it completes without performing blocking I/O
+
+## Review Gate
+- [x] **Gate 2 Approval**: Specifications approved by the user on 2026-11-01.
