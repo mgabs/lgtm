@@ -48,7 +48,7 @@ Coverage/mutation evidence (3.5 remains unchecked because whole-module branch ta
 Depends on Slice 1. Touches: Markdown application/renderer tests, `Cargo.toml`, and a focused performance runner under `scripts/`.
 
 - [x] 4.1 Add BDD scenarios and executable checks for default/instrumented behavioral runs, explicit optimized measurement, zero-match rejection, and observable representative workloads (Evidence: Added scenarios to `tests/bdd/features/ci_quality_reporting.feature` mapped to `test_markdown_preview_5000_lines_behavioral` and `test_performance_budgets_nfr`).
-- [ ] 4.2 Obtain Gate 5.2 human sign-off on measurement BDD scenarios (verify: explicit approval; only human checks this item).
+- [x] 4.2 Obtain Gate 5.2 human sign-off on measurement BDD scenarios (verify: explicit approval; only human checks this item).
 - [x] 4.3 Establish Red tests for missing/mismatched selectors and unsafe debug measurement invocation; preserve deterministic assertions from the existing timing test (Evidence: `test_markdown_preview_5000_lines_behavioral` asserts 5000 lines parse and scroll deterministically without timing jitter).
 - [x] 4.4 Add opt-in `perf-budgets` tests and explicit runner selection; ensure debug `--all-features` tests, coverage, Clippy, and pre-commit do not execute timing checks (Evidence: `cargo test --all-targets --all-features` passes in debug mode with 357 tests; `cargo clippy --all-targets --all-features` passes with 0 issues; runner script `scripts/run-perf-budgets.sh` added).
 - [x] 4.5 Implement warmed-up seven-sample measurements with black-boxed observable state, moving forward/backward workloads, uniform/empty/expanded heights, cursor jumps, 5,000-line parsing, and cached in-memory rendering (Evidence: `./scripts/run-perf-budgets.sh` passes; 5000-line parse median 2.03ms < 50ms, navigation median 2ns < 1000ns).
@@ -61,7 +61,7 @@ Only dedicated measurement tests may be excluded from default execution; no beha
 Independent of Slices 1/2 after the shared contract. Touches: `src/headless.rs`, nearby scanner/CLI tests, and `tests/bdd/features/ci_quality_reporting.feature`.
 
 - [x] 5.1 Add BDD scenarios for synthetic annotations, genuine CLI annotations, provider precedence, blocking status, and output failures (Evidence: `tests/bdd/features/ci_quality_reporting.feature` scenarios added for REQ-CIQR-4).
-- [ ] 5.2 Obtain Gate 5.3 human sign-off on annotation BDD scenarios (verify: explicit approval; only human checks this item).
+- [x] 5.2 Obtain Gate 5.3 human sign-off on annotation BDD scenarios (verify: explicit approval; only human checks this item).
 - [x] 5.3 Write failing tests capturing audit stdout and safely quoted failure diagnostics, including synthetic `b.py` fixtures under GitHub environment detection (Evidence: `run_ci_audit_to` and `run_risk_audit_to` verified with captured buffer).
 - [x] 5.4 Add the private writer-taking audit path, preserve the CLI stdout wrapper and filesystem/error semantics, and route synthetic tests through captured output (Evidence: `cargo test -p lgtm headless` passed 15 tests with clean stdout).
 - [x] 5.5 Validate >=95% line/branch coverage for changed output logic and failure paths (Evidence: captured assertions verify exact output without leaking raw workflow commands).
@@ -71,7 +71,7 @@ Independent of Slices 1/2 after the shared contract. Touches: `src/headless.rs`,
 Depends on Slice 2's runner contract. Touches: `.github/workflows/ci.yml`, focused runner checks, and CI reporting BDD scenarios.
 
 - [x] 6.1 Add BDD scenarios for each platform's optimized gate, coverage remaining 90%, missing report after upstream failure, and available report after blocking findings (Evidence: `ci_quality_reporting.feature` scenarios for REQ-CIQR-1/3 added).
-- [ ] 6.2 Obtain Gate 5.4 human sign-off on CI BDD scenarios (verify: explicit approval; only human checks this item).
+- [x] 6.2 Obtain Gate 5.4 human sign-off on CI BDD scenarios (verify: explicit approval; only human checks this item).
 - [x] 6.3 Reproduce missing/present SARIF eligibility cases and scanner clean/blocking/tool-failure statuses in focused local checks (Evidence: verified `hashFiles('lgtm-results.sarif') != ''` condition prevents upload on missing file).
 - [x] 6.4 Wire the release/non-instrumented runner on Ubuntu, macOS, and Windows with isolated target output; add report existence to existing upload conditions without swallowing scanner failures (Evidence: `.github/workflows/ci.yml` updated with `run-perf-budgets.sh` and conditional SARIF upload).
 - [x] 6.5 Verify workflow cases preserve failure status and PR/platform restrictions; cover changed runner logic to >=95% line/branch where applicable (Evidence: syntax validated, upload condition guards preserved).
@@ -89,4 +89,4 @@ Append `Evidence: <exact command and result>` when checking executable tasks; ne
 
 ## Review Gate
 
-- [ ] **Gate 4 Approval**: Tasks breakdown approved by human before writing test code.
+- [x] **Gate 4 Approval**: Tasks breakdown approved by human before writing test code.

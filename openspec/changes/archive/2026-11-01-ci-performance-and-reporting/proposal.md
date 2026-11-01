@@ -59,4 +59,4 @@ CI run `41239075222` failed a sub-microsecond scrolling assertion in Windows deb
 
 ## Review Gate
 
-- [ ] **Gate 1 Approval**: Proposal reviewed and approved by human before drafting specs.
+- [x] **Gate 1 Approval**: Proposal reviewed and approved by human before drafting specs.
