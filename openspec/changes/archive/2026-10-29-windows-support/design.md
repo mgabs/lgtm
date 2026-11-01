@@ -59,13 +59,13 @@ graph TD
     SysFacade --> SysProcess[sys::process]
     SysFacade --> SysPath[sys::path]
     SysFacade --> SysClip[sys::clipboard]
-    
+
     SysProcess -->|Windows| WinCmd[Resolve .cmd/.bat/.exe + PATHEXT]
     SysProcess -->|Unix| UnixCmd[Direct Binary Invocation]
-    
+
     SysPath -->|Windows| WinPath[Strip \\?\ and \\?\UNC\ + Normalize /]
     SysPath -->|Unix| UnixPath[Standard Canonicalize]
-    
+
     SysClip -->|Windows| WinClip[OSC 52 + clip.exe fallback]
     SysClip -->|Unix| UnixClip[OSC 52 Terminal Write]
 ```

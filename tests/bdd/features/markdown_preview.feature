@@ -36,7 +36,7 @@ Feature: Markdown Preview with Diff Highlighting
       @@ -1,5 +1,5 @@
       -# Old Architecture Title
       +# New Architecture Title
-       
+
        A refactored paragraph describing the pipeline.
       +* Added bullet point item 1
       +* Added bullet point item 2

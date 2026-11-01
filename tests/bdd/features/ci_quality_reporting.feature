@@ -29,3 +29,28 @@ Feature: CI Quality & Performance Reporting
     Given a performance benchmark execution
     When a measured workload exceeds its allowed latency threshold
     Then the output diagnostic reports workload name, sample policy, measured latency, and threshold
+
+  # REQ-CIQR-3; Scenario: Upstream failure prevents generation
+  Scenario: Upstream failure prevents generation
+    Given a test suite failure upstream of SARIF generation
+    When the CI workflow evaluates the SARIF upload step
+    Then upload is skipped without producing a missing-file error
+
+  # REQ-CIQR-3; Scenario: Scanner finds blocking issues
+  Scenario: Scanner finds blocking issues
+    Given a code review scan finding blocking security warnings
+    When the scanner writes a SARIF report and exits with status 1
+    Then the SARIF report remains eligible for upload
+    And the CI run reflects the failing exit status
+
+  # REQ-CIQR-4; Scenario: Synthetic finding in a test
+  Scenario: Synthetic finding in a test
+    Given a test scanning synthetic fixtures with token warnings
+    When the test runs under GitHub Actions environment detection
+    Then annotations are captured in an in-memory buffer rather than emitted as workflow commands
+
+  # REQ-CIQR-4; Scenario: Real CLI finding
+  Scenario: Real CLI finding
+    Given a real CLI invocation of the scanner with blocking findings
+    When annotations format is requested
+    Then error annotations are emitted to stdout and exit status is 1

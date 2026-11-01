@@ -2,7 +2,7 @@
 
 > **Goal:** Deliver native Windows support for `lgtm`, providing cross-platform process execution (`az.cmd`, `code.cmd`), path prefix sanitization (`\\?\`), CRLF line ending invariance, clipboard fallbacks (`clip.exe`), and `windows-latest` CI/release automation.
 
-**Architecture:** 
+**Architecture:**
 - Centralized OS abstraction in `crates/lgtm-core/src/sys/` (`process.rs`, `path.rs`, `clipboard.rs`).
 - Transparent integration into `lgtm-core::forge`, `src/app/external.rs`, and `src/main.rs`.
 - CI/CD quality gate and release packaging in `.github/workflows/ci.yml`.

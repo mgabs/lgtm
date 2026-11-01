@@ -369,7 +369,7 @@ impl CommandLine {
         if self.completions.is_empty() {
             let current = self.input.trim_start_matches(':').trim();
             self.prefix = current.to_string();
-            
+
             // Query unified registry
             let mut matches: Vec<String> = Vec::new();
             for def in COMMAND_REGISTRY {

@@ -58,7 +58,7 @@ pub fn parse_hunk_header_fast(header: &str) -> (u32, u32, u32, u32) {
         return (1, 1, 1, 1);
     };
     let content = &header[3..3 + end_idx].trim();
-    
+
     // Parse -old_start,old_count +new_start,new_count directly
     let mut old_start = 1;
     let mut old_lines = 1;
@@ -308,7 +308,7 @@ pub fn assign_fingerprints_fast(alerts: &mut [GuardAlert], line_map: &DiffLineMa
         let key_hash = hasher.finish();
 
         let n = seen.entry(key_hash).and_modify(|c| *c += 1).or_insert(0);
-        
+
         let mut final_hasher = Fnv1aStreamer::new();
         final_hasher.write_u64(key_hash);
         final_hasher.write_byte(0);
