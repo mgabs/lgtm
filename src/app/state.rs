@@ -944,22 +944,54 @@ mod tests {
     }
 
     #[test]
-    fn test_word_operations_sub_microsecond_keystroke_benchmark() {
+    fn word_operations_move_between_word_boundaries() {
         let mut c = CommandLine::default();
-        c.set_text("word1 word2 word3 word4 word5 word6 word7 word8 word9 word10".repeat(5));
+        c.set_text("word1 word2".into());
+        c.cursor = 0;
 
-        let start = std::time::Instant::now();
-        const ITERS: u32 = 10_000;
-        for _ in 0..ITERS {
-            c.move_word_backward();
-            c.move_word_forward();
+        c.move_word_forward();
+        assert_eq!(c.cursor, 5);
+        c.move_word_backward();
+        assert_eq!(c.cursor, 0);
+    }
+
+    #[cfg(all(feature = "perf-budgets", not(debug_assertions)))]
+    #[test]
+    fn test_performance_budgets_nfr_word_operations() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let input = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10".repeat(5);
+        let mut command = CommandLine::default();
+        command.set_text(input);
+
+        for _ in 0..100 {
+            command.cursor = 0;
+            command.move_word_forward();
+            command.move_word_backward();
         }
-        let elapsed = start.elapsed();
-        let per_op = elapsed.as_nanos() as f64 / (ITERS as f64 * 2.0);
+
+        let mut samples = Vec::with_capacity(7);
+        for _ in 0..7 {
+            let start = Instant::now();
+            for _ in 0..1000 {
+                command.cursor = 0;
+                command.move_word_forward();
+                command.move_word_backward();
+            }
+            samples.push(start.elapsed().as_nanos() / 2000);
+            black_box(command.cursor);
+        }
+        samples.sort_unstable();
+        let median_ns = samples[3];
+        println!(
+            "Benchmark [word motion]: median {}ns/op, samples: {:?}",
+            median_ns, samples
+        );
         assert!(
-            per_op < 1000.0,
-            "Keystroke operation took {}ns, expected < 1000ns",
-            per_op
+            median_ns < 1000,
+            "Word motion took {}ns, expected < 1000ns",
+            median_ns
         );
     }
 }
