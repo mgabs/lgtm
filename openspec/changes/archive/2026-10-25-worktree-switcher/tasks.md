@@ -2,7 +2,7 @@
 
 > **Goal:** Enable reviewers to switch between Git worktrees inside `lgtm` via `:wt` / `:worktrees` modal and `:wt <name>` jump.
 
-**Architecture:** 
+**Architecture:**
 - Core discovery in `crates/lgtm-core/src/git/` parsing `git worktree list --porcelain`.
 - Interactive picker modal in `src/ui/modals/pickers.rs` (`ActiveView::WorktreePicker`).
 - Command dispatch, tab completion, dirty state prompt, and engine re-initialization in `src/app/`.

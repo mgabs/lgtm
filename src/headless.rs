@@ -51,6 +51,30 @@ pub(crate) fn run_ci_audit(
     no_user_config: bool,
     rev: Option<&str>,
 ) -> Result<i32> {
+    let mut stdout = std::io::stdout();
+    run_ci_audit_to(
+        repo_path,
+        format,
+        output_file,
+        strict,
+        show_suppressed,
+        no_user_config,
+        rev,
+        &mut stdout,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_ci_audit_to<W: std::io::Write>(
+    repo_path: &Path,
+    format: &str,
+    output_file: Option<&Path>,
+    strict: bool,
+    show_suppressed: bool,
+    no_user_config: bool,
+    rev: Option<&str>,
+    out: &mut W,
+) -> Result<i32> {
     let cfg = load_config(repo_path, no_user_config)?;
     let git_engine = git::GitEngine::new(repo_path);
     let snapshot = if git_engine.is_git_repo() {
@@ -88,7 +112,7 @@ pub(crate) fn run_ci_audit(
             || format.eq_ignore_ascii_case("annotations"));
     if azure || github {
         for alert in &alerts {
-            println!("{}", annotation(alert, azure));
+            writeln!(out, "{}", annotation(alert, azure))?;
         }
     }
 
@@ -101,9 +125,9 @@ pub(crate) fn run_ci_audit(
 
     if let Some(path) = output_file {
         std::fs::write(path, &output_text)?;
-        println!("✨ CI report written to {}", path.display());
+        writeln!(out, "✨ CI report written to {}", path.display())?;
     } else if !format.eq_ignore_ascii_case("annotations") {
-        println!("{}", output_text);
+        writeln!(out, "{}", output_text)?;
     }
 
     if has_blocking {
@@ -259,12 +283,23 @@ pub(crate) fn generate_sarif_report(alerts: &[guard::GuardAlert]) -> Result<Stri
 }
 
 pub(crate) fn run_risk_audit(repo_path: &Path) -> Result<i32> {
+    let mut stdout = std::io::stdout();
+    let mut stderr = std::io::stderr();
+    run_risk_audit_to(repo_path, &mut stdout, &mut stderr)
+}
+
+pub(crate) fn run_risk_audit_to<W1: std::io::Write, W2: std::io::Write>(
+    repo_path: &Path,
+    out: &mut W1,
+    err: &mut W2,
+) -> Result<i32> {
     let git_engine = git::GitEngine::new(repo_path);
     if !git_engine.is_git_repo() {
-        eprintln!(
+        writeln!(
+            err,
             "Error: Directory '{}' is not a git repository.",
             repo_path.display()
-        );
+        )?;
         return Ok(1);
     }
 
@@ -275,14 +310,19 @@ pub(crate) fn run_risk_audit(repo_path: &Path) -> Result<i32> {
     let alerts = found.active;
 
     if alerts.is_empty() {
-        println!("✨ LGTM Risk Audit: No security risks or test fraud detected (0 warnings across {} files).", snapshot.files.len());
+        writeln!(
+            out,
+            "✨ LGTM Risk Audit: No security risks or test fraud detected (0 warnings across {} files).",
+            snapshot.files.len()
+        )?;
         return Ok(0);
     }
 
-    println!(
+    writeln!(
+        out,
         "🔍 LGTM Risk Audit: Found {} warning(s) in current diff:\n",
         alerts.len()
-    );
+    )?;
     let mut has_failure = false;
     for alert in &alerts {
         let loc = match alert.line_no {
@@ -302,15 +342,18 @@ pub(crate) fn run_risk_audit(repo_path: &Path) -> Result<i32> {
             guard::Severity::Warn => "\x1b[1;33m🟡 WARN\x1b[0m",
         };
 
-        println!("  {} {} — {}", badge, loc, alert.title);
-        println!("     {}", alert.description);
+        writeln!(out, "  {} {} — {}", badge, loc, alert.title)?;
+        writeln!(out, "     {}", alert.description)?;
     }
 
     if has_failure {
-        eprintln!("\n❌ Risk audit failed with Critical/High severity warnings.");
+        writeln!(
+            err,
+            "\n❌ Risk audit failed with Critical/High severity warnings."
+        )?;
         Ok(1)
     } else {
-        println!("\n⚠️ Risk audit passed with non-blocking warnings.");
+        writeln!(out, "\n⚠️ Risk audit passed with non-blocking warnings.")?;
         Ok(0)
     }
 }
@@ -627,7 +670,8 @@ mod tests {
         git(&["add", "."]);
         git(&["commit", "-qm", "x"]);
         let out = dir.join("r.json");
-        let code = run_ci_audit(
+        let mut sink = Vec::new();
+        let code = run_ci_audit_to(
             &dir,
             "json",
             Some(&out),
@@ -635,13 +679,34 @@ mod tests {
             false,
             true,
             Some("HEAD~1..HEAD"),
+            &mut sink,
         )
         .unwrap();
         assert_eq!(code, 1);
         assert!(std::fs::read_to_string(&out).unwrap().contains("rule_id"));
-        let clean = run_ci_audit(&dir, "json", Some(&out), false, false, true, None).unwrap();
+        let clean = run_ci_audit_to(
+            &dir,
+            "json",
+            Some(&out),
+            false,
+            false,
+            true,
+            None,
+            &mut sink,
+        )
+        .unwrap();
         assert_eq!(clean, 0);
-        assert!(run_ci_audit(&dir, "json", None, false, false, true, Some("nope..bad")).is_err());
+        assert!(run_ci_audit_to(
+            &dir,
+            "json",
+            None,
+            false,
+            false,
+            true,
+            Some("nope..bad"),
+            &mut sink
+        )
+        .is_err());
     }
 
     #[test]
@@ -802,31 +867,58 @@ mod tests {
 
     #[test]
     fn risk_audit_flags_secrets_and_passes_clean_or_rejects_non_repos() {
+        let mut out = Vec::new();
+        let mut err = Vec::new();
         let plain = test_dir("risk-plain");
-        assert_eq!(run_risk_audit(&plain).unwrap(), 1);
+        assert_eq!(run_risk_audit_to(&plain, &mut out, &mut err).unwrap(), 1);
 
         let clean = repo_with_file("risk-clean", "a.py", "a = 1\n");
-        assert_eq!(run_risk_audit(&clean).unwrap(), 0);
+        assert_eq!(run_risk_audit_to(&clean, &mut out, &mut err).unwrap(), 0);
 
         let bad = repo_with_file("risk-bad", "b.py", "key = \"AKIAABCDEFGHIJKLMNOP\"\n");
-        assert_eq!(run_risk_audit(&bad).unwrap(), 1);
+        assert_eq!(run_risk_audit_to(&bad, &mut out, &mut err).unwrap(), 1);
+        let out_str = String::from_utf8_lossy(&out);
+        assert!(out_str.contains("CRITICAL"));
     }
 
     #[test]
     fn ci_audit_strict_fails_on_warnings_only_and_writes_sarif() {
+        let mut sink = Vec::new();
         let dir = repo_with_file("ci-sarif", "b.py", "key = \"AKIAABCDEFGHIJKLMNOP\"\n");
         let out = dir.join("r.sarif");
         assert_eq!(
-            run_ci_audit(&dir, "sarif", Some(&out), false, true, true, None).unwrap(),
+            run_ci_audit_to(
+                &dir,
+                "sarif",
+                Some(&out),
+                false,
+                true,
+                true,
+                None,
+                &mut sink
+            )
+            .unwrap(),
             1
         );
         let v: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
         assert_eq!(v["version"], "2.1.0");
         assert_eq!(
-            run_ci_audit(&dir, "github", Some(&out), false, false, true, None).unwrap(),
+            run_ci_audit_to(
+                &dir,
+                "github",
+                Some(&out),
+                false,
+                false,
+                true,
+                None,
+                &mut sink
+            )
+            .unwrap(),
             1
         );
+        let sink_str = String::from_utf8_lossy(&sink);
+        assert!(sink_str.contains("::error file=b.py"));
     }
 
     #[test]

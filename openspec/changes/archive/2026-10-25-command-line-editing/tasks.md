@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TD
     G4[Gate 4 Approval] --> S_Core[Stream 1: Core State & Editing Logic]
-    
+
     subgraph Stream1 [Stream 1: Core State Engine]
         T1_1[T1.1: Cursor State & Clamping] --> T1_2[T1.2: Insert & Character/Line Deletions]
         T1_2 --> T1_3[T1.3: Unix Word Deletion Algorithm]
