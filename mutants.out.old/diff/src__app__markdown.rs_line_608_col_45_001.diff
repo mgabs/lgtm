@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace + with * in parse_inline_spans
+@@ -600,17 +600,17 @@
+ 
+         // Link: [label](url)
+         if ch == '[' {
+             if let Some(label_end) = text[i + 1..].find(']') {
+                 let after_label = i + 1 + label_end + 1;
+                 if text[after_label..].starts_with('(') {
+                     if let Some(url_end) = text[after_label + 1..].find(')') {
+                         flush_current(&mut current_text, &mut spans);
+-                        let label = &text[i + 1..after_label - 1];
++                        let label = &text[i * /* ~ changed by cargo-mutants ~ */ 1..after_label - 1];
+                         let url = &text[after_label + 1..after_label + 1 + url_end];
+                         let link_style = base_style
+                             .fg(Color::Blue)
+                             .add_modifier(Modifier::UNDERLINED);
+                         spans.push(Span::styled(label.to_string(), link_style));
+                         let url_style = Style::default()
+                             .fg(Color::DarkGray)
+                             .add_modifier(Modifier::DIM);

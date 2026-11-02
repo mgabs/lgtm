@@ -1,0 +1,23 @@
+--- src/app/markdown.rs
++++ delete match arm 2 in get_heading_style
+@@ -469,19 +469,17 @@
+ 
+ /// Determines Ratatui style for a given heading level and diff status.
+ fn get_heading_style(level: usize, diff_kind: MarkdownDiffKind) -> Style {
+     let mut style = match level {
+         1 => Style::default()
+             .fg(Color::Cyan)
+             .add_modifier(Modifier::BOLD)
+             .add_modifier(Modifier::UNDERLINED),
+-        2 => Style::default()
+-            .fg(Color::Cyan)
+-            .add_modifier(Modifier::BOLD),
++         /* ~ changed by cargo-mutants ~ */
+         3 => Style::default()
+             .fg(Color::Blue)
+             .add_modifier(Modifier::BOLD),
+         4 => Style::default()
+             .fg(Color::LightCyan)
+             .add_modifier(Modifier::BOLD),
+         5 => Style::default()
+             .fg(Color::DarkGray)

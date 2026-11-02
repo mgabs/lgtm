@@ -557,22 +557,20 @@ pub fn parse_inline_spans(text: &str, base_style: Style) -> Vec<Span<'static>> {
         // Italic: *
         if ch == '*' && !text[i..].starts_with("**") {
             if let Some(end_rel) = text[i + 1..].find('*') {
-                if !text[i + 1..i + 1 + end_rel].contains('*') {
-                    flush_current(&mut current_text, &mut spans);
-                    let italic_content = &text[i + 1..i + 1 + end_rel];
-                    let italic_style = base_style.add_modifier(Modifier::ITALIC);
-                    spans.push(Span::styled(italic_content.to_string(), italic_style));
+                flush_current(&mut current_text, &mut spans);
+                let italic_content = &text[i + 1..i + 1 + end_rel];
+                let italic_style = base_style.add_modifier(Modifier::ITALIC);
+                spans.push(Span::styled(italic_content.to_string(), italic_style));
 
-                    let advance_to = i + 1 + end_rel + 1;
-                    while let Some(&(next_i, _)) = chars.peek() {
-                        if next_i < advance_to {
-                            chars.next();
-                        } else {
-                            break;
-                        }
+                let advance_to = i + 1 + end_rel + 1;
+                while let Some(&(next_i, _)) = chars.peek() {
+                    if next_i < advance_to {
+                        chars.next();
+                    } else {
+                        break;
                     }
-                    continue;
                 }
+                continue;
             }
         }
 
@@ -667,9 +665,7 @@ pub fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
                 }
                 chunk.push(c);
             }
-            if !chunk.is_empty() {
-                current_line = chunk;
-            }
+            current_line = chunk;
             continue;
         }
 
@@ -690,10 +686,7 @@ pub fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
         }
     }
 
-    if !current_line.is_empty() {
-        lines.push(current_line);
-    }
-
+    lines.push(current_line);
     lines
 }
 
@@ -1358,6 +1351,190 @@ mod tests {
 
         let res2 = wrap_text("   \n\t  ", 10);
         assert_eq!(res2, vec![""]);
+    }
+
+    fn render_ctx(src: &[&str], width: u16) -> Vec<RenderedMarkdownRow> {
+        let lines = src
+            .iter()
+            .enumerate()
+            .map(|(i, c)| DiffLine {
+                line_type: LineType::Context,
+                content: (*c).into(),
+                old_line_num: Some(i as u32 + 1),
+                new_line_num: Some(i as u32 + 1),
+            })
+            .collect();
+        build_markdown_preview(&make_test_file_diff(lines), width)
+    }
+
+    fn joined(spans: &[Span<'_>]) -> String {
+        spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    // REQ-MDCOV-1: unterminated or malformed inline markers stay literal text
+    #[test]
+    fn inline_unterminated_markers_stay_literal() {
+        for src in [
+            "**open", "*open", "`open", "[label", "[label]", "[a](b", "a * b",
+        ] {
+            let spans = parse_inline_spans(src, Style::default());
+            assert_eq!(joined(&spans), src, "{src}");
+        }
+        let nested = parse_inline_spans("*a*b*", Style::default());
+        assert_eq!(joined(&nested), "ab*");
+    }
+
+    // REQ-MDCOV-1: well-formed inline markers drop their delimiters
+    #[test]
+    fn inline_terminated_markers_are_styled() {
+        let bold = parse_inline_spans("x **b** y", Style::default());
+        assert_eq!(joined(&bold), "x b y");
+        assert!(bold[1].style.add_modifier.contains(Modifier::BOLD));
+        let code = parse_inline_spans("`c`!", Style::default());
+        assert_eq!(joined(&code), " c !");
+        let link = parse_inline_spans("[l](u) end", Style::default());
+        assert_eq!(joined(&link), "l (u) end");
+        assert!(link[0].style.add_modifier.contains(Modifier::UNDERLINED));
+    }
+
+    // REQ-MDCOV-1: heading and list detection edge cases
+    #[test]
+    fn heading_and_list_detection_edges() {
+        assert_eq!(parse_heading("#nospace"), None);
+        assert_eq!(parse_heading("####### seven"), None);
+        assert_eq!(parse_heading("  ## ok"), Some((2, "ok")));
+        assert!(parse_list_item("1.5 is not a list").is_none());
+        assert!(parse_list_item("a. letter").is_none());
+        assert_eq!(parse_list_item("+ plus").unwrap().0, "• ");
+        assert_eq!(parse_list_item("  12. item").unwrap().0, "12. ");
+        assert_eq!(parse_list_item("    - deep").unwrap().2, 2);
+    }
+
+    // REQ-MDCOV-1: wrapping keeps source line only on the first row
+    #[test]
+    fn wrapped_rows_keep_source_line_on_first_row_only() {
+        let long = "word ".repeat(12);
+        let src = [
+            format!("> {long}"),
+            format!("- {long}"),
+            long.clone(),
+            "x".repeat(40),
+            "```".to_string(),
+            format!("let a = \"{long}\";"),
+            "```".to_string(),
+        ];
+        let refs: Vec<&str> = src.iter().map(String::as_str).collect();
+        let rows = render_ctx(&refs, 20);
+        for first in [1u32, 2, 3, 4] {
+            let at = rows
+                .iter()
+                .position(|r| r.line_number == Some(first))
+                .unwrap();
+            assert!(rows[at + 1].line_number.is_none(), "line {first} wraps");
+        }
+        assert!(rows.iter().any(|r| r.line_number == Some(6)));
+        assert!(rows.iter().filter(|r| r.line_number.is_none()).count() >= 6);
+    }
+
+    // REQ-MDCOV-1: blank lines, unclosed fences and empty list items
+    #[test]
+    fn blank_unclosed_fence_and_empty_item_do_not_panic() {
+        let rows = render_ctx(&["", "   ", "- ", "* x", "```rust", "let x = 1;"], 40);
+        assert_eq!(rows[0].line_number, Some(1));
+        assert_eq!(joined(&rows[0].spans), "");
+        assert_eq!(joined(&rows[1].spans), "");
+        assert!(rows.iter().any(|r| joined(&r.spans).contains("let x = 1;")));
+    }
+
+    // REQ-MDCOV-1: flowchart label edge cases
+    #[test]
+    fn flowchart_edge_label_edge_cases() {
+        let e = parse_flowchart_edges("A -->|unclosed B").unwrap();
+        assert_eq!(e[0].2, None);
+        let e = parse_flowchart_edges("A --> B").unwrap();
+        assert_eq!(e[0], ("A".into(), "B".into(), None));
+        assert!(parse_flowchart_edges("A -->").is_none());
+        assert!(parse_flowchart_edges("--> B").is_none());
+        assert!(parse_flowchart_edges("no arrow").is_none());
+    }
+
+    // REQ-MDCOV-1: inline markers at the very end of the text, and an empty list prefix
+    #[test]
+    fn inline_markers_ending_the_text_and_empty_numbered_prefix() {
+        for (src, want) in [
+            ("**b**", "b"),
+            ("*i*", "i"),
+            ("`c`", " c "),
+            ("[l](u)", "l (u)"),
+        ] {
+            assert_eq!(joined(&parse_inline_spans(src, Style::default())), want);
+        }
+        assert!(parse_list_item(". x").is_none());
+    }
+
+    // REQ-MDCOV-1: a tilde fence ends the mermaid type lookahead
+    #[test]
+    fn mermaid_lookahead_stops_at_tilde_fence() {
+        let rows = render_ctx(&["```mermaid", "~~~", "graph TD", "```"], 40);
+        assert!(joined(&rows[0].spans).contains("mermaid"));
+    }
+
+    // REQ-MDCOV-1 / NFR-MDCOV-1: pin exact styles, offsets and wrap boundaries so mutants die
+    #[test]
+    fn heading_styles_are_distinct_per_level() {
+        let k = MarkdownDiffKind::Unchanged;
+        let bold = Modifier::BOLD;
+        let expect = [
+            (1, Color::Cyan, bold | Modifier::UNDERLINED),
+            (2, Color::Cyan, bold),
+            (3, Color::Blue, bold),
+            (4, Color::LightCyan, bold),
+            (5, Color::DarkGray, bold),
+            (6, Color::DarkGray, Modifier::ITALIC),
+        ];
+        for (level, fg, m) in expect {
+            let s = get_heading_style(level, k);
+            assert_eq!((s.fg, s.add_modifier), (Some(fg), m), "level {level}");
+        }
+    }
+
+    #[test]
+    fn numbered_item_content_and_italic_offsets() {
+        let (p, c, _) = parse_list_item("123. x").unwrap();
+        assert_eq!((p.as_str(), c), ("123. ", "x"));
+        let s = parse_inline_spans("p *it* q", Style::default());
+        assert_eq!(joined(&s), "p it q");
+        assert!(s[1].style.add_modifier.contains(Modifier::ITALIC));
+        assert_eq!(s[2].content, " q");
+    }
+
+    #[test]
+    fn flowchart_label_is_stripped_from_the_next_node() {
+        let e = parse_flowchart_edges("A -->|yes| B").unwrap();
+        assert_eq!(e[0], ("A".into(), "B".into(), Some("yes".into())));
+    }
+
+    #[test]
+    fn mermaid_type_lookahead_stops_at_closing_fence() {
+        let rows = render_ctx(&["```mermaid", "```", "graph TD"], 40);
+        assert_eq!(joined(&rows[0].spans), "─── [mermaid] ───");
+    }
+
+    #[test]
+    fn deeply_indented_list_wraps_with_full_prefix_pad() {
+        let rows = render_ctx(&["    - alpha beta gamma delta"], 14);
+        assert!(rows.len() > 1);
+        assert_eq!(rows[1].spans[0].content.chars().count(), 6);
+    }
+
+    #[test]
+    fn wrap_text_exact_boundaries() {
+        assert_eq!(wrap_text("abcd", 4), vec!["abcd"]);
+        assert_eq!(wrap_text("ab cd", 5), vec!["ab cd"]);
+        assert_eq!(wrap_text("ab cd", 4), vec!["ab", "cd"]);
+        assert_eq!(wrap_text("ab cdefgh", 4), vec!["ab", "cdef", "gh"]);
+        assert_eq!(wrap_text("abcdefgh", 4), vec!["abcd", "efgh"]);
+        assert_eq!(wrap_text("a bb ccc", 6), vec!["a bb", "ccc"]);
     }
 
     #[test]

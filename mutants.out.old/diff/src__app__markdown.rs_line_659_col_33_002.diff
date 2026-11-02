@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace > with >= in wrap_text
+@@ -651,17 +651,17 @@
+     let words: Vec<&str> = text.split_whitespace().collect();
+     if words.is_empty() {
+         return vec![String::new()];
+     }
+ 
+     let mut current_line = String::new();
+     for word in words {
+         // If single word exceeds max_width, split word directly
+-        if word.chars().count() > max_width {
++        if word.chars().count() >= /* ~ changed by cargo-mutants ~ */ max_width {
+             if !current_line.is_empty() {
+                 lines.push(std::mem::take(&mut current_line));
+             }
+             let mut chunk = String::new();
+             for c in word.chars() {
+                 if chunk.chars().count() == max_width {
+                     lines.push(std::mem::take(&mut chunk));
+                 }

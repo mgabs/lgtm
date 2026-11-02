@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace + with * in parse_inline_spans
+@@ -554,17 +554,17 @@
+             }
+         }
+ 
+         // Italic: *
+         if ch == '*' && !text[i..].starts_with("**") {
+             if let Some(end_rel) = text[i + 1..].find('*') {
+                 if !text[i + 1..i + 1 + end_rel].contains('*') {
+                     flush_current(&mut current_text, &mut spans);
+-                    let italic_content = &text[i + 1..i + 1 + end_rel];
++                    let italic_content = &text[i + 1..i * /* ~ changed by cargo-mutants ~ */ 1 + end_rel];
+                     let italic_style = base_style.add_modifier(Modifier::ITALIC);
+                     spans.push(Span::styled(italic_content.to_string(), italic_style));
+ 
+                     let advance_to = i + 1 + end_rel + 1;
+                     while let Some(&(next_i, _)) = chars.peek() {
+                         if next_i < advance_to {
+                             chars.next();
+                         } else {

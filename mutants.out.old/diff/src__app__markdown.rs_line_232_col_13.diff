@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ delete match arm LineType::Deletion in build_markdown_preview
+@@ -224,17 +224,17 @@
+     let mut rows = Vec::with_capacity(all_lines.len());
+     let mut in_code_fence = false;
+     let mut flowchart = false;
+ 
+     for (idx, line) in all_lines.iter().enumerate() {
+         let trimmed = line.content.trim_end_matches(['\r', '\n']);
+         let diff_kind = match line.line_type {
+             LineType::Addition => MarkdownDiffKind::Addition,
+-            LineType::Deletion => MarkdownDiffKind::Deletion,
++             /* ~ changed by cargo-mutants ~ */
+             _ => MarkdownDiffKind::Unchanged,
+         };
+         let line_num = line.new_line_num.or(line.old_line_num);
+ 
+         // Check for code fence start/end: ``` or ~~~
+         let trimmed_start = trimmed.trim_start();
+         if trimmed_start.starts_with("```") || trimmed_start.starts_with("~~~") {
+             let marker = if trimmed_start.starts_with("```") {

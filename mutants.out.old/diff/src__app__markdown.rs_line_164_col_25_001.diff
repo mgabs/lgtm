@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace + with * in parse_flowchart_edges
+@@ -156,17 +156,17 @@
+     let mut labels = Vec::new();
+     let mut rest = line;
+     while let Some((pos, len)) = FLOW_ARROWS
+         .iter()
+         .filter_map(|a| rest.find(a).map(|p| (p, a.len())))
+         .min_by_key(|&(p, l)| (p, std::cmp::Reverse(l)))
+     {
+         nodes.push(&rest[..pos]);
+-        rest = rest[pos + len..].trim_start();
++        rest = rest[pos * /* ~ changed by cargo-mutants ~ */ len..].trim_start();
+         let mut label = None;
+         if let Some(after) = rest.strip_prefix('|') {
+             if let Some(end) = after.find('|') {
+                 label = Some(after[..end].trim().to_string());
+                 rest = &after[end + 1..];
+             }
+         }
+         labels.push(label);

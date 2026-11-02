@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace + with - in wrap_text
+@@ -671,17 +671,17 @@
+                 current_line = chunk;
+             }
+             continue;
+         }
+ 
+         let needed_len = if current_line.is_empty() {
+             word.chars().count()
+         } else {
+-            current_line.chars().count() + 1 + word.chars().count()
++            current_line.chars().count() - /* ~ changed by cargo-mutants ~ */ 1 + word.chars().count()
+         };
+ 
+         if needed_len <= max_width {
+             if !current_line.is_empty() {
+                 current_line.push(' ');
+             }
+             current_line.push_str(word);
+         } else {

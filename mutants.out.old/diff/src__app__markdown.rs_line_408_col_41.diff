@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace == with != in build_markdown_preview
+@@ -400,17 +400,17 @@
+                     spans.push(Span::raw(indent_spaces.clone()));
+                     spans.push(Span::styled(prefix.clone(), p_style));
+                 } else {
+                     let pad = " ".repeat(prefix_len);
+                     spans.push(Span::raw(pad));
+                 }
+                 spans.extend(parse_inline_spans(&w_line, base_style));
+                 rows.push(RenderedMarkdownRow {
+-                    line_number: if idx == 0 { line_num } else { None },
++                    line_number: if idx != /* ~ changed by cargo-mutants ~ */ 0 { line_num } else { None },
+                     diff_kind,
+                     spans,
+                 });
+             }
+             continue;
+         }
+ 
+         // Standard Paragraph or empty line

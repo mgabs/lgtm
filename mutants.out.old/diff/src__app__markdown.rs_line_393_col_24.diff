@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace == with != in build_markdown_preview
+@@ -385,17 +385,17 @@
+             let base_style = apply_diff_style(Style::default().fg(Color::White), diff_kind);
+             let indent_spaces = "  ".repeat(indent_depth);
+             let prefix_len = indent_spaces.chars().count() + prefix.chars().count();
+             let sub_width = text_width.saturating_sub(prefix_len);
+             let wrapped_lines = wrap_text(list_content, sub_width);
+ 
+             for (idx, w_line) in wrapped_lines.into_iter().enumerate() {
+                 let mut spans = Vec::new();
+-                if idx == 0 {
++                if idx != /* ~ changed by cargo-mutants ~ */ 0 {
+                     let p_style = apply_diff_style(
+                         Style::default()
+                             .fg(Color::Cyan)
+                             .add_modifier(Modifier::BOLD),
+                         diff_kind,
+                     );
+                     spans.push(Span::raw(indent_spaces.clone()));
+                     spans.push(Span::styled(prefix.clone(), p_style));

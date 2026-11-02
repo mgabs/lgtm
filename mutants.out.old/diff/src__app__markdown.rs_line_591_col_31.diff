@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace < with == in parse_inline_spans
+@@ -583,17 +583,17 @@
+                 let code_content = &text[i + 1..i + 1 + end_rel];
+                 let code_style = Style::default()
+                     .fg(Color::Yellow)
+                     .bg(Color::Rgb(40, 40, 45));
+                 spans.push(Span::styled(format!(" {} ", code_content), code_style));
+ 
+                 let advance_to = i + 1 + end_rel + 1;
+                 while let Some(&(next_i, _)) = chars.peek() {
+-                    if next_i < advance_to {
++                    if next_i == /* ~ changed by cargo-mutants ~ */ advance_to {
+                         chars.next();
+                     } else {
+                         break;
+                     }
+                 }
+                 continue;
+             }
+         }

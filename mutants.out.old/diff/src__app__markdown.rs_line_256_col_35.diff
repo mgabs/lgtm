@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ delete ! in build_markdown_preview
+@@ -248,17 +248,17 @@
+                 flowchart = false;
+                 let code_fence_lang = if lang.is_empty() {
+                     "code".to_string()
+                 } else if lang.eq_ignore_ascii_case("mermaid") {
+                     let kind = all_lines[idx + 1..]
+                         .iter()
+                         .map(|l| l.content.trim())
+                         .take_while(|c| !c.starts_with("```") && !c.starts_with("~~~"))
+-                        .find(|c| !c.is_empty())
++                        .find(|c|  /* ~ changed by cargo-mutants ~ */c.is_empty())
+                         .and_then(|c| c.split_whitespace().next());
+                     flowchart = matches!(kind, Some("graph" | "flowchart"));
+                     match kind {
+                         Some(k) => format!("mermaid: {k}"),
+                         None => "mermaid".to_string(),
+                     }
+                 } else {
+                     lang.to_string()

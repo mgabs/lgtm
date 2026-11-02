@@ -1,0 +1,23 @@
+--- src/app/markdown.rs
++++ delete match arm 4 in get_heading_style
+@@ -475,19 +475,17 @@
+             .add_modifier(Modifier::BOLD)
+             .add_modifier(Modifier::UNDERLINED),
+         2 => Style::default()
+             .fg(Color::Cyan)
+             .add_modifier(Modifier::BOLD),
+         3 => Style::default()
+             .fg(Color::Blue)
+             .add_modifier(Modifier::BOLD),
+-        4 => Style::default()
+-            .fg(Color::LightCyan)
+-            .add_modifier(Modifier::BOLD),
++         /* ~ changed by cargo-mutants ~ */
+         5 => Style::default()
+             .fg(Color::DarkGray)
+             .add_modifier(Modifier::BOLD),
+         _ => Style::default()
+             .fg(Color::DarkGray)
+             .add_modifier(Modifier::ITALIC),
+     };
+ 

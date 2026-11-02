@@ -1,0 +1,27 @@
+--- src/app/markdown.rs
++++ replace flow_node_label -> String with String::new()
+@@ -136,23 +136,17 @@
+         self.scroll_offset = self.scroll_offset.min(self.max_scroll(viewport_height));
+     }
+ }
+ 
+ const FLOW_ARROWS: [&str; 4] = ["-->", "---", "-.->", "==>"];
+ 
+ /// Reduces a Mermaid node such as `B{Ok?}` or `A[Start]` to its display label.
+ fn flow_node_label(node: &str) -> String {
+-    let node = node.trim();
+-    match node.find(['[', '(', '{']) {
+-        Some(p) => node[p..]
+-            .trim_matches(|c| "[](){}>\"/\\".contains(c))
+-            .to_string(),
+-        None => node.to_string(),
+-    }
++    String::new() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Parses a flowchart line into `(from, to, label)` edges; `None` if it holds no edge.
+ fn parse_flowchart_edges(line: &str) -> Option<Vec<(String, String, Option<String>)>> {
+     let mut nodes = Vec::new();
+     let mut labels = Vec::new();
+     let mut rest = line;
+     while let Some((pos, len)) = FLOW_ARROWS

@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace == with != in wrap_text
+@@ -638,17 +638,17 @@
+     if spans.is_empty() {
+         spans.push(Span::styled(text.to_string(), base_style));
+     }
+     spans
+ }
+ 
+ /// Wraps text cleanly at word boundaries respecting maximum character width.
+ pub fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+-    if max_width == 0 {
++    if max_width != /* ~ changed by cargo-mutants ~ */ 0 {
+         return vec![text.to_string()];
+     }
+ 
+     let mut lines = Vec::new();
+     let words: Vec<&str> = text.split_whitespace().collect();
+     if words.is_empty() {
+         return vec![String::new()];
+     }

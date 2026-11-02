@@ -46,4 +46,4 @@ None. Existing Markdown preview behavior and performance requirements remain unc
 
 ## Review Gate
 
-- [ ] **Gate 0 Decision**: Human decides Go (Option A) or No-Go before the proposal is drafted.
+- [x] **Gate 0 Decision**: Go with Option A, requested by the user on 2026-11-02.
