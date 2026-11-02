@@ -25,7 +25,7 @@ flowchart LR
 - [x] 3.6 Document the measurement command in `docs/WIKI.md` and add a `CHANGELOG.md` entry (verify: diff)
 
 ## 4. Integration & Rebase Plan
-- [ ] 4.1 Rebase on develop, re-verify rails (`spec-rails-check`, `openspec validate --all`), `openspec archive`
+- [x] 4.1 Rebase on develop, re-verify rails (`spec-rails-check`, `openspec validate --all`), `openspec archive`
 
 ## Review Gate
 - [x] **Gate 4 Approval**: Tasks breakdown approved by human before writing test code, approved by the user on 2026-11-02.
