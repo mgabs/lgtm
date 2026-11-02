@@ -137,6 +137,54 @@ impl MarkdownPreviewState {
     }
 }
 
+const FLOW_ARROWS: [&str; 4] = ["-->", "---", "-.->", "==>"];
+
+/// Reduces a Mermaid node such as `B{Ok?}` or `A[Start]` to its display label.
+fn flow_node_label(node: &str) -> String {
+    let node = node.trim();
+    match node.find(['[', '(', '{']) {
+        Some(p) => node[p..]
+            .trim_matches(|c| "[](){}>\"/\\".contains(c))
+            .to_string(),
+        None => node.to_string(),
+    }
+}
+
+/// Parses a flowchart line into `(from, to, label)` edges; `None` if it holds no edge.
+fn parse_flowchart_edges(line: &str) -> Option<Vec<(String, String, Option<String>)>> {
+    let mut nodes = Vec::new();
+    let mut labels = Vec::new();
+    let mut rest = line;
+    while let Some((pos, len)) = FLOW_ARROWS
+        .iter()
+        .filter_map(|a| rest.find(a).map(|p| (p, a.len())))
+        .min_by_key(|&(p, l)| (p, std::cmp::Reverse(l)))
+    {
+        nodes.push(&rest[..pos]);
+        rest = rest[pos + len..].trim_start();
+        let mut label = None;
+        if let Some(after) = rest.strip_prefix('|') {
+            if let Some(end) = after.find('|') {
+                label = Some(after[..end].trim().to_string());
+                rest = &after[end + 1..];
+            }
+        }
+        labels.push(label);
+    }
+    nodes.push(rest);
+    if nodes.len() < 2 || nodes.iter().any(|n| n.trim().is_empty()) {
+        return None;
+    }
+    let names: Vec<String> = nodes.iter().map(|n| flow_node_label(n)).collect();
+    Some(
+        labels
+            .into_iter()
+            .enumerate()
+            .map(|(i, l)| (names[i].clone(), names[i + 1].clone(), l))
+            .collect(),
+    )
+}
+
 /// Returns true if the file path has a recognized markdown extension.
 pub fn is_markdown_file(path: &Path) -> bool {
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
@@ -175,8 +223,9 @@ pub fn build_markdown_preview(file: &FileDiff, viewport_width: u16) -> Vec<Rende
 
     let mut rows = Vec::with_capacity(all_lines.len());
     let mut in_code_fence = false;
+    let mut flowchart = false;
 
-    for line in all_lines {
+    for (idx, line) in all_lines.iter().enumerate() {
         let trimmed = line.content.trim_end_matches(['\r', '\n']);
         let diff_kind = match line.line_type {
             LineType::Addition => MarkdownDiffKind::Addition,
@@ -196,8 +245,21 @@ pub fn build_markdown_preview(file: &FileDiff, viewport_width: u16) -> Vec<Rende
             if !in_code_fence {
                 in_code_fence = true;
                 let lang = trimmed_start.trim_start_matches(marker).trim();
+                flowchart = false;
                 let code_fence_lang = if lang.is_empty() {
                     "code".to_string()
+                } else if lang.eq_ignore_ascii_case("mermaid") {
+                    let kind = all_lines[idx + 1..]
+                        .iter()
+                        .map(|l| l.content.trim())
+                        .take_while(|c| !c.starts_with("```") && !c.starts_with("~~~"))
+                        .find(|c| !c.is_empty())
+                        .and_then(|c| c.split_whitespace().next());
+                    flowchart = matches!(kind, Some("graph" | "flowchart"));
+                    match kind {
+                        Some(k) => format!("mermaid: {k}"),
+                        None => "mermaid".to_string(),
+                    }
                 } else {
                     lang.to_string()
                 };
@@ -234,6 +296,20 @@ pub fn build_markdown_preview(file: &FileDiff, viewport_width: u16) -> Vec<Rende
                 Style::default().fg(Color::White).bg(Color::Rgb(30, 30, 35)),
                 diff_kind,
             );
+            if let Some(edges) = flowchart.then(|| parse_flowchart_edges(trimmed)).flatten() {
+                for (from, to, label) in edges {
+                    let label = label.map(|l| format!(" ({l})")).unwrap_or_default();
+                    rows.push(RenderedMarkdownRow {
+                        line_number: line_num,
+                        diff_kind,
+                        spans: vec![Span::styled(
+                            format!("  {from} ──▶ {to}{label}"),
+                            code_style,
+                        )],
+                    });
+                }
+                continue;
+            }
             rows.push(RenderedMarkdownRow {
                 line_number: line_num,
                 diff_kind,
@@ -1171,6 +1247,78 @@ mod tests {
             assert_eq!(rows.len(), 1);
             assert!(rows[0].spans[0].content.contains('─'));
         }
+    }
+
+    fn mermaid_rows(body: &[(LineType, &str)]) -> Vec<RenderedMarkdownRow> {
+        let mut lines = vec![DiffLine {
+            line_type: LineType::Context,
+            content: "```mermaid".into(),
+            old_line_num: Some(1),
+            new_line_num: Some(1),
+        }];
+        for (i, (t, c)) in body.iter().enumerate() {
+            lines.push(DiffLine {
+                line_type: *t,
+                content: (*c).into(),
+                old_line_num: Some(i as u32 + 2),
+                new_line_num: Some(i as u32 + 2),
+            });
+        }
+        lines.push(DiffLine {
+            line_type: LineType::Context,
+            content: "```".into(),
+            old_line_num: Some(99),
+            new_line_num: Some(99),
+        });
+        build_markdown_preview(&make_test_file_diff(lines), 80)
+    }
+
+    fn text(row: &RenderedMarkdownRow) -> &str {
+        &row.spans[0].content
+    }
+
+    #[test]
+    fn flowchart_edges_render_with_labels_and_node_text() {
+        let rows = mermaid_rows(&[
+            (LineType::Context, "flowchart TD"),
+            (LineType::Context, "A[Start] --> B{Ok?}"),
+            (LineType::Context, "B -->|yes| C((Done))"),
+        ]);
+        assert_eq!(text(&rows[0]), "─── [mermaid: flowchart] ───");
+        assert!(text(&rows[1]).contains("flowchart TD"));
+        assert_eq!(text(&rows[2]).trim(), "Start ──▶ Ok?");
+        assert_eq!(text(&rows[3]).trim(), "B ──▶ Done (yes)");
+    }
+
+    #[test]
+    fn chained_edges_split_and_keep_line_number_and_diff_kind() {
+        let rows = mermaid_rows(&[
+            (LineType::Context, "graph LR"),
+            (LineType::Addition, "A --> B -.-> C"),
+        ]);
+        assert_eq!(text(&rows[2]).trim(), "A ──▶ B");
+        assert_eq!(text(&rows[3]).trim(), "B ──▶ C");
+        assert_eq!(rows[2].line_number, Some(3));
+        assert_eq!(rows[3].diff_kind, MarkdownDiffKind::Addition);
+    }
+
+    #[test]
+    fn unparseable_flowchart_lines_and_other_diagrams_stay_verbatim() {
+        let rows = mermaid_rows(&[
+            (LineType::Context, "flowchart TD"),
+            (LineType::Context, "style A fill:#f9f"),
+            (LineType::Context, "A --> "),
+        ]);
+        assert!(text(&rows[2]).contains("style A fill:#f9f"));
+        assert!(text(&rows[3]).contains("A -->"));
+
+        let rows = mermaid_rows(&[
+            (LineType::Context, "sequenceDiagram"),
+            (LineType::Context, "A->>B: hi"),
+            (LineType::Context, "A --> B"),
+        ]);
+        assert_eq!(text(&rows[0]), "─── [mermaid: sequenceDiagram] ───");
+        assert!(text(&rows[3]).contains("A --> B"));
     }
 
     #[test]
