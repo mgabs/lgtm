@@ -891,7 +891,7 @@ cargo +nightly llvm-cov -p lgtm --bin lgtm --branch --summary-only   # read the 
 cargo mutants -p lgtm --file src/app/markdown.rs                     # scoped mutation run
 ```
 
-`src/app/markdown.rs` measures 99.82% lines and 98.78% branches. Two branches are unreachable, and one mutant is equivalent (see the archived `markdown-parser-coverage` change).
+`src/app/markdown.rs` measures 100% lines and branches, and one mutant is equivalent (see the archived `markdown-parser-coverage` change).
 
 ---
 

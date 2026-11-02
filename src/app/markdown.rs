@@ -665,9 +665,7 @@ pub fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
                 }
                 chunk.push(c);
             }
-            if !chunk.is_empty() {
-                current_line = chunk;
-            }
+            current_line = chunk;
             continue;
         }
 
@@ -688,10 +686,7 @@ pub fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
         }
     }
 
-    if !current_line.is_empty() {
-        lines.push(current_line);
-    }
-
+    lines.push(current_line);
     lines
 }
 
