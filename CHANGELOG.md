@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.6.1
+## 2.7.0
 
 ### Added
 - Markdown preview: `mermaid` blocks get a `[mermaid: <type>]` header, and `graph`/`flowchart` edges render as `A ──▶ B` rows; anything else stays verbatim.
