@@ -3,6 +3,7 @@
 ## 2.6.1
 
 ### Added
+- Markdown preview: `mermaid` blocks get a `[mermaid: <type>]` header, and `graph`/`flowchart` edges render as `A ──▶ B` rows; anything else stays verbatim.
 - Markdown preview: a highlighted cursor row (directive commands act on it) and mouse-wheel scrolling; mouse capture is enabled only while the preview is open.
 
 ### Fixed

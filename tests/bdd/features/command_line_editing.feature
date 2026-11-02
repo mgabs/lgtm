@@ -205,4 +205,3 @@ Feature: Command Line Vim/Readline Editing Shortcuts
     Given a command line buffer with 100 characters
     When word motion operations are benchmarked over 10,000 iterations
     Then the average latency per operation is under 1 microsecond
-
