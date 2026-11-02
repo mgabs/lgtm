@@ -1,0 +1,22 @@
+--- src/app/markdown.rs
++++ replace MarkdownPreviewState::clamp_cursor_into_view with ()
+@@ -90,18 +90,17 @@
+         self.height_prefix
+             .partition_point(|&sum| sum <= limit)
+             .saturating_sub(2)
+             .max(self.scroll_offset)
+             .min(last)
+     }
+ 
+     fn clamp_cursor_into_view(&mut self, viewport_height: usize) {
+-        let last = self.last_visible_row(viewport_height);
+-        self.cursor_row = self.cursor_row.clamp(self.scroll_offset, last);
++        () /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// Moves the cursor by `delta` rows and scrolls just enough to keep it visible.
+     pub fn move_cursor(&mut self, delta: isize, viewport_height: usize) {
+         let last_row = self.rendered_rows.len().saturating_sub(1);
+         self.cursor_row = self.cursor_row.saturating_add_signed(delta).min(last_row);
+         self.ensure_cursor_visible(viewport_height);
+     }

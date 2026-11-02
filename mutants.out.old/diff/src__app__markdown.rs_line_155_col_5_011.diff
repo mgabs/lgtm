@@ -1,0 +1,51 @@
+--- src/app/markdown.rs
++++ replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![("xyzzy".into(), "xyzzy".into(), None)])
+@@ -147,47 +147,17 @@
+             .trim_matches(|c| "[](){}>\"/\\".contains(c))
+             .to_string(),
+         None => node.to_string(),
+     }
+ }
+ 
+ /// Parses a flowchart line into `(from, to, label)` edges; `None` if it holds no edge.
+ fn parse_flowchart_edges(line: &str) -> Option<Vec<(String, String, Option<String>)>> {
+-    let mut nodes = Vec::new();
+-    let mut labels = Vec::new();
+-    let mut rest = line;
+-    while let Some((pos, len)) = FLOW_ARROWS
+-        .iter()
+-        .filter_map(|a| rest.find(a).map(|p| (p, a.len())))
+-        .min_by_key(|&(p, l)| (p, std::cmp::Reverse(l)))
+-    {
+-        nodes.push(&rest[..pos]);
+-        rest = rest[pos + len..].trim_start();
+-        let mut label = None;
+-        if let Some(after) = rest.strip_prefix('|') {
+-            if let Some(end) = after.find('|') {
+-                label = Some(after[..end].trim().to_string());
+-                rest = &after[end + 1..];
+-            }
+-        }
+-        labels.push(label);
+-    }
+-    nodes.push(rest);
+-    if nodes.len() < 2 || nodes.iter().any(|n| n.trim().is_empty()) {
+-        return None;
+-    }
+-    let names: Vec<String> = nodes.iter().map(|n| flow_node_label(n)).collect();
+-    Some(
+-        labels
+-            .into_iter()
+-            .enumerate()
+-            .map(|(i, l)| (names[i].clone(), names[i + 1].clone(), l))
+-            .collect(),
+-    )
++    Some(vec![("xyzzy".into(), "xyzzy".into(), None)]) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Returns true if the file path has a recognized markdown extension.
+ pub fn is_markdown_file(path: &Path) -> bool {
+     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+     matches!(
+         ext.to_ascii_lowercase().as_str(),
+         "md" | "markdown" | "mdown" | "mkd"

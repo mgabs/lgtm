@@ -175,3 +175,10 @@ Feature: Markdown Preview with Diff Highlighting
     When navigation metadata is prepared and the reviewer scrolls
     Then missing row heights count as one screen line
     And cursor and scroll bounds match the reference calculation
+
+  # REQ-MDCOV-1, NFR-MDCOV-1; Rust tests: inline_*, wrap_text_exact_boundaries, heading_styles_are_distinct_per_level
+  Scenario: Parser edge cases render predictably
+    Given markdown with unterminated inline markers, an unclosed fence, an empty list item and an overlong word
+    When the preview is built at a narrow width
+    Then unterminated markers stay literal and no row panics
+    And wrapped rows keep the source line number on the first row only

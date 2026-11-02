@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace < with <= in MarkdownPreviewState::ensure_cursor_visible
+@@ -124,17 +124,17 @@
+         }
+         self.scroll_offset = self.scroll_offset.min(self.cursor_row);
+         let first = if self.height_prefix.is_empty() {
+             self.cursor_row
+                 .saturating_add(1)
+                 .saturating_sub(viewport_height)
+         } else {
+             let limit = self.height_prefix[self.cursor_row + 1].saturating_sub(viewport_height);
+-            self.height_prefix.partition_point(|&sum| sum < limit)
++            self.height_prefix.partition_point(|&sum| sum <= /* ~ changed by cargo-mutants ~ */ limit)
+         }
+         .min(self.cursor_row);
+         self.scroll_offset = self.scroll_offset.max(first);
+         self.scroll_offset = self.scroll_offset.min(self.max_scroll(viewport_height));
+     }
+ }
+ 
+ const FLOW_ARROWS: [&str; 4] = ["-->", "---", "-.->", "==>"];

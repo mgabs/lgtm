@@ -1,0 +1,25 @@
+--- src/app/markdown.rs
++++ replace apply_diff_style -> Style with Default::default()
+@@ -435,21 +435,17 @@
+         }
+     }
+ 
+     rows
+ }
+ 
+ /// Applies green/red styling tint for addition/deletion.
+ pub fn apply_diff_style(base: Style, diff_kind: MarkdownDiffKind) -> Style {
+-    match diff_kind {
+-        MarkdownDiffKind::Addition => base.fg(Color::Green),
+-        MarkdownDiffKind::Deletion => base.fg(Color::Red).add_modifier(Modifier::CROSSED_OUT),
+-        MarkdownDiffKind::Unchanged => base,
+-    }
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Detects heading level (1 to 6) and returns the clean heading string.
+ fn parse_heading(text: &str) -> Option<(usize, &str)> {
+     let trimmed = text.trim_start();
+     let mut level = 0;
+     for ch in trimmed.chars() {
+         if ch == '#' {

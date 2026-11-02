@@ -1,0 +1,33 @@
+--- src/app/markdown.rs
++++ replace MarkdownPreviewState::last_visible_row -> usize with 1
+@@ -74,29 +74,17 @@
+ 
+     pub fn scroll_up(&mut self, amount: usize, viewport_height: usize) {
+         self.scroll_offset = self.scroll_offset.saturating_sub(amount);
+         self.clamp_cursor_into_view(viewport_height);
+     }
+ 
+     /// Last row that starts inside the viewport at the current offset.
+     fn last_visible_row(&self, viewport_height: usize) -> usize {
+-        let last = self.rendered_rows.len().saturating_sub(1);
+-        if self.height_prefix.is_empty() {
+-            return self
+-                .scroll_offset
+-                .saturating_add(viewport_height.saturating_sub(1))
+-                .min(last);
+-        }
+-        let limit = self.height_prefix[self.scroll_offset].saturating_add(viewport_height);
+-        self.height_prefix
+-            .partition_point(|&sum| sum <= limit)
+-            .saturating_sub(2)
+-            .max(self.scroll_offset)
+-            .min(last)
++        1 /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     fn clamp_cursor_into_view(&mut self, viewport_height: usize) {
+         let last = self.last_visible_row(viewport_height);
+         self.cursor_row = self.cursor_row.clamp(self.scroll_offset, last);
+     }
+ 
+     /// Moves the cursor by `delta` rows and scrolls just enough to keep it visible.

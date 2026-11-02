@@ -1,0 +1,36 @@
+--- src/app/markdown.rs
++++ replace parse_heading -> Option<(usize, &str)> with Some((0, ""))
+@@ -444,32 +444,17 @@
+         MarkdownDiffKind::Addition => base.fg(Color::Green),
+         MarkdownDiffKind::Deletion => base.fg(Color::Red).add_modifier(Modifier::CROSSED_OUT),
+         MarkdownDiffKind::Unchanged => base,
+     }
+ }
+ 
+ /// Detects heading level (1 to 6) and returns the clean heading string.
+ fn parse_heading(text: &str) -> Option<(usize, &str)> {
+-    let trimmed = text.trim_start();
+-    let mut level = 0;
+-    for ch in trimmed.chars() {
+-        if ch == '#' {
+-            level += 1;
+-        } else {
+-            break;
+-        }
+-    }
+-    if (1..=6).contains(&level) {
+-        let rest = &trimmed[level..];
+-        if rest.starts_with(' ') {
+-            return Some((level, rest.trim()));
+-        }
+-    }
+-    None
++    Some((0, "")) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Determines Ratatui style for a given heading level and diff status.
+ fn get_heading_style(level: usize, diff_kind: MarkdownDiffKind) -> Style {
+     let mut style = match level {
+         1 => Style::default()
+             .fg(Color::Cyan)
+             .add_modifier(Modifier::BOLD)

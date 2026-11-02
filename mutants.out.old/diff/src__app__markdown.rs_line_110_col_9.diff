@@ -1,0 +1,22 @@
+--- src/app/markdown.rs
++++ replace MarkdownPreviewState::cursor_to_top with ()
+@@ -102,18 +102,17 @@
+     /// Moves the cursor by `delta` rows and scrolls just enough to keep it visible.
+     pub fn move_cursor(&mut self, delta: isize, viewport_height: usize) {
+         let last_row = self.rendered_rows.len().saturating_sub(1);
+         self.cursor_row = self.cursor_row.saturating_add_signed(delta).min(last_row);
+         self.ensure_cursor_visible(viewport_height);
+     }
+ 
+     pub fn cursor_to_top(&mut self, viewport_height: usize) {
+-        self.cursor_row = 0;
+-        self.ensure_cursor_visible(viewport_height);
++        () /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     pub fn cursor_to_bottom(&mut self, viewport_height: usize) {
+         self.cursor_row = self.rendered_rows.len().saturating_sub(1);
+         self.ensure_cursor_visible(viewport_height);
+     }
+ 
+     fn ensure_cursor_visible(&mut self, viewport_height: usize) {

@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace == with != in build_markdown_preview
+@@ -314,17 +314,17 @@
+                 line_number: line_num,
+                 diff_kind,
+                 spans: vec![Span::styled(format!("  {}", trimmed), code_style)],
+             });
+             continue;
+         }
+ 
+         // Horizontal Rule
+-        if trimmed == "---" || trimmed == "***" || trimmed == "___" {
++        if trimmed != /* ~ changed by cargo-mutants ~ */ "---" || trimmed == "***" || trimmed == "___" {
+             let hr_style = apply_diff_style(
+                 Style::default()
+                     .fg(Color::DarkGray)
+                     .add_modifier(Modifier::DIM),
+                 diff_kind,
+             );
+             let bar = "─".repeat(text_width.min(40));
+             rows.push(RenderedMarkdownRow {

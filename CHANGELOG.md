@@ -6,6 +6,9 @@
 - Markdown preview: `mermaid` blocks get a `[mermaid: <type>]` header, and `graph`/`flowchart` edges render as `A ──▶ B` rows; anything else stays verbatim.
 - Markdown preview: a highlighted cursor row (directive commands act on it) and mouse-wheel scrolling; mouse capture is enabled only while the preview is open.
 
+### Tests
+- Markdown parser: `src/app/markdown.rs` now has 99.73% line and 98.19% branch coverage, and scoped mutation testing leaves only equivalent mutants.
+
 ### Fixed
 - Windows CI: staging tests no longer depend on `core.autocrlf`; worktree jump-by-path matches paths without the `\\?\` prefix.
 - Terminal state is restored after UI-loop errors, failed agent delivery is reported without advancing the review turn, `--init --repo` honors its target, and MCP directive line overflow is rejected before persistence.

@@ -1,0 +1,203 @@
+src/app/markdown.rs:44:9: replace MarkdownPreviewState::set_row_heights with ()
+src/app/markdown.rs:58:9: replace MarkdownPreviewState::max_scroll -> usize with 0
+src/app/markdown.rs:58:9: replace MarkdownPreviewState::max_scroll -> usize with 1
+src/app/markdown.rs:63:41: replace < with == in MarkdownPreviewState::max_scroll
+src/app/markdown.rs:63:41: replace < with > in MarkdownPreviewState::max_scroll
+src/app/markdown.rs:63:41: replace < with <= in MarkdownPreviewState::max_scroll
+src/app/markdown.rs:67:9: replace MarkdownPreviewState::scroll_down with ()
+src/app/markdown.rs:76:9: replace MarkdownPreviewState::scroll_up with ()
+src/app/markdown.rs:82:9: replace MarkdownPreviewState::last_visible_row -> usize with 0
+src/app/markdown.rs:82:9: replace MarkdownPreviewState::last_visible_row -> usize with 1
+src/app/markdown.rs:91:41: replace <= with > in MarkdownPreviewState::last_visible_row
+src/app/markdown.rs:98:9: replace MarkdownPreviewState::clamp_cursor_into_view with ()
+src/app/markdown.rs:104:9: replace MarkdownPreviewState::move_cursor with ()
+src/app/markdown.rs:110:9: replace MarkdownPreviewState::cursor_to_top with ()
+src/app/markdown.rs:115:9: replace MarkdownPreviewState::cursor_to_bottom with ()
+src/app/markdown.rs:120:9: replace MarkdownPreviewState::ensure_cursor_visible with ()
+src/app/markdown.rs:131:60: replace + with - in MarkdownPreviewState::ensure_cursor_visible
+src/app/markdown.rs:131:60: replace + with * in MarkdownPreviewState::ensure_cursor_visible
+src/app/markdown.rs:46:57: replace > with >= in MarkdownPreviewState::set_row_heights
+src/app/markdown.rs:46:57: replace > with < in MarkdownPreviewState::set_row_heights
+src/app/markdown.rs:132:59: replace < with > in MarkdownPreviewState::ensure_cursor_visible
+src/app/markdown.rs:132:59: replace < with == in MarkdownPreviewState::ensure_cursor_visible
+src/app/markdown.rs:46:57: replace > with == in MarkdownPreviewState::set_row_heights
+src/app/markdown.rs:132:59: replace < with <= in MarkdownPreviewState::ensure_cursor_visible
+src/app/markdown.rs:144:5: replace flow_node_label -> String with String::new()
+src/app/markdown.rs:144:5: replace flow_node_label -> String with "xyzzy".into()
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with None
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![(String::new(), String::new(), Some(String::new()))])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![(String::new(), String::new(), None)])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![(String::new(), String::new(), Some("xyzzy".into()))])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![(String::new(), "xyzzy".into(), None)])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![(String::new(), "xyzzy".into(), Some("xyzzy".into()))])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![(String::new(), "xyzzy".into(), Some(String::new()))])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![("xyzzy".into(), String::new(), None)])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![("xyzzy".into(), String::new(), Some(String::new()))])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![("xyzzy".into(), "xyzzy".into(), None)])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![("xyzzy".into(), String::new(), Some("xyzzy".into()))])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![("xyzzy".into(), "xyzzy".into(), Some(String::new()))])
+src/app/markdown.rs:155:5: replace parse_flowchart_edges -> Option<Vec<(String, String, Option<String>)>> with Some(vec![("xyzzy".into(), "xyzzy".into(), Some("xyzzy".into()))])
+src/app/markdown.rs:164:25: replace + with * in parse_flowchart_edges
+src/app/markdown.rs:169:35: replace + with - in parse_flowchart_edges
+src/app/markdown.rs:169:35: replace + with * in parse_flowchart_edges
+src/app/markdown.rs:175:24: replace || with && in parse_flowchart_edges
+src/app/markdown.rs:175:20: replace < with == in parse_flowchart_edges
+src/app/markdown.rs:175:20: replace < with > in parse_flowchart_edges
+src/app/markdown.rs:175:20: replace < with <= in parse_flowchart_edges
+src/app/markdown.rs:183:54: replace + with - in parse_flowchart_edges
+src/app/markdown.rs:183:54: replace + with * in parse_flowchart_edges
+src/app/markdown.rs:190:5: replace is_markdown_file -> bool with true
+src/app/markdown.rs:190:5: replace is_markdown_file -> bool with false
+src/app/markdown.rs:199:5: replace build_markdown_preview -> Vec<RenderedMarkdownRow> with vec![]
+src/app/markdown.rs:205:31: replace != with == in build_markdown_preview
+src/app/markdown.rs:231:13: delete match arm LineType::Addition in build_markdown_preview
+src/app/markdown.rs:232:13: delete match arm LineType::Deletion in build_markdown_preview
+src/app/markdown.rs:239:45: replace || with && in build_markdown_preview
+src/app/markdown.rs:245:16: delete ! in build_markdown_preview
+src/app/markdown.rs:252:46: replace + with - in build_markdown_preview
+src/app/markdown.rs:252:46: replace + with * in build_markdown_preview
+src/app/markdown.rs:255:41: delete ! in build_markdown_preview
+src/app/markdown.rs:255:66: delete ! in build_markdown_preview
+src/app/markdown.rs:256:35: delete ! in build_markdown_preview
+src/app/markdown.rs:322:49: replace || with && in build_markdown_preview
+src/app/markdown.rs:322:29: replace || with && in build_markdown_preview
+src/app/markdown.rs:322:20: replace == with != in build_markdown_preview
+src/app/markdown.rs:322:40: replace == with != in build_markdown_preview
+src/app/markdown.rs:322:60: replace == with != in build_markdown_preview
+src/app/markdown.rs:375:41: replace == with != in build_markdown_preview
+src/app/markdown.rs:387:60: replace + with - in build_markdown_preview
+src/app/markdown.rs:387:60: replace + with * in build_markdown_preview
+src/app/markdown.rs:393:24: replace == with != in build_markdown_preview
+src/app/markdown.rs:408:41: replace == with != in build_markdown_preview
+src/app/markdown.rs:431:37: replace == with != in build_markdown_preview
+src/app/markdown.rs:443:5: replace apply_diff_style -> Style with Default::default()
+src/app/markdown.rs:452:5: replace parse_heading -> Option<(usize, &str)> with None
+src/app/markdown.rs:452:5: replace parse_heading -> Option<(usize, &str)> with Some((0, ""))
+src/app/markdown.rs:452:5: replace parse_heading -> Option<(usize, &str)> with Some((0, "xyzzy"))
+src/app/markdown.rs:452:5: replace parse_heading -> Option<(usize, &str)> with Some((1, ""))
+src/app/markdown.rs:452:5: replace parse_heading -> Option<(usize, &str)> with Some((1, "xyzzy"))
+src/app/markdown.rs:455:15: replace == with != in parse_heading
+src/app/markdown.rs:456:19: replace += with -= in parse_heading
+src/app/markdown.rs:456:19: replace += with *= in parse_heading
+src/app/markdown.rs:472:5: replace get_heading_style -> Style with Default::default()
+src/app/markdown.rs:473:9: delete match arm 1 in get_heading_style
+src/app/markdown.rs:477:9: delete match arm 2 in get_heading_style
+src/app/markdown.rs:480:9: delete match arm 3 in get_heading_style
+src/app/markdown.rs:483:9: delete match arm 4 in get_heading_style
+src/app/markdown.rs:486:9: delete match arm 5 in get_heading_style
+src/app/markdown.rs:500:5: replace parse_list_item -> Option<(String, &str, usize)> with None
+src/app/markdown.rs:500:5: replace parse_list_item -> Option<(String, &str, usize)> with Some((String::new(), "", 1))
+src/app/markdown.rs:500:5: replace parse_list_item -> Option<(String, &str, usize)> with Some((String::new(), "", 0))
+src/app/markdown.rs:500:5: replace parse_list_item -> Option<(String, &str, usize)> with Some((String::new(), "xyzzy", 0))
+src/app/markdown.rs:500:5: replace parse_list_item -> Option<(String, &str, usize)> with Some((String::new(), "xyzzy", 1))
+src/app/markdown.rs:500:5: replace parse_list_item -> Option<(String, &str, usize)> with Some(("xyzzy".into(), "", 0))
+src/app/markdown.rs:500:5: replace parse_list_item -> Option<(String, &str, usize)> with Some(("xyzzy".into(), "", 1))
+src/app/markdown.rs:500:5: replace parse_list_item -> Option<(String, &str, usize)> with Some(("xyzzy".into(), "xyzzy", 0))
+src/app/markdown.rs:500:5: replace parse_list_item -> Option<(String, &str, usize)> with Some(("xyzzy".into(), "xyzzy", 1))
+src/app/markdown.rs:501:30: replace / with % in parse_list_item
+src/app/markdown.rs:501:30: replace / with * in parse_list_item
+src/app/markdown.rs:505:63: replace || with && in parse_list_item
+src/app/markdown.rs:505:34: replace || with && in parse_list_item
+src/app/markdown.rs:513:12: delete ! in parse_list_item
+src/app/markdown.rs:513:34: replace && with || in parse_list_item
+src/app/markdown.rs:515:44: replace + with - in parse_list_item
+src/app/markdown.rs:525:5: replace parse_inline_spans -> Vec<Span<'static>> with vec![Default::default()]
+src/app/markdown.rs:525:5: replace parse_inline_spans -> Vec<Span<'static>> with vec![]
+src/app/markdown.rs:530:12: delete ! in parse_inline_spans
+src/app/markdown.rs:537:22: replace && with || in parse_inline_spans
+src/app/markdown.rs:538:43: replace + with - in parse_inline_spans
+src/app/markdown.rs:537:15: replace == with != in parse_inline_spans
+src/app/markdown.rs:540:44: replace + with - in parse_inline_spans
+src/app/markdown.rs:538:43: replace + with * in parse_inline_spans
+src/app/markdown.rs:540:44: replace + with * in parse_inline_spans
+src/app/markdown.rs:540:55: replace + with - in parse_inline_spans
+src/app/markdown.rs:540:51: replace + with - in parse_inline_spans
+src/app/markdown.rs:540:55: replace + with * in parse_inline_spans
+src/app/markdown.rs:545:50: replace + with - in parse_inline_spans
+src/app/markdown.rs:540:51: replace + with * in parse_inline_spans
+src/app/markdown.rs:545:50: replace + with * in parse_inline_spans
+src/app/markdown.rs:545:40: replace + with * in parse_inline_spans
+src/app/markdown.rs:545:36: replace + with - in parse_inline_spans
+src/app/markdown.rs:545:36: replace + with * in parse_inline_spans
+src/app/markdown.rs:547:31: replace < with <= in parse_inline_spans
+src/app/markdown.rs:558:22: replace && with || in parse_inline_spans
+src/app/markdown.rs:558:15: replace == with != in parse_inline_spans
+src/app/markdown.rs:558:25: delete ! in parse_inline_spans
+src/app/markdown.rs:559:43: replace + with - in parse_inline_spans
+src/app/markdown.rs:559:43: replace + with * in parse_inline_spans
+src/app/markdown.rs:560:20: delete ! in parse_inline_spans
+src/app/markdown.rs:560:28: replace + with * in parse_inline_spans
+src/app/markdown.rs:560:28: replace + with - in parse_inline_spans
+src/app/markdown.rs:560:39: replace + with - in parse_inline_spans
+src/app/markdown.rs:560:35: replace + with - in parse_inline_spans
+src/app/markdown.rs:562:50: replace + with - in parse_inline_spans
+src/app/markdown.rs:562:50: replace + with * in parse_inline_spans
+src/app/markdown.rs:562:61: replace + with - in parse_inline_spans
+src/app/markdown.rs:562:61: replace + with * in parse_inline_spans
+src/app/markdown.rs:562:57: replace + with - in parse_inline_spans
+src/app/markdown.rs:562:57: replace + with * in parse_inline_spans
+src/app/markdown.rs:566:54: replace + with - in parse_inline_spans
+src/app/markdown.rs:566:54: replace + with * in parse_inline_spans
+src/app/markdown.rs:566:44: replace + with * in parse_inline_spans
+src/app/markdown.rs:566:40: replace + with - in parse_inline_spans
+src/app/markdown.rs:566:40: replace + with * in parse_inline_spans
+src/app/markdown.rs:568:35: replace < with <= in parse_inline_spans
+src/app/markdown.rs:580:15: replace == with != in parse_inline_spans
+src/app/markdown.rs:581:43: replace + with - in parse_inline_spans
+src/app/markdown.rs:581:43: replace + with * in parse_inline_spans
+src/app/markdown.rs:583:44: replace + with - in parse_inline_spans
+src/app/markdown.rs:583:44: replace + with * in parse_inline_spans
+src/app/markdown.rs:583:55: replace + with - in parse_inline_spans
+src/app/markdown.rs:583:55: replace + with * in parse_inline_spans
+src/app/markdown.rs:583:51: replace + with * in parse_inline_spans
+src/app/markdown.rs:583:51: replace + with - in parse_inline_spans
+src/app/markdown.rs:589:50: replace + with - in parse_inline_spans
+src/app/markdown.rs:589:50: replace + with * in parse_inline_spans
+src/app/markdown.rs:589:40: replace + with * in parse_inline_spans
+src/app/markdown.rs:589:36: replace + with - in parse_inline_spans
+src/app/markdown.rs:589:36: replace + with * in parse_inline_spans
+src/app/markdown.rs:591:31: replace < with <= in parse_inline_spans
+src/app/markdown.rs:602:15: replace == with != in parse_inline_spans
+src/app/markdown.rs:603:45: replace + with - in parse_inline_spans
+src/app/markdown.rs:603:45: replace + with * in parse_inline_spans
+src/app/markdown.rs:604:53: replace + with - in parse_inline_spans
+src/app/markdown.rs:604:53: replace + with * in parse_inline_spans
+src/app/markdown.rs:604:41: replace + with - in parse_inline_spans
+src/app/markdown.rs:604:37: replace + with - in parse_inline_spans
+src/app/markdown.rs:604:41: replace + with * in parse_inline_spans
+src/app/markdown.rs:604:37: replace + with * in parse_inline_spans
+src/app/markdown.rs:606:61: replace + with - in parse_inline_spans
+src/app/markdown.rs:606:61: replace + with * in parse_inline_spans
+src/app/markdown.rs:608:45: replace + with - in parse_inline_spans
+src/app/markdown.rs:608:45: replace + with * in parse_inline_spans
+src/app/markdown.rs:608:62: replace - with + in parse_inline_spans
+src/app/markdown.rs:608:62: replace - with / in parse_inline_spans
+src/app/markdown.rs:609:53: replace + with - in parse_inline_spans
+src/app/markdown.rs:609:53: replace + with * in parse_inline_spans
+src/app/markdown.rs:609:74: replace + with - in parse_inline_spans
+src/app/markdown.rs:609:74: replace + with * in parse_inline_spans
+src/app/markdown.rs:609:70: replace + with - in parse_inline_spans
+src/app/markdown.rs:609:70: replace + with * in parse_inline_spans
+src/app/markdown.rs:619:68: replace + with - in parse_inline_spans
+src/app/markdown.rs:619:68: replace + with * in parse_inline_spans
+src/app/markdown.rs:619:58: replace + with * in parse_inline_spans
+src/app/markdown.rs:619:54: replace + with - in parse_inline_spans
+src/app/markdown.rs:619:54: replace + with * in parse_inline_spans
+src/app/markdown.rs:621:39: replace < with <= in parse_inline_spans
+src/app/markdown.rs:646:5: replace wrap_text -> Vec<String> with vec![]
+src/app/markdown.rs:646:5: replace wrap_text -> Vec<String> with vec![String::new()]
+src/app/markdown.rs:646:5: replace wrap_text -> Vec<String> with vec!["xyzzy".into()]
+src/app/markdown.rs:646:18: replace == with != in wrap_text
+src/app/markdown.rs:659:33: replace > with == in wrap_text
+src/app/markdown.rs:659:33: replace > with < in wrap_text
+src/app/markdown.rs:665:42: replace == with != in wrap_text
+src/app/markdown.rs:660:16: delete ! in wrap_text
+src/app/markdown.rs:670:16: delete ! in wrap_text
+src/app/markdown.rs:679:46: replace + with - in wrap_text
+src/app/markdown.rs:679:46: replace + with * in wrap_text
+src/app/markdown.rs:679:42: replace + with - in wrap_text
+src/app/markdown.rs:679:42: replace + with * in wrap_text
+src/app/markdown.rs:682:23: replace <= with > in wrap_text
+src/app/markdown.rs:683:16: delete ! in wrap_text
+src/app/markdown.rs:693:8: delete ! in wrap_text

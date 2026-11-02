@@ -1,0 +1,41 @@
+--- src/app/markdown.rs
++++ replace parse_list_item -> Option<(String, &str, usize)> with Some(("xyzzy".into(), "", 0))
+@@ -492,37 +492,17 @@
+     };
+ 
+     style = apply_diff_style(style, diff_kind);
+     style
+ }
+ 
+ /// Parses a list item prefix (bullet or number) and returns `(prefix, content, indent_depth)`.
+ fn parse_list_item(text: &str) -> Option<(String, &str, usize)> {
+-    let indent_chars = text.chars().take_while(|c| c.is_whitespace()).count();
+-    let depth = indent_chars / 2;
+-    let trimmed = text.trim_start();
+-
+-    // Bullet items: - , * , +
+-    if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ") {
+-        let content = &trimmed[2..];
+-        return Some(("• ".to_string(), content.trim(), depth));
+-    }
+-
+-    // Numbered items: 1. , 12.
+-    if let Some(dot_idx) = trimmed.find(". ") {
+-        let num_slice = &trimmed[..dot_idx];
+-        if !num_slice.is_empty() && num_slice.chars().all(|c| c.is_ascii_digit()) {
+-            let prefix = format!("{}. ", num_slice);
+-            let content = &trimmed[dot_idx + 2..];
+-            return Some((prefix, content.trim(), depth));
+-        }
+-    }
+-
+-    None
++    Some(("xyzzy".into(), "", 0)) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Tokenizes inline markdown: `**bold**`, `*italic*`, `` `code` ``, `[label](url)`.
+ pub fn parse_inline_spans(text: &str, base_style: Style) -> Vec<Span<'static>> {
+     let mut spans = Vec::new();
+     let mut chars = text.char_indices().peekable();
+     let mut current_text = String::new();
+ 

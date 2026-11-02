@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace == with != in build_markdown_preview
+@@ -423,17 +423,17 @@
+             continue;
+         }
+ 
+         let base_style = apply_diff_style(Style::default().fg(Color::White), diff_kind);
+         let wrapped_lines = wrap_text(trimmed, text_width);
+         for (idx, w_line) in wrapped_lines.into_iter().enumerate() {
+             let spans = parse_inline_spans(&w_line, base_style);
+             rows.push(RenderedMarkdownRow {
+-                line_number: if idx == 0 { line_num } else { None },
++                line_number: if idx != /* ~ changed by cargo-mutants ~ */ 0 { line_num } else { None },
+                 diff_kind,
+                 spans,
+             });
+         }
+     }
+ 
+     rows
+ }

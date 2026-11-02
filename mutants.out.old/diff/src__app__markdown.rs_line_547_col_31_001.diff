@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace < with > in parse_inline_spans
+@@ -539,17 +539,17 @@
+                 flush_current(&mut current_text, &mut spans);
+                 let bold_content = &text[i + 2..i + 2 + end_rel];
+                 let bold_style = base_style.add_modifier(Modifier::BOLD);
+                 spans.push(Span::styled(bold_content.to_string(), bold_style));
+ 
+                 // Advance chars past end marker
+                 let advance_to = i + 2 + end_rel + 2;
+                 while let Some(&(next_i, _)) = chars.peek() {
+-                    if next_i < advance_to {
++                    if next_i > /* ~ changed by cargo-mutants ~ */ advance_to {
+                         chars.next();
+                     } else {
+                         break;
+                     }
+                 }
+                 continue;
+             }
+         }

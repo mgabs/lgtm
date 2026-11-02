@@ -1,0 +1,72 @@
+--- src/app/markdown.rs
++++ replace wrap_text -> Vec<String> with vec!["xyzzy".into()]
+@@ -638,68 +638,17 @@
+     if spans.is_empty() {
+         spans.push(Span::styled(text.to_string(), base_style));
+     }
+     spans
+ }
+ 
+ /// Wraps text cleanly at word boundaries respecting maximum character width.
+ pub fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+-    if max_width == 0 {
+-        return vec![text.to_string()];
+-    }
+-
+-    let mut lines = Vec::new();
+-    let words: Vec<&str> = text.split_whitespace().collect();
+-    if words.is_empty() {
+-        return vec![String::new()];
+-    }
+-
+-    let mut current_line = String::new();
+-    for word in words {
+-        // If single word exceeds max_width, split word directly
+-        if word.chars().count() > max_width {
+-            if !current_line.is_empty() {
+-                lines.push(std::mem::take(&mut current_line));
+-            }
+-            let mut chunk = String::new();
+-            for c in word.chars() {
+-                if chunk.chars().count() == max_width {
+-                    lines.push(std::mem::take(&mut chunk));
+-                }
+-                chunk.push(c);
+-            }
+-            if !chunk.is_empty() {
+-                current_line = chunk;
+-            }
+-            continue;
+-        }
+-
+-        let needed_len = if current_line.is_empty() {
+-            word.chars().count()
+-        } else {
+-            current_line.chars().count() + 1 + word.chars().count()
+-        };
+-
+-        if needed_len <= max_width {
+-            if !current_line.is_empty() {
+-                current_line.push(' ');
+-            }
+-            current_line.push_str(word);
+-        } else {
+-            lines.push(std::mem::take(&mut current_line));
+-            current_line.push_str(word);
+-        }
+-    }
+-
+-    if !current_line.is_empty() {
+-        lines.push(current_line);
+-    }
+-
+-    lines
++    vec!["xyzzy".into()] /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+     use crate::model::{ChangeType, DiffHunk};
+     use std::path::PathBuf;
+ 

@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace + with * in parse_flowchart_edges
+@@ -161,17 +161,17 @@
+         .min_by_key(|&(p, l)| (p, std::cmp::Reverse(l)))
+     {
+         nodes.push(&rest[..pos]);
+         rest = rest[pos + len..].trim_start();
+         let mut label = None;
+         if let Some(after) = rest.strip_prefix('|') {
+             if let Some(end) = after.find('|') {
+                 label = Some(after[..end].trim().to_string());
+-                rest = &after[end + 1..];
++                rest = &after[end * /* ~ changed by cargo-mutants ~ */ 1..];
+             }
+         }
+         labels.push(label);
+     }
+     nodes.push(rest);
+     if nodes.len() < 2 || nodes.iter().any(|n| n.trim().is_empty()) {
+         return None;
+     }

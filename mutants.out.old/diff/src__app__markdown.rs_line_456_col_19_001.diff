@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace += with *= in parse_heading
+@@ -448,17 +448,17 @@
+ }
+ 
+ /// Detects heading level (1 to 6) and returns the clean heading string.
+ fn parse_heading(text: &str) -> Option<(usize, &str)> {
+     let trimmed = text.trim_start();
+     let mut level = 0;
+     for ch in trimmed.chars() {
+         if ch == '#' {
+-            level += 1;
++            level *= /* ~ changed by cargo-mutants ~ */ 1;
+         } else {
+             break;
+         }
+     }
+     if (1..=6).contains(&level) {
+         let rest = &trimmed[level..];
+         if rest.starts_with(' ') {
+             return Some((level, rest.trim()));

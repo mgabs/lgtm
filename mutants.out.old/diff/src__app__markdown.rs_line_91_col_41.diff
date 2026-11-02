@@ -1,0 +1,21 @@
+--- src/app/markdown.rs
++++ replace <= with > in MarkdownPreviewState::last_visible_row
+@@ -83,17 +83,17 @@
+         if self.height_prefix.is_empty() {
+             return self
+                 .scroll_offset
+                 .saturating_add(viewport_height.saturating_sub(1))
+                 .min(last);
+         }
+         let limit = self.height_prefix[self.scroll_offset].saturating_add(viewport_height);
+         self.height_prefix
+-            .partition_point(|&sum| sum <= limit)
++            .partition_point(|&sum| sum > /* ~ changed by cargo-mutants ~ */ limit)
+             .saturating_sub(2)
+             .max(self.scroll_offset)
+             .min(last)
+     }
+ 
+     fn clamp_cursor_into_view(&mut self, viewport_height: usize) {
+         let last = self.last_visible_row(viewport_height);
+         self.cursor_row = self.cursor_row.clamp(self.scroll_offset, last);

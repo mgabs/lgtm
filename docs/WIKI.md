@@ -884,6 +884,15 @@ make bdd-report
 It maps all 41 agreed criteria to executable tests and evaluates pass/fail status,
 automation coverage, verified coverage, and pass rate.
 
+Markdown parser line and branch coverage (branch counts need nightly Rust and `cargo-llvm-cov`):
+
+```sh
+cargo +nightly llvm-cov -p lgtm --bin lgtm --branch --summary-only   # read the app/markdown.rs row
+cargo mutants -p lgtm --file src/app/markdown.rs                     # scoped mutation run
+```
+
+`src/app/markdown.rs` measures 99.73% lines and 98.19% branches. Three branches are unreachable, and three mutants are equivalent (see the archived `markdown-parser-coverage` change).
+
 ---
 
 ## 13. Source Module Map
