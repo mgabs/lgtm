@@ -7,7 +7,7 @@
 - Markdown preview: a highlighted cursor row (directive commands act on it) and mouse-wheel scrolling; mouse capture is enabled only while the preview is open.
 
 ### Tests
-- Markdown parser: `src/app/markdown.rs` now has 99.73% line and 98.19% branch coverage, and scoped mutation testing leaves only equivalent mutants.
+- Markdown parser: `src/app/markdown.rs` now has 99.82% line and 98.78% branch coverage, and scoped mutation testing leaves only equivalent mutants.
 
 ### Fixed
 - Windows CI: staging tests no longer depend on `core.autocrlf`; worktree jump-by-path matches paths without the `\\?\` prefix.
