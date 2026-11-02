@@ -10,3 +10,4 @@ lgtm-report.md
 prd
 
 .worktrees/
+mutants.out*/

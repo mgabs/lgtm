@@ -1,5 +1,0 @@
-src/app/markdown.rs:255:63: replace && with || in build_markdown_preview
-src/app/markdown.rs:515:44: replace + with * in parse_list_item
-src/app/markdown.rs:560:39: replace + with * in parse_inline_spans
-src/app/markdown.rs:560:35: replace + with * in parse_inline_spans
-src/app/markdown.rs:659:33: replace > with >= in wrap_text

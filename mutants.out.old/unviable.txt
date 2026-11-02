@@ -1,1 +1,0 @@
-src/app/markdown.rs:199:5: replace build_markdown_preview -> Vec<RenderedMarkdownRow> with vec![Default::default()]
