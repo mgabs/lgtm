@@ -144,6 +144,7 @@ lgtm
 | Key | Action | Description |
 |---|---|---|
 | `j` / `k` or `↓` / `↑` | Line Cursor | Move cursor down / up across diff lines |
+| `Home` / `End` | Top / Bottom | Jump to the first / last diff line |
 | `]` / `[` | **File Navigation** | **Single tap immediately jumps to Next / Previous changed file** |
 | `]h` / `[h` | Hunk Navigation | Jump to next / previous diff hunk |
 | `]w` / `[w` or `w` / `W` | Alert Jump | Jump to next / previous security / quality guardrail alert |
@@ -160,12 +161,23 @@ lgtm
 | — | Scrollbar | A right-edge scrollbar appears when the diff or markdown preview is taller than the view; the cursor row (including wrapped lines) always stays visible |
 | `Tab` | Drawer Sidebar | Toggle 35-column changed file list on the left |
 | — | Clean tree | With no changes, a large LGTM logo, "looks good to me" and the one-line purpose are shown |
-| `m` | Markdown Preview | Rendered preview for `.md` files (`:md`). `Tab` toggles the drawer; `j` / `k` / `Ctrl-d` / `Ctrl-u` / `g` / `G` move a highlighted cursor row and the mouse wheel scrolls (capture is on only in the preview); directives show under their line; `c` / `l` / `R` / `x` add, list, resolve and delete a directive at the cursor row; `m` / `Esc` returns to the diff. The bottom border shows `first-last/total` |
+| `m` | Markdown Preview | Rendered preview for `.md` files (`:md`); `mermaid` flowcharts show as `A ──▶ B` edge lists (other diagram types stay as source). `Tab` toggles the drawer; `j` / `k` / `Ctrl-d` / `Ctrl-u` / `g` / `G` move a highlighted cursor row and the mouse wheel scrolls (capture is on only in the preview); directives show under their line; `c` / `l` / `R` / `x` add, list, resolve and delete a directive at the cursor row; `m` / `Esc` returns to the diff. The bottom border shows `first-last/total` |
 | `d` | Split View Toggle | Toggle between Unified Diff and Side-by-Side Dual Pane Diff |
 | `o` / `e` | Open in Editor | Open current file and line in configured editor (default: `nvim`, configurable: `:editor <name>` or config `editor = "vscode"`) |
 | `?` / `h` | **Help Modal** | Open 7-tab interactive documentation modal |
 | `q` | Quit | Exit `lgtm` |
 
+Pickers and text inputs use these shared shortcuts:
+
+| Keys | Action |
+|---|---|
+| `Ctrl-n` / `Ctrl-j` / `Down`; `Ctrl-p` / `Ctrl-k` / `Up` | Move to the next / previous item in list pickers. `j` / `k` also work in pickers without text entry. |
+| `PageDown` / `Ctrl-d` / `Ctrl-f`; `PageUp` / `Ctrl-u` / `Ctrl-b` | Move by a page in pickers and document views. |
+| `Home` / `End` | Jump to the first / last item or line; `g` / `G` also work where those letters are not used for text input. |
+| `Ctrl-w` / `Alt-Backspace` / `Ctrl-Backspace` | Delete the previous word in text inputs. |
+| `Alt-b` / `Ctrl-Left`; `Alt-f` / `Ctrl-Right`; `Alt-d` / `Alt-Delete` | Move by words and delete the next word in the command line. |
+| `Ctrl-u` / `Ctrl-k` | Delete line text in command, search, comment, reply, and commit inputs; command-line `Ctrl-u` deletes to the cursor and `Ctrl-k` deletes to the end. In the file picker, `Ctrl-u` remains Page Up and `Ctrl-k` moves up. |
+| `Esc` / `Ctrl-c` | Close modal inputs and pickers; `q` also closes pickers without text entry. |
 ---
 
 ### Interactive Hunk & Visual Line Staging
@@ -871,6 +883,15 @@ make bdd-report
 
 It maps all 41 agreed criteria to executable tests and evaluates pass/fail status,
 automation coverage, verified coverage, and pass rate.
+
+Markdown parser line and branch coverage (branch counts need nightly Rust and `cargo-llvm-cov`):
+
+```sh
+cargo +nightly llvm-cov -p lgtm --bin lgtm --branch --summary-only   # read the app/markdown.rs row
+cargo mutants -p lgtm --file src/app/markdown.rs                     # scoped mutation run
+```
+
+`src/app/markdown.rs` measures 100% lines and branches, and one mutant is equivalent (see the archived `markdown-parser-coverage` change).
 
 ---
 

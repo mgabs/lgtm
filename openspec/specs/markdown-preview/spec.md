@@ -142,3 +142,44 @@ Optimized, non-instrumented measurements MUST enforce scrolling below 1 microsec
 #### Scenario: Parsing and rendering budgets
 - **WHEN** optimized checks measure a 5,000-line preview and its cached rendering
 - **THEN** parsing/wrapping takes less than 50 ms and cached rendering takes less than 16 ms
+
+### Requirement: Mermaid Blocks
+Fenced `mermaid` blocks SHALL show a header `[mermaid: <type>]` taken from the first word of the first non-empty line. In `graph` and `flowchart` blocks each edge MUST render as `<from> ──▶ <to>` with its label and node labels. Anything unparseable, and other diagram types, MUST render verbatim. Rows MUST keep their source line number and diff overlay.
+
+#### Scenario: Flowchart edges
+- **WHEN** a block contains `flowchart TD`, `A[Start] --> B{Ok?}` and `B -->|yes| C[Done]`
+- **THEN** the header reads `[mermaid: flowchart]` and rows read `Start ──▶ Ok?` and `B ──▶ Done (yes)`
+
+#### Scenario: Unsupported diagram type
+- **WHEN** a block starts with `sequenceDiagram`
+- **THEN** the header reads `[mermaid: sequenceDiagram]` and the body renders verbatim as code
+
+#### Scenario: Unparseable line
+- **WHEN** a flowchart block contains `style A fill:#f9f`
+- **THEN** that line renders verbatim and the other edges still render
+
+#### Scenario: Changed edge
+- **WHEN** a diagram edge line is added in the diff
+- **THEN** its rendered row is green with a `+` marker and that line's number
+
+### Requirement: REQ-MDCOV-1 Parser Regression Coverage
+The Markdown parser tests MUST exercise headings, rules, block quotes, ordered and unordered lists, fenced code, Mermaid fences, inline emphasis and code, and width wrapping, asserting rendered text, styling and source-line attribution rather than only that rendering does not panic.
+
+#### Scenario: Structure variants
+- **WHEN** documents mixing each construct above are rendered at narrow and wide widths
+- **THEN** each row's text, style and source line number match the expected values
+
+#### Scenario: Malformed and edge input
+- **WHEN** input has an unclosed fence, empty emphasis markers, an empty list item or a line wider than the viewport
+- **THEN** the parser renders it without panic and with the documented verbatim or wrapped output
+
+### Requirement: NFR-MDCOV-1 Parser Coverage Bar
+`src/app/markdown.rs` MUST measure at least 95% line coverage and at least 95% branch coverage using `cargo +nightly llvm-cov -p lgtm --bin lgtm --branch`, counting each source branch location once and never excluding real outcomes. Scoped parser mutation testing MUST catch every non-equivalent mutant.
+
+#### Scenario: Coverage measured
+- **WHEN** the documented command runs on the final tree
+- **THEN** the report shows at least 95% line and at least 95% branch coverage for `src/app/markdown.rs`
+
+#### Scenario: Mutation survivors
+- **WHEN** scoped mutation testing runs on the parser
+- **THEN** no non-equivalent mutant survives, and each equivalent mutant is listed with its reason

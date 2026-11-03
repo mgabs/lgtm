@@ -3,7 +3,11 @@
 ## 2.6.1
 
 ### Added
+- Markdown preview: `mermaid` blocks get a `[mermaid: <type>]` header, and `graph`/`flowchart` edges render as `A ──▶ B` rows; anything else stays verbatim.
 - Markdown preview: a highlighted cursor row (directive commands act on it) and mouse-wheel scrolling; mouse capture is enabled only while the preview is open.
+
+### Tests
+- Markdown parser: `src/app/markdown.rs` now has 100% line and branch coverage, and scoped mutation testing leaves only equivalent mutants.
 
 ### Fixed
 - Windows CI: staging tests no longer depend on `core.autocrlf`; worktree jump-by-path matches paths without the `\\?\` prefix.
@@ -14,6 +18,10 @@
 - Removed unused command-registry metadata and `#[allow(dead_code)]` suppressions; refreshed `Cargo.lock`.
 
 ## Unreleased
+
+### Added
+- Consistent `Ctrl-n` / `Ctrl-p` item navigation, page movement, and top/bottom jumps across pickers and document views; non-text pickers also close with `Ctrl-c` and `q`.
+- Shared word deletion in text inputs (`Ctrl-w`, `Alt-Backspace`, `Ctrl-Backspace`), command-line word motion/deletion (`Alt-b` / `Alt-f`, `Ctrl-Left` / `Ctrl-Right`, `Alt-d`), and line deletion (`Ctrl-u` / `Ctrl-k`).
 
 ## 2.6.0
 

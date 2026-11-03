@@ -74,6 +74,7 @@ by `--test bdd`.
 | `bdd_ui_007` | Acknowledging an older reply preserves a newer unsent draft | `bdd_ui_007_acknowledged_reply_preserves_a_newer_draft`, `src/app/pr.rs` |
 | `bdd_ui_008` | Failed resolution can be retried, then reopened | `bdd_ui_008_failed_resolution_can_be_retried_and_reopened`, `src/app/pr.rs` |
 | `bdd_ui_009` | Ambiguous remote thread reply timeout blocks blind resubmission until thread refresh reconciles delivery | `bdd_ui_009_ambiguous_reply_timeout_blocks_blind_resubmission_until_reconciled`, `src/app/pr.rs` |
+| `REQ-NAV-1`..`REQ-NAV-4` | Universal item, page, top/bottom, and dismiss keys across pickers and document views | `universal_navigation_bindings_cover_all_list_pickers` and `universal_page_navigation_covers_document_views`, `src/app/input.rs`; scenarios in `tests/bdd/features/universal_key_navigation.feature` |
 | `bdd_provider_001` | Azure historical reloads use recorded commits without repeated ref probes | `historical_pr_cold_and_reload_request_budgets`, `crates/lgtm-core/src/forge/azure/performance_tests.rs` |
 | `bdd_provider_002` | GitHub stored-patch retrieval keeps a bounded request count | `historical_api_patch_request_budget` and `historical_cli_patch_request_budget`, `crates/lgtm-core/src/forge/github/performance_tests.rs` |
 

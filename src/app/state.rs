@@ -143,18 +143,47 @@ impl CommandLine {
     }
 
     pub fn delete_word_backward(&mut self) {
+        self.cursor = delete_word_backward_at(&mut self.input, self.cursor);
+    }
+
+    #[allow(dead_code)]
+    pub fn move_word_backward(&mut self) {
         if self.cursor == 0 {
             return;
         }
-        let chars: Vec<char> = self.input.chars().collect();
-        let mut idx = self.cursor;
-        while idx > 0 && chars[idx - 1].is_whitespace() {
-            idx -= 1;
+        let (cursor, byte_pos) = if self.input.is_ascii() {
+            let len = self.input.len();
+            let c = self.cursor.min(len);
+            (c, c)
+        } else {
+            let total = self.input.chars().count();
+            let c = self.cursor.min(total);
+            let b = self
+                .input
+                .char_indices()
+                .nth(c)
+                .map(|(idx, _)| idx)
+                .unwrap_or(self.input.len());
+            (c, b)
+        };
+        if cursor == 0 {
+            self.cursor = 0;
+            return;
         }
-        if idx > 0 {
-            let is_word = chars[idx - 1].is_alphanumeric() || chars[idx - 1] == '_';
-            while idx > 0 {
-                let prev = chars[idx - 1];
+        let prefix = &self.input[..byte_pos];
+        let mut chars_skipped = 0;
+        let mut rev = prefix.chars().rev().peekable();
+        while let Some(&c) = rev.peek() {
+            if c.is_whitespace() {
+                rev.next();
+                chars_skipped += 1;
+            } else {
+                break;
+            }
+        }
+        if let Some(&c) = rev.peek() {
+            let is_word = c.is_alphanumeric() || c == '_';
+            while let Some(&prev) = rev.peek() {
                 if prev.is_whitespace() {
                     break;
                 }
@@ -162,23 +191,97 @@ impl CommandLine {
                 if prev_is_word != is_word {
                     break;
                 }
-                idx -= 1;
+                rev.next();
+                chars_skipped += 1;
             }
         }
-        let byte_start = self
-            .input
-            .char_indices()
-            .nth(idx)
-            .map(|(i, _)| i)
-            .unwrap_or(self.input.len());
-        let byte_end = self
-            .input
-            .char_indices()
-            .nth(self.cursor)
-            .map(|(i, _)| i)
-            .unwrap_or(self.input.len());
-        self.input.drain(byte_start..byte_end);
-        self.cursor = idx;
+        self.cursor = cursor - chars_skipped;
+    }
+
+    #[allow(dead_code)]
+    pub fn move_word_forward(&mut self) {
+        let (cursor, byte_pos, total_chars) = if self.input.is_ascii() {
+            let len = self.input.len();
+            let c = self.cursor.min(len);
+            (c, c, len)
+        } else {
+            let total = self.input.chars().count();
+            let c = self.cursor.min(total);
+            let b = self
+                .input
+                .char_indices()
+                .nth(c)
+                .map(|(idx, _)| idx)
+                .unwrap_or(self.input.len());
+            (c, b, total)
+        };
+        if cursor >= total_chars {
+            self.cursor = total_chars;
+            return;
+        }
+        let suffix = &self.input[byte_pos..];
+        let mut chars_forward = 0;
+        let mut iter = suffix.chars().peekable();
+        while let Some(&c) = iter.peek() {
+            if c.is_whitespace() {
+                iter.next();
+                chars_forward += 1;
+            } else {
+                break;
+            }
+        }
+        if let Some(&c) = iter.peek() {
+            let is_word = c.is_alphanumeric() || c == '_';
+            while let Some(&next) = iter.peek() {
+                if next.is_whitespace() {
+                    break;
+                }
+                let next_is_word = next.is_alphanumeric() || next == '_';
+                if next_is_word != is_word {
+                    break;
+                }
+                iter.next();
+                chars_forward += 1;
+            }
+        }
+        self.cursor = (cursor + chars_forward).min(total_chars);
+    }
+
+    #[allow(dead_code)]
+    pub fn delete_word_forward(&mut self) {
+        let char_indices: Vec<(usize, char)> = self.input.char_indices().collect();
+        let char_count = char_indices.len();
+        let cursor = self.cursor.min(char_count);
+        if cursor >= char_count {
+            return;
+        }
+        let mut idx = cursor;
+        while idx < char_count && char_indices[idx].1.is_whitespace() {
+            idx += 1;
+        }
+        if idx < char_count {
+            let is_word = char_indices[idx].1.is_alphanumeric() || char_indices[idx].1 == '_';
+            while idx < char_count {
+                let ch = char_indices[idx].1;
+                if ch.is_whitespace() {
+                    break;
+                }
+                let ch_is_word = ch.is_alphanumeric() || ch == '_';
+                if ch_is_word != is_word {
+                    break;
+                }
+                idx += 1;
+            }
+        }
+        if idx > cursor {
+            let byte_start = char_indices[cursor].0;
+            let byte_end = if idx < char_count {
+                char_indices[idx].0
+            } else {
+                self.input.len()
+            };
+            self.input.drain(byte_start..byte_end);
+        }
     }
 
     pub fn autocomplete_next(&mut self) {
@@ -269,6 +372,58 @@ impl PrState {
             selected_idx: 0,
         }
     }
+}
+
+/// Deletes backward from character `cursor` in `input` to previous word boundary.
+/// Returns updated character index.
+pub fn delete_word_backward_at(input: &mut String, cursor: usize) -> usize {
+    let char_indices: Vec<(usize, char)> = input.char_indices().collect();
+    let char_count = char_indices.len();
+    let cursor = cursor.min(char_count);
+    if cursor == 0 {
+        return 0;
+    }
+
+    let mut idx = cursor;
+    while idx > 0 && char_indices[idx - 1].1.is_whitespace() {
+        idx -= 1;
+    }
+
+    if idx > 0 {
+        let is_word = char_indices[idx - 1].1.is_alphanumeric() || char_indices[idx - 1].1 == '_';
+        while idx > 0 {
+            let prev = char_indices[idx - 1].1;
+            if prev.is_whitespace() {
+                break;
+            }
+            let prev_is_word = prev.is_alphanumeric() || prev == '_';
+            if prev_is_word != is_word {
+                break;
+            }
+            idx -= 1;
+        }
+    }
+
+    let byte_start = if idx < char_count {
+        char_indices[idx].0
+    } else {
+        input.len()
+    };
+    let byte_end = if cursor < char_count {
+        char_indices[cursor].0
+    } else {
+        input.len()
+    };
+
+    input.drain(byte_start..byte_end);
+    idx
+}
+
+/// Deletes backward from end of string `s` to previous word boundary.
+#[allow(dead_code)]
+pub fn delete_word_backward_str(s: &mut String) {
+    let char_count = s.chars().count();
+    delete_word_backward_at(s, char_count);
 }
 
 #[cfg(test)]
@@ -507,5 +662,336 @@ mod tests {
         assert_eq!(p.current_number, Some(42));
         assert!(p.list.is_empty());
         assert_eq!(p.selected_idx, 0);
+    }
+
+    #[test]
+    fn test_delete_word_backward_at_vectors() {
+        let cases = vec![
+            ("", 0, "", 0, "empty string"),
+            ("hello", 0, "hello", 0, "cursor at start"),
+            ("audit", 5, "", 0, "single word end"),
+            ("pr 12", 5, "pr ", 3, "word with space end"),
+            ("pr ", 3, "", 0, "word after space deleted"),
+            (
+                "audit   ",
+                8,
+                "",
+                0,
+                "trailing whitespace stripped with word",
+            ),
+            ("   ", 3, "", 0, "pure whitespace"),
+            ("\t\n  ", 4, "", 0, "mixed whitespace"),
+            (
+                "foo-bar",
+                7,
+                "foo-",
+                4,
+                "punctuation delimiter word backward",
+            ),
+            ("foo-", 4, "foo", 3, "punctuation token backward"),
+            ("::audit", 7, "::", 2, "multi-punctuation prefix"),
+            (
+                "foo_bar",
+                7,
+                "",
+                0,
+                "underscore treated as word constituent",
+            ),
+            (
+                "foo.bar_baz",
+                11,
+                "foo.",
+                4,
+                "mixed punctuation and identifier",
+            ),
+            (
+                "cargo test --release",
+                11,
+                "cargo --release",
+                6,
+                "mid-string deletion with trailing space",
+            ),
+            ("hello world", 8, "hello rld", 6, "mid-word deletion"),
+            ("abc", 99, "", 0, "out-of-bounds cursor clamping"),
+            (
+                "hello 🦀",
+                8,
+                "hello ",
+                6,
+                "UTF-8 emoji multi-byte boundary",
+            ),
+            ("Привет мир", 10, "Привет ", 7, "UTF-8 Cyrillic word"),
+            ("hello 世界", 8, "hello ", 6, "UTF-8 CJK wide characters"),
+            (
+                "café au lait",
+                12,
+                "café au ",
+                8,
+                "UTF-8 accented characters",
+            ),
+            (
+                "🦀🔥",
+                2,
+                "",
+                0,
+                "consecutive emojis deleted as symbol token",
+            ),
+        ];
+
+        for (input, cursor, exp_str, exp_cur, desc) in cases {
+            let mut s = input.to_string();
+            let new_cur = delete_word_backward_at(&mut s, cursor);
+            assert_eq!(s, exp_str, "String mismatch on case: {desc}");
+            assert_eq!(new_cur, exp_cur, "Cursor mismatch on case: {desc}");
+        }
+    }
+
+    #[test]
+    fn test_delete_word_backward_str_vectors() {
+        let cases = vec![
+            ("", "", "empty string"),
+            ("audit", "", "single word"),
+            ("foo bar", "foo ", "two words"),
+            ("audit   ", "", "trailing spaces"),
+            ("foo-bar", "foo-", "hyphenated token"),
+            ("foo-", "foo", "hyphen token"),
+            ("::audit", "::", "double colon"),
+            ("🦀 🔥", "🦀 ", "UTF-8 emoji tokens"),
+        ];
+
+        for (input, exp_str, desc) in cases {
+            let mut s = input.to_string();
+            delete_word_backward_str(&mut s);
+            assert_eq!(s, exp_str, "Mismatch on delete_word_backward_str: {desc}");
+        }
+    }
+
+    #[test]
+    fn test_command_line_word_motion_backward_forward() {
+        let mut c = CommandLine::default();
+
+        // Empty string motion
+        c.move_word_backward();
+        assert_eq!(c.cursor, 0);
+        c.move_word_forward();
+        assert_eq!(c.cursor, 0);
+
+        // All whitespace motion
+        c.set_text("     ".into());
+        c.cursor = 5;
+        c.move_word_backward();
+        assert_eq!(c.cursor, 0);
+        c.move_word_forward();
+        assert_eq!(c.cursor, 5);
+
+        // Normal words: "audit issues"
+        c.set_text("audit issues".into());
+        c.cursor = 0;
+        c.move_word_forward();
+        assert_eq!(c.cursor, 5); // after "audit"
+        c.move_word_forward();
+        assert_eq!(c.cursor, 12); // after "issues"
+        c.move_word_forward();
+        assert_eq!(c.cursor, 12); // clamped at len
+
+        c.move_word_backward();
+        assert_eq!(c.cursor, 6); // before "issues"
+        c.move_word_backward();
+        assert_eq!(c.cursor, 0); // before "audit"
+        c.move_word_backward();
+        assert_eq!(c.cursor, 0); // clamped at 0
+
+        // Punctuation and underscore tokens: "foo_bar-baz.rs"
+        c.set_text("foo_bar-baz.rs".into());
+        c.cursor = 0;
+        c.move_word_forward();
+        assert_eq!(c.cursor, 7); // after "foo_bar"
+        c.move_word_forward();
+        assert_eq!(c.cursor, 8); // after "-"
+        c.move_word_forward();
+        assert_eq!(c.cursor, 11); // after "baz"
+        c.move_word_forward();
+        assert_eq!(c.cursor, 12); // after "."
+        c.move_word_forward();
+        assert_eq!(c.cursor, 14); // after "rs"
+
+        c.move_word_backward();
+        assert_eq!(c.cursor, 12); // before "rs"
+        c.move_word_backward();
+        assert_eq!(c.cursor, 11); // before "."
+        c.move_word_backward();
+        assert_eq!(c.cursor, 8); // before "baz"
+        c.move_word_backward();
+        assert_eq!(c.cursor, 7); // before "-"
+        c.move_word_backward();
+        assert_eq!(c.cursor, 0); // before "foo_bar"
+
+        // Cursor out of bounds clamping
+        c.cursor = 999;
+        c.move_word_backward();
+        assert_eq!(c.cursor, 12);
+        c.cursor = 999;
+        c.move_word_forward();
+        assert_eq!(c.cursor, 14);
+
+        // UTF-8 emojis: "🦀🦀 aux 🔥"
+        c.set_text("🦀🦀 aux 🔥".into());
+        c.cursor = 0;
+        c.move_word_forward();
+        assert_eq!(c.cursor, 2); // after "🦀🦀"
+        c.move_word_forward();
+        assert_eq!(c.cursor, 6); // after "aux"
+        c.move_word_forward();
+        assert_eq!(c.cursor, 8); // after "🔥"
+
+        c.move_word_backward();
+        assert_eq!(c.cursor, 7); // before "🔥"
+        c.move_word_backward();
+        assert_eq!(c.cursor, 3); // before "aux"
+        c.move_word_backward();
+        assert_eq!(c.cursor, 0); // before "🦀🦀"
+    }
+
+    #[test]
+    fn test_command_line_delete_word_forward_scenarios() {
+        let mut c = CommandLine::default();
+
+        // Empty string
+        c.delete_word_forward();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+
+        // At end of input
+        c.set_text("audit".into());
+        c.cursor = 5;
+        c.delete_word_forward();
+        assert_eq!(c.input, "audit");
+        assert_eq!(c.cursor, 5);
+
+        // Out of bounds cursor
+        c.cursor = 100;
+        c.delete_word_forward();
+        assert_eq!(c.input, "audit");
+
+        // Forward word delete from index 0: "audit issues" -> " issues"
+        c.set_text("audit issues".into());
+        c.cursor = 0;
+        c.delete_word_forward();
+        assert_eq!(c.input, " issues");
+        assert_eq!(c.cursor, 0);
+
+        // Next forward word delete: whitespace + word " issues" -> ""
+        c.delete_word_forward();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+
+        // Mid-string forward delete: "git status -s" at cursor 4 ("status -s")
+        c.set_text("git status -s".into());
+        c.cursor = 4;
+        c.delete_word_forward();
+        assert_eq!(c.input, "git  -s");
+        assert_eq!(c.cursor, 4);
+
+        // Mid-word forward delete: "audit issues" at cursor 2 ("dit")
+        c.set_text("audit issues".into());
+        c.cursor = 2;
+        c.delete_word_forward();
+        assert_eq!(c.input, "au issues");
+        assert_eq!(c.cursor, 2);
+
+        // Punctuation token forward delete: "foo-bar" at 0 -> "-bar" -> "bar" -> ""
+        c.set_text("foo-bar".into());
+        c.cursor = 0;
+        c.delete_word_forward();
+        assert_eq!(c.input, "-bar");
+        assert_eq!(c.cursor, 0);
+        c.delete_word_forward();
+        assert_eq!(c.input, "bar");
+        assert_eq!(c.cursor, 0);
+        c.delete_word_forward();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+
+        // All whitespace forward delete: "   " at 0 -> ""
+        c.set_text("   ".into());
+        c.cursor = 0;
+        c.delete_word_forward();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+
+        // UTF-8 forward delete
+        c.set_text("🦀 rocket 🔥 fire".into());
+        c.cursor = 0;
+        c.delete_word_forward();
+        assert_eq!(c.input, " rocket 🔥 fire");
+        assert_eq!(c.cursor, 0);
+    }
+
+    #[test]
+    fn test_command_line_delete_word_backward_all_whitespace() {
+        let mut c = CommandLine::default();
+        c.set_text("   ".into());
+        c.cursor = 3;
+        c.delete_word_backward();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+
+        c.set_text("\t\n  ".into());
+        c.cursor = 4;
+        c.delete_word_backward();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+    }
+
+    #[test]
+    fn word_operations_move_between_word_boundaries() {
+        let mut c = CommandLine::default();
+        c.set_text("word1 word2".into());
+        c.cursor = 0;
+
+        c.move_word_forward();
+        assert_eq!(c.cursor, 5);
+        c.move_word_backward();
+        assert_eq!(c.cursor, 0);
+    }
+
+    #[cfg(all(feature = "perf-budgets", not(debug_assertions)))]
+    #[test]
+    fn test_performance_budgets_nfr_word_operations() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let input = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10".repeat(5);
+        let mut command = CommandLine::default();
+        command.set_text(input);
+
+        for _ in 0..100 {
+            command.cursor = 0;
+            command.move_word_forward();
+            command.move_word_backward();
+        }
+
+        let mut samples = Vec::with_capacity(7);
+        for _ in 0..7 {
+            let start = Instant::now();
+            for _ in 0..1000 {
+                command.cursor = 0;
+                command.move_word_forward();
+                command.move_word_backward();
+            }
+            samples.push(start.elapsed().as_nanos() / 2000);
+            black_box(command.cursor);
+        }
+        samples.sort_unstable();
+        let median_ns = samples[3];
+        println!(
+            "Benchmark [word motion]: median {}ns/op, samples: {:?}",
+            median_ns, samples
+        );
+        assert!(
+            median_ns < 1000,
+            "Word motion took {}ns, expected < 1000ns",
+            median_ns
+        );
     }
 }
