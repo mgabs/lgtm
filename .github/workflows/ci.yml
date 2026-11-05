@@ -140,7 +140,23 @@ jobs:
           VERSION=$(grep '^version =' Cargo.toml | head -1 | cut -d '"' -f2)
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Check Existing Release Tag
+        id: check_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          TAG="v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Release Skipped::Release $TAG already exists on GitHub. Skipping asset upload and Homebrew tap update to avoid mutating immutable releases."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG does not exist. Proceeding with publication."
+          fi
+
       - name: Create / Update GitHub Release
+        if: steps.check_release.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.get_version.outputs.VERSION }}
@@ -177,7 +193,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Homebrew Tap Formula (mgabs/homebrew-tap)
-        if: success()
+        if: success() && steps.check_release.outputs.exists != 'true'
         shell: bash
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN || secrets.TAP_GITHUB_TOKEN || secrets.GH_PAT || secrets.PERSONAL_ACCESS_TOKEN || secrets.HOMEBREW_TOKEN || secrets.PAT || secrets.GITHUB_TOKEN }}

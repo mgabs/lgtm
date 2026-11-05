@@ -54,3 +54,36 @@ Feature: CI Quality & Performance Reporting
     Given a real CLI invocation of the scanner with blocking findings
     When annotations format is requested
     Then error annotations are emitted to stdout and exit status is 1
+
+  # REQ-REL-1; Scenario: Push to main with already-published version
+  Scenario: Push to main with already-published version
+    Given a push or merge to main for a version that already has a published GitHub release
+    When the release job inspects release tag existence
+    Then the release and Homebrew tap update steps are skipped
+    And the job logs an informational notice and completes with exit status 0
+
+  # REQ-REL-2; Scenario: New version tagged or bumped on main
+  Scenario: New version tagged or bumped on main
+    Given a commit or tag with a version that does not exist in published releases
+    When the release job executes
+    Then the GitHub release is created with build bundle assets
+    And the Homebrew tap formula is updated with computed checksums
+
+  # REQ-REL-3; Scenario: Duplicate release attempt avoids asset deletion
+  Scenario: Duplicate release attempt avoids asset deletion
+    Given an existing release with immutable assets
+    When the release job evaluates the target release
+    Then no HTTP DELETE calls are dispatched against ReleaseAsset endpoints
+
+  # REQ-REL-4; Scenario: Workflow step executes under Node 24 runner
+  Scenario: Workflow step executes under Node 24 runner
+    Given workflow actions executed in GitHub Actions runners
+    When checkout, artifact upload/download, or release steps run
+    Then actions run natively under Node 24 without runtime deprecation notices
+
+  # REQ-REL-5; Scenario: Quality gate executes on updated runner images
+  Scenario: Quality gate executes on updated runner images
+    Given CI runner environments migrating to updated Ubuntu releases
+    When the quality gate job executes on Ubuntu runners
+    Then toolchains and build steps succeed without runner image obsolescence errors
+
