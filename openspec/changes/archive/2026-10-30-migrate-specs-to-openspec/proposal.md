@@ -2,7 +2,7 @@
 
 ## Why
 
-Specifications live in two places: a hand-rolled `specs/` tree governed by `specs/WORKFLOW.md`, and an empty `openspec/` root that the project's `/opsx-*` prompts and skills already target. Two systems means drift, and the OpenSpec CLI (`list`, `validate`, `archive`) cannot see any existing spec.
+Specifications live in two places: a hand-rolled `specs/` tree governed by `specs/WORKFLOW.md`, and an empty `openspec/` root that the project's `/openspec-*` prompts and skills already target. Two systems means drift, and the OpenSpec CLI (`list`, `validate`, `archive`) cannot see any existing spec.
 
 ## What Changes
 
@@ -11,7 +11,7 @@ Specifications live in two places: a hand-rolled `specs/` tree governed by `spec
 - Move `specs/bug-reports/` content into `docs/bug-reports/` (not spec material; OpenSpec has no bug-report concept).
 - Replace `specs/WORKFLOW.md` with OpenSpec-based guidance: keep the branching/worktree, test-first and coverage/mutation gates as `context`/`rules` in `openspec/config.yaml`; drop the manual gate/layout text.
 - Delete `specs/` entirely.
-- **BREAKING** for contributors: `specs/` paths and `WORKFLOW.md` disappear; new work goes through `/opsx-propose`.
+- **BREAKING** for contributors: `specs/` paths and `WORKFLOW.md` disappear; new work goes through `/openspec-propose`.
 
 ## Capabilities
 
