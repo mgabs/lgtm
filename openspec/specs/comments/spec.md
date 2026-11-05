@@ -28,52 +28,6 @@ Opening the comments view or running `:refresh` SHALL fetch threads live from th
 - **WHEN** no PR or forge target exists
 - **THEN** the view shows "Comments require a PR" and offers no create, reply or resolve actions
 
-### Requirement: Draft a Thread
-Users SHALL be able to draft any number of inline threads at the cursor line without any network call. The side MUST be `LEFT` for deletions and `RIGHT` for additions and context. Empty or whitespace bodies MUST be rejected, and lines outside a diff hunk MUST be rejected with a message naming file and line. A general PR conversation comment MUST also be draftable.
-
-#### Scenario: Draft on a deleted line
-- **WHEN** the cursor is on a deleted line and the user drafts a comment
-- **THEN** the draft has side `LEFT` and no network call is made
-
-#### Scenario: Rejected drafts
-- **WHEN** the body is blank or the line is outside any hunk
-- **THEN** the draft is rejected, naming the file and line in the second case
-
-### Requirement: Draft a Reply
-Users SHALL be able to draft multiple replies to focused threads, each identified by thread id and target comment id.
-
-#### Scenario: Two replies
-- **WHEN** the user drafts replies on two different threads
-- **THEN** both drafts are stored with their thread and comment ids
-
-### Requirement: Draft Resolve and Unresolve
-Users SHALL be able to draft resolving or unresolving a focused thread; the last draft per thread MUST win. Applying a state the thread already has MUST succeed idempotently.
-
-#### Scenario: Last draft wins
-- **WHEN** the user drafts resolve and then unresolve for the same thread
-- **THEN** only the unresolve draft remains
-
-### Requirement: Persistent Draft Store
-Drafts SHALL persist atomically in `.lgtm/drafts/pr-<N>.json`, survive restarts and be scoped per PR and forge repo. Drafts MUST appear in the comments view with a `DRAFT` badge and be editable or discardable individually (`:thread discard <id>`) or all at once. The store MUST hold drafts only, never fetched remote threads.
-
-#### Scenario: Drafts survive restart
-- **WHEN** drafts exist and the TUI restarts on the same PR
-- **THEN** the drafts are shown as pending `DRAFT` items
-
-### Requirement: Review and Submit Drafts
-`:thread submit` SHALL first show the full batch (count by kind, file:line, body) and send nothing until confirmed. Items MUST be applied in order: new threads, replies, resolves. On GitHub inline threads MUST be sent as one `COMMENT` review; on Azure each item MUST be sent individually.
-
-#### Scenario: Confirmation required
-- **WHEN** the user runs `:thread submit`
-- **THEN** the batch is displayed and nothing is sent until the user confirms
-
-### Requirement: Independent Submit Outcomes
-Each submitted item SHALL succeed or fail independently: a success MUST be removed from the store immediately, a failure MUST stay with its error, and re-running submit MUST send only what remains. Live threads MUST refresh afterwards with a per-item result summary.
-
-#### Scenario: Partial failure
-- **WHEN** one of three items fails during submit
-- **THEN** two are removed from the store, the failed one remains with its error, and a rerun sends only that one
-
 ### Requirement: Robust Failure Handling
 Every failure SHALL report operation, file:line (if any), reason and remediation, covering auth, HTTP 422 line mismatch, rate limit, network offline and thread not found. After a timeout or ambiguous outcome, submit MUST re-fetch threads and match (author, body, path, line, or reply body) before retrying so a retry never duplicates a comment. Draft bodies MUST NOT be lost, and failures MUST NOT be silently swallowed or downgraded to a different operation.
 
@@ -120,3 +74,40 @@ A thread deleted remotely MUST report "thread not found" and refresh the list. T
 #### Scenario: Oversized body
 - **WHEN** a draft body exceeds the provider limit
 - **THEN** it is reported before anything is sent
+
+### Requirement: REQ-COM-1 Direct Online Thread Creation
+When viewing a pull request diff, users SHALL be able to create inline review comments on any diff hunk line. The system MUST dispatch the comment directly to the remote forge API asynchronously without creating local disk drafts.
+
+#### Scenario: Post inline thread online
+- **WHEN** the user creates a comment on a diff line in an active PR
+- **THEN** the comment is posted directly to GitHub or Azure DevOps
+- **AND** the new thread appears in the view upon successful response
+
+### Requirement: REQ-COM-2 Direct Online Thread Reply
+Users SHALL be able to reply to focused PR discussion threads. The reply MUST be sent directly to the forge API asynchronously without entering a local draft queue.
+
+#### Scenario: Reply to active thread
+- **WHEN** the user submits a reply on an existing thread
+- **THEN** the reply is dispatched to the forge and appended to the live thread
+
+### Requirement: REQ-COM-3 Direct Online Thread Resolution
+Users SHALL be able to toggle thread resolution (resolve or unresolve) directly against the forge API. The resolved state MUST update immediately in the TUI upon forge confirmation.
+
+#### Scenario: Resolve thread online
+- **WHEN** the user resolves a focused thread
+- **THEN** the resolution status is updated directly on the forge and reflected in the TUI
+
+### Requirement: REQ-COM-4 Non-Blocking Async Execution
+All forge comment operations (posting, replying, resolving, and fetching) MUST execute off the main event loop, maintaining a responsive UI frame budget (< 16ms).
+
+#### Scenario: UI responsiveness during comment post
+- **WHEN** a comment post is awaiting a remote forge HTTP response
+- **THEN** the TUI remains responsive to scrolling and key navigation with a progress status message
+
+### Requirement: REQ-COM-5 In-Memory Failure Retention
+When a forge comment operation fails due to network outage, rate limit, or authentication error, the system MUST retain the typed comment body in an in-memory retry buffer and report an actionable status error. The failure MUST NOT write error drafts to disk.
+
+#### Scenario: Failed post retains input buffer
+- **WHEN** a comment post fails due to network disconnection
+- **THEN** the error is reported in the status bar
+- **AND** reopening the comment prompt pre-fills the unsent text for retry
