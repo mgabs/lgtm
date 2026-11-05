@@ -1,6 +1,6 @@
 ---
 name: openspec-sync
-description: Sync delta specs from an OpenSpec change to main specs. Use when the user wants to update main specs with changes from a delta spec, without archiving the change. Also use when the user says "openspec sync" or "opsx sync".
+description: Sync delta specs from an OpenSpec change to main specs. Use when the user wants to update main specs with changes from a delta spec, without archiving the change. Also use when the user says "openspec sync".
 allowed-tools: Bash(openspec:*)
 license: MIT
 compatibility: Requires openspec CLI.
@@ -42,7 +42,7 @@ In both branches, never create the root as a side effect: do not run `openspec i
 
    When prompting, show changes that have delta specs (under `specs/` directory).
 
-   Always announce: "Using change: <name>" and how to override (e.g., `/opsx-sync <other>`).
+   Always announce: "Using change: <name>" and how to override (e.g., `/openspec-sync-specs <other>`).
 
 2. **Resolve change context**
 
