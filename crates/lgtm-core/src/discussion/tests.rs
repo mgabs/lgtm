@@ -414,49 +414,6 @@ fn remediation_covers_every_failure_class() {
 }
 
 #[test]
-fn store_round_trips_and_scopes_by_pr_and_repo() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut s = DraftSet::default();
-    s.add(inline("a", 1), "x").unwrap();
-    s.add(resolve_kind("t", true), "").unwrap();
-    store::save(dir.path(), 7, "o/r", &s).unwrap();
-    assert_eq!(store::load(dir.path(), 7, "o/r"), s);
-    assert!(store::load(dir.path(), 8, "o/r").is_empty());
-    assert!(store::load(dir.path(), 7, "o/other").is_empty());
-    assert!(!dir.path().join(".lgtm/drafts/pr-7.json.tmp").exists());
-    store::save(dir.path(), 7, "o/r", &DraftSet::default()).unwrap();
-    assert!(!dir.path().join(".lgtm/drafts/pr-7.json").exists());
-    store::save(dir.path(), 7, "o/r", &DraftSet::default()).unwrap();
-}
-
-#[test]
-fn store_ignores_corrupt_and_foreign_versions() {
-    let dir = tempfile::tempdir().unwrap();
-    let p = dir.path().join(".lgtm/drafts");
-    std::fs::create_dir_all(&p).unwrap();
-    std::fs::write(p.join("pr-1.json"), "{nope").unwrap();
-    assert!(store::load(dir.path(), 1, "r").is_empty());
-    std::fs::write(
-        p.join("pr-2.json"),
-        r#"{"version":9,"repo_key":"r","drafts":{"next_id":1,"items":[]}}"#,
-    )
-    .unwrap();
-    assert!(store::load(dir.path(), 2, "r").is_empty());
-}
-
-#[test]
-fn store_save_reports_unwritable_location() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join(".lgtm"), "file").unwrap();
-    let mut s = DraftSet::default();
-    s.add(DraftKind::General, "g").unwrap();
-    assert!(store::save(dir.path(), 1, "r", &s).is_err());
-    let dirpath = dir.path().join("x");
-    std::fs::create_dir_all(dirpath.join(".lgtm/drafts/pr-1.json/inner")).unwrap();
-    assert!(store::save(&dirpath, 1, "r", &DraftSet::default()).is_err());
-}
-
-#[test]
 fn head_is_only_fetched_for_sendable_inline_drafts() {
     let fake = Fake::default();
     let mut s = DraftSet::default();

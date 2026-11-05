@@ -6,8 +6,6 @@ use crate::github::Thread;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub mod store;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DraftKind {

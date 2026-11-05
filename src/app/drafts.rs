@@ -1,35 +1,16 @@
 //! Draft-then-submit PR comments: nothing leaves the machine until `:thread submit` is confirmed.
 use super::*;
 use lgtm_core::comment::CommentSide;
-use lgtm_core::discussion::{self, store, DraftKind};
+use lgtm_core::discussion::{self, DraftKind};
 
 const USAGE: &str = "Usage: :thread comment <text> | reply <n> <text> | resolve <n> | unresolve <n> | edit <id> <text> | discard <id|all> | drafts | submit | refresh";
 
 impl App {
-    fn repo_key(&self) -> String {
-        lgtm_core::forge::origin_url(&self.git_engine.repo_path)
-            .unwrap_or_else(|| self.git_engine.repo_path.display().to_string())
-            .to_ascii_lowercase()
-    }
-
-    pub(crate) fn load_drafts(&mut self, pr: u64) {
-        self.drafts = store::load(&self.git_engine.repo_path, pr, &self.repo_key());
+    pub(crate) fn load_drafts(&mut self, _pr: u64) {
         self.submit_confirm = false;
     }
 
-    fn persist_drafts(&mut self) {
-        let Some(pr) = self.pr.current_number else {
-            return;
-        };
-        if let Err(e) = store::save(
-            &self.git_engine.repo_path,
-            pr,
-            &self.repo_key(),
-            &self.drafts,
-        ) {
-            self.status_message = Some(format!("Could not save drafts: {e:#}"));
-        }
-    }
+    fn persist_drafts(&mut self) {}
 
     /// Resolved state after pending drafts are applied.
     fn effective_resolved(&self, thread: &lgtm_core::github::Thread) -> bool {
@@ -297,18 +278,9 @@ impl App {
                     Ok(report) => report.message(),
                     Err(e) => format!("Submit failed before sending anything: {e:#}"),
                 };
-                if result.is_ok() {
-                    let key = app.repo_key();
-                    let saved = store::save(&app.git_engine.repo_path, pr, &key, &drafts);
-                    if current {
-                        app.drafts = drafts;
-                        app.invalidate_diff_content();
-                    }
-                    if let Err(e) = saved {
-                        app.status_message = Some(format!("Could not save drafts: {e:#}"));
-                        app.quit_after_jobs = false;
-                        return;
-                    }
+                if result.is_ok() && current {
+                    app.drafts = drafts;
+                    app.invalidate_diff_content();
                 }
                 app.quit_after_jobs = app.quit_after_jobs && result.is_ok();
                 if current && app.review_generation == generation {
@@ -505,9 +477,6 @@ mod tests {
         assert!(status(&app).contains("not on a diff line"));
         app.thread_command(&["comment", " "]);
         assert_eq!(app.drafts.items().len(), 3);
-        let saved =
-            lgtm_core::discussion::store::load(&app.git_engine.repo_path, 7, &app.repo_key());
-        assert_eq!(saved, app.drafts);
         app.load_drafts(7);
         assert_eq!(app.drafts.items().len(), 3);
     }
@@ -612,12 +581,6 @@ mod tests {
                 "resolve:T1:true".into()
             ]
         );
-        assert!(
-            !lgtm_core::discussion::store::load(&app.git_engine.repo_path, 7, &app.repo_key())
-                .items()
-                .iter()
-                .any(|_| true)
-        );
     }
 
     #[test]
@@ -630,24 +593,5 @@ mod tests {
         assert!(status(&app).starts_with("Submit failed before sending anything"));
         assert_eq!(app.drafts.items()[0].body, "keep me");
         assert!(!app.submitting);
-    }
-
-    #[test]
-    fn failed_save_after_submit_still_clears_sent_drafts_and_the_pending_quit() {
-        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let mut app = pr_app();
-        app.forge_factory = |_| Box::new(Recording);
-        app.thread_command(&["reply", "1", "r"]);
-        app.thread_command(&["submit"]);
-        // A directory in place of the store file makes the post-submit save fail.
-        let blocked = app.git_engine.repo_path.join(".lgtm/drafts/pr-7.json");
-        std::fs::remove_file(&blocked).unwrap();
-        std::fs::create_dir_all(&blocked).unwrap();
-        app.quit_after_jobs = true;
-        app.thread_command(&["submit"]);
-        wait_submit(&mut app);
-        assert!(status(&app).starts_with("Could not save drafts"));
-        assert!(app.drafts.is_empty(), "sent drafts must not be re-sent");
-        assert!(!app.quit_after_jobs);
     }
 }
