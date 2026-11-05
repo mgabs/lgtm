@@ -17,8 +17,10 @@ mod background_tests;
 pub(crate) mod command;
 mod comments;
 mod commit;
-mod drafts;
+pub(crate) mod drafts;
 mod external;
+
+pub use drafts::CommentRetryBuffer;
 mod input;
 pub mod markdown;
 mod motion;
@@ -169,6 +171,7 @@ pub struct App {
     pr_load_latest: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub thread_revision: u64,
     pub drafts: lgtm_core::discussion::DraftSet,
+    pub comment_retry: Option<CommentRetryBuffer>,
     submit_confirm: bool,
     submitting: bool,
     review_posting_prs: std::collections::HashSet<u64>,
@@ -297,6 +300,7 @@ impl App {
             pr_load_latest: Default::default(),
             thread_revision: 0,
             drafts: Default::default(),
+            comment_retry: None,
             submit_confirm: false,
             submitting: false,
             review_posting_prs: Default::default(),

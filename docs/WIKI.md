@@ -447,13 +447,21 @@ Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queri
 #### PR Threads and Remote Discussions
 
 - Run `:threads` to fetch remote discussion threads in the background.
-- Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread). Your pending inline drafts (`:thread comment`) show `✎` on the targeted line plus an inline `DRAFT #id (pending|stale|failed)` row beneath it; reply/resolve drafts show as `DRAFT …` labels in the threads view.
+- Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread).
 - Jump between discussions using `]t` / `[t`.
 - The forge is the source of truth: threads are always fetched live (`:threads`, `:thread refresh`).
-- Everything you write is a local **draft** (`.lgtm/drafts/pr-<N>.json`) until you submit: `:thread comment <text>` (inline at the cursor; deletions go on the LEFT side), `:thread general <text>`, `:thread reply <n> <text>` (or `r`), `:thread resolve|unresolve <n>` (or `R`; last draft per thread wins).
-- Manage drafts with `:thread drafts`, `:thread edit <id> <text>`, `:thread discard <id|all>`.
-- `:thread submit` (or `s` in the threads view) shows the batch; run it again to confirm. Items are sent in order (new threads, general, replies, resolves); on GitHub two or more new inline comments go out as one `COMMENT` review (one notification; if GitHub rejects it, they are sent one by one so each failure is reported on its own draft); each item succeeds or fails on its own, failures stay as drafts with the reason and remediation, and a retry of a draft that failed earlier first checks the forge, so it never duplicates a comment that landed unseen (fresh drafts are always sent, even if the same text already exists). Drafts whose thread vanished are marked `STALE` and skipped.
+- **Immediate Online Posting**: Comments, replies, and resolutions post directly and asynchronously to the remote forge API:
+  - `:thread comment <text>` (inline at the cursor; deletions go on the LEFT side)
+  - `:thread reply <n> <text>` (or `r` on an active thread)
+  - `:thread resolve|unresolve <n>` (or `R` / `x` in the threads view)
+- In case of a network or forge API error, the typed comment is preserved in an in-memory `CommentRetryBuffer` (no local draft files written to disk). Run `:thread retry` to re-attempt submission.
 - The agent MCP server exposes live threads through `lgtm_list_threads` (`pr` argument).
+
+#### Local Review Directives (Agent Steering)
+
+- Independent local notes and agent steering directives live exclusively in `.lgtm/directives.jsonl` via `DirectiveStore`.
+- Directives are created locally with `c` or `:c` and never make network calls or require a remote PR.
+- Static scan alerts from security guardrails can be converted and stored directly into `.lgtm/directives.jsonl` for autonomous AI agents via MCP (`lgtm_list_directives`, `lgtm_directive_status`).
 
 #### Directive Outcomes and Remote Posting
 

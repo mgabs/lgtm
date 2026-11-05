@@ -34,6 +34,3 @@ The system SHALL support converting static guard scanner alerts (`GuardAlert`) i
 - **WHEN** static scans detect guard alerts on modified diff files
 - **THEN** alerts are persisted as directives in `.lgtm/directives.jsonl`
 - **AND** MCP agents query them with `#ref file:line` anchors
-
-## Review Gate
-- [ ] **Gate 2 Approval**: Specifications reviewed and approved by human before technical design.

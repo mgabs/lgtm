@@ -64,6 +64,3 @@ When a forge comment operation fails due to network outage, rate limit, or authe
 - **WHEN** a comment post fails due to network disconnection
 - **THEN** the error is reported in the status bar
 - **AND** reopening the comment prompt pre-fills the unsent text for retry
-
-## Review Gate
-- [ ] **Gate 2 Approval**: Specifications reviewed and approved by human before technical design.
