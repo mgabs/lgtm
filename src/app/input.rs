@@ -1715,6 +1715,43 @@ impl App {
                 self.comment_source_view = ActiveView::Diff;
                 self.active_view = ActiveView::Diff;
             }
+            (KeyModifiers::NONE, KeyCode::Char('e')) | (KeyModifiers::NONE, KeyCode::Char('o')) => {
+                self.sync_cursor_to_markdown_row();
+                self.comment_source_view = ActiveView::Diff;
+                self.active_view = ActiveView::Diff;
+                self.open_in_editor();
+            }
+            (KeyModifiers::NONE, KeyCode::Char(']')) | (KeyModifiers::NONE, KeyCode::Char('[')) => {
+                self.sync_cursor_to_markdown_row();
+                self.comment_source_view = ActiveView::Diff;
+                self.active_view = ActiveView::Diff;
+                self.handle_diff_key(key);
+            }
+            (KeyModifiers::NONE, KeyCode::Char('f'))
+            | (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                self.active_view = ActiveView::FilePicker;
+                self.file_picker.query.clear();
+                self.file_picker.selected_idx = 0;
+                self.update_file_picker_filter();
+            }
+            (KeyModifiers::NONE, KeyCode::Char('v')) => {
+                self.toggle_review_current_file();
+            }
+            (KeyModifiers::NONE, KeyCode::Char('r')) => {
+                if let Some(t_idx) = self.thread_at_cursor() {
+                    self.start_thread_reply(t_idx);
+                } else if let Some(idx) = self.comment_idx_at_cursor() {
+                    self.start_reply_to_comment(idx);
+                } else {
+                    self.sync_cursor_to_markdown_row();
+                    self.comment_input.clear();
+                    self.comment_source_view = ActiveView::MarkdownPreview;
+                    self.active_view = ActiveView::CommentInput;
+                }
+            }
+            (KeyModifiers::NONE, KeyCode::Char('?')) => {
+                self.active_view = ActiveView::Help;
+            }
             (_, KeyCode::Tab) | (_, KeyCode::BackTab) => {
                 self.show_file_drawer = !self.show_file_drawer;
             }
@@ -4153,5 +4190,65 @@ mod tests {
         assert_eq!(app.audit.selected_idx, 0);
         app.handle_key(key(KeyCode::End));
         assert_eq!(app.audit.selected_idx, 14);
+    }
+
+    #[test]
+    fn test_markdown_preview_shortcuts_and_delegation() {
+        let mut app = diff_app();
+        app.active_view = ActiveView::MarkdownPreview;
+        app.markdown_preview.viewport_height = 10;
+        app.markdown_preview.rendered_rows = (0..10)
+            .map(|i| crate::app::markdown::RenderedMarkdownRow {
+                line_number: Some(i + 1),
+                diff_kind: crate::app::markdown::MarkdownDiffKind::Unchanged,
+                spans: vec![],
+            })
+            .collect();
+        app.markdown_preview.cursor_row = 1;
+
+        // 'e' / 'o' launches editor and switches to Diff
+        app.handle_key(key(KeyCode::Char('e')));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert!(app.status_message.is_some());
+
+        // ']' bracket nav switches to Diff and activates pending leader
+        app.active_view = ActiveView::MarkdownPreview;
+        app.pending_leader = None;
+        app.handle_key(key(KeyCode::Char(']')));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.pending_leader, Some(']'));
+
+        // '[' bracket nav switches to Diff and activates pending leader
+        app.active_view = ActiveView::MarkdownPreview;
+        app.pending_leader = None;
+        app.handle_key(key(KeyCode::Char('[')));
+        assert_eq!(app.active_view, ActiveView::Diff);
+        assert_eq!(app.pending_leader, Some('['));
+
+        // 'f' opens FilePicker
+        app.active_view = ActiveView::MarkdownPreview;
+        app.handle_key(key(KeyCode::Char('f')));
+        assert_eq!(app.active_view, ActiveView::FilePicker);
+
+        // 'Ctrl-p' opens FilePicker
+        app.active_view = ActiveView::MarkdownPreview;
+        app.handle_key(ctrl('p'));
+        assert_eq!(app.active_view, ActiveView::FilePicker);
+
+        // 'v' toggles review
+        app.active_view = ActiveView::MarkdownPreview;
+        assert!(!app.snapshot.files[0].is_reviewed);
+        app.handle_key(key(KeyCode::Char('v')));
+        assert!(app.snapshot.files[0].is_reviewed);
+
+        // '?' opens Help
+        app.active_view = ActiveView::MarkdownPreview;
+        app.handle_key(key(KeyCode::Char('?')));
+        assert_eq!(app.active_view, ActiveView::Help);
+
+        // 'r' opens CommentInput if no comment at cursor
+        app.active_view = ActiveView::MarkdownPreview;
+        app.handle_key(key(KeyCode::Char('r')));
+        assert_eq!(app.active_view, ActiveView::CommentInput);
     }
 }
