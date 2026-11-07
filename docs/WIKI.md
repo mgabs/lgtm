@@ -75,7 +75,7 @@ Modern software development has fundamentally shifted with the advent of autonom
    [ Interactive TUI ]                                   [ Headless CI / MCP ]
   - Ratatui / Crossterm                                 - `lgtm check` (Gate)
   - 1-Key Motions (j/k, ], [)                           - `lgtm scan` (Audit MD)
-  - Hunk Staging & Visual Mode                          - `lgtm serve --mcp` (Stdio)
+  - Hunk Staging & Visual Mode                          - `lgtm mcp` (Stdio)
   - Interactive Commit Forge                            - SARIF 2.1.0 Export
             │                                                     │
             └──────────────────────────┬──────────────────────────┘
@@ -409,9 +409,9 @@ Type `:` in diff view to change comparison targets dynamically:
 
 List PRs from the command line:
 ```bash
-lgtm prs                # List open PRs (default)
-lgtm prs --state closed # List closed & merged PRs
-lgtm prs --state all    # List all PRs
+lgtm pr list                # List open PRs (default)
+lgtm pr list --state closed # List closed & merged PRs
+lgtm pr list --state all    # List all PRs
 ```
 
 Inside the TUI:
@@ -486,8 +486,6 @@ Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queri
 
 ### Starting the Server
 ```bash
-lgtm serve --mcp
-# or shorthand
 lgtm mcp
 ```
 
@@ -511,7 +509,7 @@ lgtm mcp
   "mcpServers": {
     "lgtm": {
       "command": "lgtm",
-      "args": ["serve", "--mcp"]
+      "args": ["mcp"]
     }
   }
 }
@@ -724,7 +722,7 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 
 | Works | Not yet (planned) |
 |---|---|
-| `:prs open/closed/all`, `lgtm pr list --state open/closed/all`: list PRs by state (default open; alias `lgtm prs`) | |
+| `:prs open/closed/all`, `lgtm pr list --state open/closed/all`: list PRs by state (default open) | |
 | `:pr <n>`, `lgtm pr <n>`: reads fresh metadata through REST with cached authentication and CLI fallback; uses recorded commits before probing refs, including completed/abandoned PRs | |
 | `:checks`: branch policies as pass / fail / pending | |
 | `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
@@ -824,22 +822,22 @@ path = ".lgtm-baseline.json"
 
 | Command | Description |
 |---|---|
-| `lgtm` / `diff` / `status` / `review` | Launch interactive diff reviewer TUI (default) |
+| `lgtm` / `lgtm diff [REV]` | Launch interactive diff reviewer TUI (default) |
 | `lgtm gate [--timeout <s>] [-m <msg>]` | Human-in-the-loop breakpoint gate; halts until approved/rejected in TUI |
 | `lgtm hook [install\|uninstall\|status]` | Install, uninstall, or inspect the LGTM Git pre-commit hook |
-| `lgtm risk` | Audit current diff for security risks, test neutering, fraud |
-| `lgtm init` / `--init` | Create `.lgtm.toml` |
-| `lgtm pr <n>` / `--pr <n>` | Review a PR (GitHub via Git/API/`gh`, Azure DevOps via `az`) |
-| `lgtm pr list [--state open\|closed\|all]` | List and pick PRs by state (default open; alias: `lgtm prs`) |
-| `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too; alias: `lgtm ci`) |
+| `lgtm init [--repo <path>]` | Create `.lgtm.toml` starter configuration |
+| `lgtm pr <n>` | Review a PR (GitHub via Git/API/`gh`, Azure DevOps via `az`) |
+| `lgtm pr list [--state open\|closed\|all]` | List and pick PRs by state (default open) |
+| `lgtm check [--strict] [-f markdown\|json\|sarif] [-o file]` | Headless gate; fails on Critical/High (`--strict`: Warn too) |
 | `lgtm config [--show] [--no-user-config]` | Print effective `.lgtm.toml` (repo) + `~/.config/lgtm/config.toml` (user) values with sources; precedence repo > user > defaults, tables merge, lists replace, unknown keys warn |
-| `lgtm ci [--strict] [--rev <spec>] [-f ...] [-o file]` | Headless diff audit; sticky PR comment, JSON or SARIF. `--rev origin/main...HEAD` checks a committed range. Exit 0 pass, 1 blocking findings, 2 tool error (also on `check`) |
 | `lgtm scan [repo] [-t] [-f markdown\|json] [-o file]` | Full repository audit (default output `lgtm-report.md`) |
 | `lgtm audit` | Interactive repository audit TUI |
-| `lgtm mcp` / `lgtm serve --mcp` | MCP stdio server |
+| `lgtm baseline [update] [--prune]` | Manage the findings baseline (`.lgtm-baseline.json`) |
+| `lgtm review <export\|import> [arg]` | Share review state: export JSON or import/merge JSON |
+| `lgtm mcp` | MCP stdio server |
 | `lgtm log\|commit\|add\|...` | Git passthrough |
 
-Global options: `-r/--repo <path>`, `-p/--agent-pane <id>`, `--agent-sink <kind>`, `--pr <n>`, `-d/--debounce <ms>` (default 300), `--debug`, `--debug-log <path>`, `--init`.
+Global options: `-r/--repo <path>`, `-p/--agent-pane <id>`, `--agent-sink <kind>`, `-d/--debounce <ms>` (default 300), `--debug`, `--debug-log <path>`.
 
 ---
 

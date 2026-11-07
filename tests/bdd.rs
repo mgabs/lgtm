@@ -108,7 +108,7 @@ fn bdd_cli_005_invalid_pr_state_fails_before_loading_the_picker() {
     let repo = tempfile::tempdir().unwrap();
 
     // When the user requests that listing.
-    let output = lgtm(repo.path(), &["prs", "--state", "merged-only"]);
+    let output = lgtm(repo.path(), &["pr", "list", "--state", "merged-only"]);
 
     // Then argument validation reports supported choices without launching the TUI.
     assert_eq!(output.status.code(), Some(2));
@@ -130,11 +130,10 @@ fn bdd_cli_010_init_flag_respects_repo_and_defaults_to_current_directory() {
     let caller_config = caller.join(".lgtm.toml");
     let target_config = target.join(".lgtm.toml");
 
-    // When --init selects a relative or absolute repository using CLI options.
+    // When `init` selects a relative or absolute repository using CLI options.
     for args in [
-        vec!["--init", "--repo", "target repo"],
-        vec!["--repo", target.to_str().unwrap(), "--init"],
-        vec!["--init", "-r", "target repo"],
+        vec!["init", "--repo", "target repo"],
+        vec!["init", "-r", "target repo"],
     ] {
         assert_success(&lgtm(&caller, &args));
 
@@ -145,17 +144,20 @@ fn bdd_cli_010_init_flag_respects_repo_and_defaults_to_current_directory() {
     }
 
     // When no repository is selected, then initialization still uses the caller.
-    assert_success(&lgtm(&caller, &["--init"]));
+    assert_success(&lgtm(&caller, &["init"]));
     assert!(caller_config.is_file());
     assert!(!target_config.exists());
 
     // Then initializing again preserves the existing configuration.
     std::fs::write(&caller_config, "# custom configuration\n").unwrap();
-    assert_success(&lgtm(&caller, &["--init"]));
+    assert_success(&lgtm(&caller, &["init"]));
     assert_eq!(
         std::fs::read_to_string(&caller_config).unwrap(),
         "# custom configuration\n"
     );
+
+    // And top-level --init is rejected
+    assert!(!lgtm(&caller, &["--init"]).status.success());
 }
 
 #[cfg(unix)]

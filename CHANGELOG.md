@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+- **BREAKING**: Removed deprecated subcommands `lgtm serve` (use `lgtm mcp`), `lgtm prs` (use `lgtm pr list`), `lgtm status` (use `lgtm` or `lgtm diff`), and `lgtm ci` (use `lgtm check --no-user-config`).
+- **BREAKING**: Removed duplicate top-level flags `--init` (use `lgtm init [--repo <path>]`) and `--pr` (use `lgtm pr <number>`).
+- **BREAKING**: Removed `lgtm risk` (folded into `lgtm check`).
+- **BREAKING**: `lgtm review` now requires an explicit action (`export` or `import`) instead of ambiguously launching the TUI.
+
 ## 2.6.2
 
 ### Added
