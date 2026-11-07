@@ -210,6 +210,7 @@ mod tests {
             path: "test.rs".into(),
             line: Some(5),
             resolved: false,
+            outdated: true,
             comments: vec![
                 lgtm_core::github::ThreadComment {
                     id: 1,
@@ -224,6 +225,15 @@ mod tests {
             ],
         }];
         terminal.draw(|f| render(f, &mut app)).unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("[⚠ Outdated]"));
+        assert!(rendered.contains("Filter: All"));
 
         // Test rendering Search
         app.active_view = ActiveView::Search;

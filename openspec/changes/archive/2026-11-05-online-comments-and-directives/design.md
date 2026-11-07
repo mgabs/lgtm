@@ -88,17 +88,17 @@ flowchart TD
         KeyChord -- 'c' / :directives --> DirModal[Directive Modal]
         DirModal --> DirStore[DirectiveStore]
         DirStore --> JSONL[(.lgtm/directives.jsonl)]
-        
+
         KeyChord -- 'C' / 'r' / 'x' --> ThreadAction[Online Thread Action]
     end
-    
+
     subgraph Background Forge Worker
         ThreadAction -->|crossbeam channel| Worker[Worker Thread]
         Worker --> ForgeAPI{GitHub / AzDO API}
         ForgeAPI -- 200 OK --> SuccessEvent[ForgeEvent::ActionSuccess]
         ForgeAPI -- Error --> FailEvent[ForgeEvent::ActionFailed]
     end
-    
+
     SuccessEvent -->|crossbeam channel| UpdateState[Update self.threads & Gutter]
     FailEvent -->|crossbeam channel| RetryBuffer[Save to In-Memory Retry Buffer & Show Error]
 ```

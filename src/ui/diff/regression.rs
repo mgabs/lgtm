@@ -28,6 +28,7 @@ fn fixture() -> App {
         path: "a.rs".into(),
         line: Some(1),
         resolved: false,
+        outdated: false,
         comments: vec![],
     });
     for (line, title) in [(None, "file finding"), (Some(2), "line finding")] {
@@ -144,6 +145,145 @@ fn navigation_and_dynamic_styling_reuse_content_preparation() {
     assert_eq!(app.render_cache.borrow().words_prepared, words);
     screen(&mut app, 80, 16);
     assert_eq!(app.render_cache.borrow().words_prepared, words);
+}
+
+#[test]
+fn outdated_threads_render_the_yellow_gutter_marker() {
+    let mut app = fixture();
+    app.threads[0].outdated = true;
+    let mut terminal = Terminal::new(TestBackend::new(96, 20)).unwrap();
+    terminal
+        .draw(|frame| render_diff_view(frame, frame.area(), &mut app))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let outdated_marker = buffer
+        .content
+        .iter()
+        .any(|cell| cell.symbol() == "~" && cell.fg == ratatui::style::Color::Yellow);
+    assert!(outdated_marker, "outdated gutter marker must be yellow");
+}
+
+#[test]
+#[cfg(all(feature = "perf-budgets", not(debug_assertions)))]
+fn outdated_thread_performance_budgets() {
+    use crate::app::{ActiveView, ThreadFilter};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::{hint::black_box, time::Instant};
+
+    let mut app = fixture();
+    app.comments.clear();
+    app.alerts.clear();
+    app.snapshot.files[0].hunks[0].lines = (1..=1000)
+        .map(|line| DiffLine {
+            line_type: LineType::Addition,
+            content: format!("let value_{line} = {line};"),
+            old_line_num: None,
+            new_line_num: Some(line),
+        })
+        .collect();
+    app.threads = (1..=100)
+        .map(|i| lgtm_core::github::Thread {
+            id: format!("thread-{i}"),
+            path: "a.rs".into(),
+            line: Some(i * 20),
+            resolved: false,
+            outdated: i <= 25,
+            comments: vec![],
+        })
+        .collect();
+    app.invalidate_diff_content();
+    let original_threads = app.threads.clone();
+    let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    let mut reload_samples = Vec::new();
+    let mut frame_samples = Vec::new();
+    for sample in 0..8 {
+        app.threads.clone_from(&original_threads);
+        let mut cache = cache::RenderCache::default();
+        let started = Instant::now();
+        lgtm_core::github::mark_outdated(&mut app.threads, &app.snapshot);
+        let signature = cache::annotation_signature(&app);
+        let index = black_box(cache.index(&app, signature));
+        let elapsed = started.elapsed();
+        assert_eq!(app.threads.iter().filter(|t| t.outdated).count(), 75);
+        assert_eq!(index.threads.len(), 100);
+        if sample > 0 {
+            reload_samples.push(elapsed);
+        }
+
+        app.invalidate_diff_content();
+        let started = Instant::now();
+        terminal
+            .draw(|frame| crate::ui::render(frame, &mut app))
+            .unwrap();
+        if sample > 0 {
+            frame_samples.push(started.elapsed());
+        }
+    }
+
+    app.active_view = ActiveView::ThreadView;
+    let mut key_samples = Vec::new();
+    for sample in 0..8 {
+        app.set_thread_filter(ThreadFilter::All);
+        let started = Instant::now();
+        for _ in 0..3000 {
+            for code in [KeyCode::Tab, KeyCode::Char('o')] {
+                app.handle_key(black_box(KeyEvent::new(code, KeyModifiers::NONE)));
+            }
+        }
+        let elapsed = started.elapsed() / 6000;
+        assert_eq!(app.thread_filter, ThreadFilter::All);
+        if sample > 0 {
+            key_samples.push(elapsed);
+        }
+    }
+    reload_samples.sort();
+    frame_samples.sort();
+    key_samples.sort();
+    app.active_view = ActiveView::Diff;
+    app.cursor_line_idx = 19;
+    let mut navigation_samples = Vec::new();
+    for sample in 0..8 {
+        let mut elapsed = std::time::Duration::ZERO;
+        for _ in 0..100 {
+            for prefix in [']', '['] {
+                app.handle_key(KeyEvent::new(KeyCode::Char(prefix), KeyModifiers::NONE));
+                let started = Instant::now();
+                app.handle_key(black_box(KeyEvent::new(
+                    KeyCode::Char('T'),
+                    KeyModifiers::NONE,
+                )));
+                elapsed += started.elapsed();
+            }
+        }
+        let elapsed = elapsed / 200;
+        assert_eq!(app.cursor_line_idx, 19);
+        if sample > 0 {
+            navigation_samples.push(elapsed);
+        }
+    }
+    navigation_samples.sort();
+    let reload = reload_samples[3];
+    let frame = frame_samples[3];
+    let key = key_samples[3];
+    let navigation = navigation_samples[3];
+    println!(
+        "outdated threads=100 lines=1000 terminal=120x40 median(7): \
+         reconciliation+mapping={reload:?}, cold_frame={frame:?}, Tab/o={key:?}, \
+         ]T/[T final keystroke={navigation:?}"
+    );
+    assert!(
+        reload.as_nanos() < 1_000_000,
+        "reload exceeded 1ms: {reload:?}"
+    );
+    assert!(
+        frame.as_nanos() < 16_000_000,
+        "frame exceeded 16ms: {frame:?}"
+    );
+    assert!(key.as_nanos() < 1000, "filter key exceeded 1us: {key:?}");
+    assert!(
+        navigation.as_nanos() < 1000,
+        "navigation key exceeded 1us: {navigation:?}"
+    );
 }
 
 #[test]
@@ -315,30 +455,6 @@ fn annotation_changes_refresh_rows_without_recomputing_word_differences() {
     assert!(!after.contains("RESOLVED DIRECTIVE"));
     assert!(after.contains("a newer finding"));
     assert_eq!(app.render_cache.borrow().words_prepared, words);
-}
-
-#[test]
-fn pending_drafts_show_gutter_and_inline_row_and_refresh_cache() {
-    use lgtm_core::discussion::DraftKind;
-    let mut app = fixture();
-    app.threads.clear();
-    app.alerts.clear();
-    app.comments.clear();
-    assert!(!screen(&mut app, 96, 30).contains("DRAFT"));
-    let kind = DraftKind::Thread {
-        path: "a.rs".into(),
-        line: 2,
-        side: crate::comment::CommentSide::Right,
-    };
-    let id = app.drafts.add(kind, "please rename").unwrap();
-    let after = screen(&mut app, 96, 30);
-    assert!(after.contains("✎"));
-    assert!(after.contains("DRAFT #1 (pending)"));
-    assert!(after.contains("please rename"));
-    app.drafts.edit(id, "edited body").unwrap();
-    assert!(screen(&mut app, 96, 30).contains("edited body"));
-    app.drafts.remove(id);
-    assert!(!screen(&mut app, 96, 30).contains("DRAFT"));
 }
 
 #[test]

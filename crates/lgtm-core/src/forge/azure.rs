@@ -446,6 +446,7 @@ pub fn parse_threads(v: &Value) -> Vec<Thread> {
                     .and_then(Value::as_u64)
                     .map(|l| l as u32),
                 resolved: thread_closed(&s(t, "/status")),
+                outdated: false,
                 comments,
             })
         })
@@ -1305,5 +1306,78 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("historical diff"));
+    }
+
+    #[test]
+    fn shared_rest_cache_refreshes_expired_reads_and_invalidates_after_writes() {
+        let _guard = SHARED_CACHE_TEST_LOCK.lock().unwrap();
+        let saved_token = TOKEN.lock().unwrap().take();
+        let saved_cache = std::mem::take(&mut *CACHE.write().unwrap());
+        let mut provider = forge(
+            ".",
+            vec![
+                ("get-access-token", "fixture-token"),
+                ("curl", r#"{"value":[{"id":1}]}"#),
+                ("--http-method patch", r#"{"id":1}"#),
+            ],
+        );
+        provider.shared = true;
+        provider.remote.as_mut().unwrap().repo = "cache-fixture".into();
+        *TOKEN.lock().unwrap() = Some(("expired-token".into(), Instant::now() - TOKEN_TTL));
+        let first = provider.rest("repo", "threads").unwrap();
+        let hit = provider.rest("repo", "threads").unwrap();
+        assert!(Arc::ptr_eq(&first, &hit));
+        let url =
+            "https://dev.azure.com/org/My%20Proj/_apis/git/repositories/cache-fixture/threads";
+        CACHE.write().unwrap().get_mut(url).unwrap().0 = Instant::now() - CACHE_TTL;
+        let refreshed = provider.rest("repo", "threads").unwrap();
+        assert!(!Arc::ptr_eq(&first, &refreshed));
+        assert_eq!(refreshed["value"][0]["id"], 1);
+        provider.set_resolved(1, "1", true).unwrap();
+        assert!(CACHE.read().unwrap().is_empty());
+        *TOKEN.lock().unwrap() = saved_token;
+        *CACHE.write().unwrap() = saved_cache;
+    }
+
+    #[test]
+    fn invalid_remotes_and_empty_tokens_fail_before_requests() {
+        let mut provider = forge(".", vec![("get-access-token", " \n")]);
+        assert!(provider
+            .token()
+            .unwrap_err()
+            .to_string()
+            .contains("no access token"));
+        provider.remote = None;
+        assert!(provider.rest("repo", "threads").is_err());
+        assert!(provider
+            .call("post", "pullRequestThreads", 1, None, None)
+            .is_err());
+        assert_eq!(unescape("broken%XX%"), "broken%XX%");
+        for url in [
+            "git@ssh.dev.azure.com:v3/org/project",
+            "https://dev.azure.com/org/project/not-git/repo",
+            "https://org.visualstudio.com/project/not-git/repo",
+            "https://org.visualstudio.com/project",
+            "https://dev.azure.com",
+        ] {
+            assert_eq!(parse_remote(url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn general_review_does_not_set_a_vote_and_metadata_without_remote_uses_cli_detection() {
+        let mut provider = forge(
+            ".",
+            vec![
+                ("pr show", r#"{"lastMergeSourceCommit":{"commitId":"sha"}}"#),
+                ("--http-method post", r#"{"id":1}"#),
+            ],
+        );
+        provider
+            .post_review(1, "COMMENT", "general review")
+            .unwrap();
+        provider.post_review(1, "COMMENT", "").unwrap();
+        provider.remote = None;
+        assert_eq!(provider.head_sha(1).unwrap(), "sha");
     }
 }

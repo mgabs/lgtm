@@ -150,6 +150,7 @@ lgtm
 | `]w` / `[w` or `w` / `W` | Alert Jump | Jump to next / previous security / quality guardrail alert |
 | `]c` / `[c` | Directive Jump | Jump to next / previous inline review comment |
 | `]t` / `[t` | Thread Jump | Jump to next / previous remote PR thread line in the file (after `:threads`) |
+| `]T` / `[T` | Outdated Thread Jump | Jump to next / previous unresolved outdated thread line in the current file |
 | `gg` / `G` | Top / Bottom | Jump to top / bottom of current file diff |
 | `Ctrl-d` / `Ctrl-u` | Half-Page | Scroll half-page down / up (15 lines) |
 | `Ctrl-f` / `Ctrl-b` | Full-Page | Scroll full page down / up (25 lines) |
@@ -439,22 +440,23 @@ az login # or az devops login
 | `:prs open/closed/all` | List PRs filtered by state (default: open) |
 | `:pr <n>` | Reads metadata via REST with cached auth and CLI fallback |
 | `:checks` | Displays branch policy status as pass / fail / pending |
-| `:threads` | PR threads via `az devops invoke`; system/deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved |
+| `:threads [open\|outdated\|all]` | PR threads through REST with `az devops invoke` fallback; system/deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved |
 | Review submit | `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` posts body as discussion thread |
 
 Speed: `:prs`, `:checks`, and `:threads` run in the background. Azure REST queries reuse one `az account get-access-token` per session (~30m, memory-only, passed to curl via private temporary file). Results are cached for 5 minutes; writes invalidate cache.
 
 #### PR Threads and Remote Discussions
 
-- Run `:threads` to fetch remote discussion threads in the background.
-- Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread).
-- Jump between discussions using `]t` / `[t`.
+- Run `:threads [open|outdated|all]` to fetch remote discussion threads in the background. In the modal, `Tab` or `o` cycles `All` → `Open` → `Outdated` → `All`; `Open` excludes resolved and outdated threads, while `Outdated` includes resolved outdated threads.
+- Lines with remote discussion receive gutter markers: `◆` (open thread), `◇` (resolved thread), and yellow `~` (unresolved outdated thread). Outdated threads display `[⚠ Outdated]` in the modal. GitHub supplies `isOutdated`; Azure positions are reconciled against the current in-memory diff.
+- Jump between discussions using `]t` / `[t`, or between unresolved outdated thread lines in the current file using `]T` / `[T`. For an outdated thread whose line has left the diff, `Enter` in the modal jumps safely to the file header and reports "Line gone from current diff (outdated)".
 - The forge is the source of truth: threads are always fetched live (`:threads`, `:thread refresh`).
 - **Immediate Online Posting**: Comments, replies, and resolutions post directly and asynchronously to the remote forge API:
   - `:thread comment <text>` (inline at the cursor; deletions go on the LEFT side)
   - `:thread reply <n> <text>` (or `r` on an active thread)
   - `:thread resolve|unresolve <n>` (or `R` / `x` in the threads view)
 - In case of a network or forge API error, the typed comment is preserved in an in-memory `CommentRetryBuffer` (no local draft files written to disk). Run `:thread retry` to re-attempt submission.
+- Bare `:reply`, `:resolve`, and `:unresolve` affect only local directives; remote operations require `:thread`. Removed `:thread drafts|submit|discard|edit` commands are rejected, and the thread modal has no `s` submit binding.
 - The agent MCP server exposes live threads through `lgtm_list_threads` (`pr` argument).
 
 #### Local Review Directives (Agent Steering)
@@ -727,10 +729,10 @@ lgtm picks the provider from the `origin` URL (`dev.azure.com`, `ssh.dev.azure.c
 | `:prs open/closed/all`, `lgtm pr list --state open/closed/all`: list PRs by state (default open; alias `lgtm prs`) | |
 | `:pr <n>`, `lgtm pr <n>`: reads fresh metadata through REST with cached authentication and CLI fallback; uses recorded commits before probing refs, including completed/abandoned PRs | |
 | `:checks`: branch policies as pass / fail / pending | |
-| `:threads`: PR threads (via `az devops invoke`; system and deleted comments skipped; `fixed`, `closed`, `wontFix`, `byDesign` count as resolved) | |
+| `:threads [open\|outdated\|all]`: PR threads through REST with `az devops invoke` fallback; outdated positions reconciled against the current diff; system/deleted comments skipped; completed statuses count as resolved | |
 | Review submit: `APPROVE` sets vote `approve`, `REQUEST_CHANGES` sets `wait-for-author`, `COMMENT` only comments (body posted as a thread) | |
 
-After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved) on both GitHub and Azure DevOps. Markers cover threads attached to a new-side line; general threads show only in the status line. Jump between thread lines with `]t`/`[t`, and trigger inline reply or toggle resolution directly on the marked line with `r` or `R`.
+After `:threads`, diff lines with remote discussion get a gutter marker (`◆` open, `◇` resolved, yellow `~` unresolved outdated) on both GitHub and Azure DevOps. Threads without a current diff line remain visible in the modal, with `[⚠ Outdated]` when flagged; `Enter` on a missing outdated line jumps to the file header. Jump between thread lines with `]t`/`[t`, or unresolved outdated lines with `]T`/`[T`, and trigger inline reply or toggle resolution directly on the marked line with `r` or `R`. See [PR Threads and Remote Discussions](#pr-threads-and-remote-discussions) for filters and online commands.
 
 Speed: `:prs`, `:checks` and `:threads` run in the background (the status line shows "Loading..."), and Azure reads call the REST API with `curl` using one `az account get-access-token` per session (about 30 minutes, memory only; the token goes to curl through a private temp file, never the command line). Results are cached for 5 minutes and any write (post, reply, resolve, vote) clears the cache. If `curl` or the token fails, lgtm falls back to `az repos` / `az devops invoke` (slower, same result).
 
@@ -765,8 +767,11 @@ Press `:` in diff view to enter Ex-Command Mode with `Tab` / `Shift-Tab` wildmen
 | `:clear-resolved` | — | Purge all resolved directives while preserving active ones |
 | `:resolve [all]` | `:res` | Mark directive on current line (or all directives) as resolved |
 | `:unresolve [all]` | — | Mark directive on current line (or all directives) as active |
-| `:checks` / `:threads` | — | CI status in the header / list PR threads and mark their lines (`]t`/`[t` jump) |
-| `:thread reply <n> <text>` / `resolve <n>` / `unresolve <n>` | — | Preview; add `--yes` to send |
+| `:reply <text>` | — | Reply to the local directive on the current line; never targets a remote thread |
+| `:checks` | — | CI status in the header |
+| `:threads [open\|outdated\|all]` | — | List live PR threads; Tab/`o` cycles modal filters; `]t`/`[t` and `]T`/`[T` navigate diff markers |
+| `:thread comment <text>` / `reply <n> <text>` / `resolve <n>` / `unresolve <n>` | — | Post directly and asynchronously to the remote forge; no preview or `--yes` step |
+| `:thread refresh` / `retry` / `outdated` | — | Refresh remote threads, retry retained in-memory text, or open the outdated filter |
 | `:r` | `:review`, `:send`, `:push` | Compile directives batch prompt and blast to target agent pane |
 | `:risk` | — | Re-scan current diff for security, test fraud, and complexity risks |
 | `:reload` | `:e`, `:edit` | Reload diff snapshot from working tree or GitHub PR |

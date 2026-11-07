@@ -192,7 +192,7 @@ impl McpServer {
                         },
                         {
                             "name": "lgtm_list_threads",
-                            "description": "List the live review threads of a pull request from the forge (path, line, resolved state, comments).",
+                            "description": "List the live review threads of a pull request from the forge (path, line, resolved and outdated state, comments).",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
@@ -522,6 +522,7 @@ impl McpServer {
                     "path": t.path,
                     "line": t.line,
                     "resolved": t.resolved,
+                    "outdated": t.outdated,
                     "comments": t.comments.iter().map(|c| json!({
                         "id": c.id, "author": c.author, "body": c.body
                     })).collect::<Vec<_>>(),
@@ -710,6 +711,7 @@ mod tests {
                 path: "a.rs".into(),
                 line: Some(3),
                 resolved: true,
+                outdated: true,
                 comments: vec![ThreadComment {
                     id: 5,
                     author: "bob".into(),
@@ -723,6 +725,7 @@ mod tests {
         assert_eq!(out[0]["path"], "a.rs");
         assert_eq!(out[0]["line"], 3);
         assert_eq!(out[0]["resolved"], true);
+        assert_eq!(out[0]["outdated"], true);
         assert_eq!(out[0]["comments"][0]["author"], "bob");
         let down = FakeClient {
             error: Some("offline".into()),

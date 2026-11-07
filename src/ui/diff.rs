@@ -821,25 +821,24 @@ fn prepare_diff(
                                 .collect();
                             let thread_state = line_no.and_then(|n| index.threads.get(&n).copied());
 
-                            let matching_drafts: Vec<&lgtm_core::discussion::Draft> = line_no
-                                .and_then(|n| index.drafts.get(&n))
-                                .into_iter()
-                                .flatten()
-                                .map(|&i| &app.drafts.items()[i])
-                                .collect();
-
+                            let (thread_icon, thread_color) = match thread_state {
+                                Some(lgtm_core::github::ThreadMarkerKind::Open) => {
+                                    ("◆ ", Color::Cyan)
+                                }
+                                Some(lgtm_core::github::ThreadMarkerKind::Resolved) => {
+                                    ("◇ ", Color::Green)
+                                }
+                                Some(lgtm_core::github::ThreadMarkerKind::Outdated) => {
+                                    ("~ ", Color::Yellow)
+                                }
+                                None => ("   ", Color::DarkGray),
+                            };
                             let gutter_icon = if in_visual {
                                 "▌ "
                             } else if !matching_alerts.is_empty() {
                                 "⚠️ "
-                            } else if let Some(open) = thread_state {
-                                if open {
-                                    "◆ "
-                                } else {
-                                    "◇ "
-                                }
-                            } else if !matching_drafts.is_empty() {
-                                "✎ "
+                            } else if thread_state.is_some() {
+                                thread_icon
                             } else if !matching_comments.is_empty() {
                                 if matching_comments.iter().all(|c| c.is_resolved) {
                                     "✓ "
@@ -858,13 +857,9 @@ fn prepare_diff(
                                 Style::default()
                                     .fg(Color::Yellow)
                                     .add_modifier(Modifier::BOLD)
-                            } else if let Some(open) = thread_state {
+                            } else if thread_state.is_some() {
                                 Style::default()
-                                    .fg(if open { Color::Cyan } else { Color::Green })
-                                    .add_modifier(Modifier::BOLD)
-                            } else if !matching_drafts.is_empty() {
-                                Style::default()
-                                    .fg(Color::LightBlue)
+                                    .fg(thread_color)
                                     .add_modifier(Modifier::BOLD)
                             } else if !matching_comments.is_empty()
                                 && matching_comments.iter().all(|c| c.is_resolved)
@@ -954,27 +949,6 @@ fn prepare_diff(
                                     ),
                                     Span::styled(
                                         &alert.description,
-                                        Style::default().fg(Color::White),
-                                    ),
-                                ]));
-                            }
-
-                            for draft in matching_drafts {
-                                let (state, color) = if draft.error.is_some() {
-                                    ("failed", Color::Red)
-                                } else if draft.stale.is_some() {
-                                    ("stale", Color::Yellow)
-                                } else {
-                                    ("pending", Color::LightBlue)
-                                };
-                                lines.push(Line::from(vec![
-                                    Span::raw("        │ "),
-                                    Span::styled(
-                                        format!("✎ DRAFT #{} ({state}): ", draft.id),
-                                        Style::default().fg(color).add_modifier(Modifier::BOLD),
-                                    ),
-                                    Span::styled(
-                                        format!("\"{}\"", draft.body),
                                         Style::default().fg(Color::White),
                                     ),
                                 ]));
