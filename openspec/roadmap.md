@@ -4,7 +4,6 @@ OpenSpec change artifacts are the source of truth for scope and task checklists.
 
 ## Active Changes
 
-- [Outdated threads and command cleanup](changes/outdated-threads-and-command-cleanup/) — draft PR #85; implementation and provider coverage verified, Azure mutation and final acceptance gates remain open.
 - [Vendor-neutral thread model](changes/vendor-neutral-thread-model/) — planning; task breakdown not yet recorded.
 - [Markdown parser coverage](changes/markdown-parser-coverage/) — planning; task breakdown not yet recorded.
 - [Universal key navigation](changes/universal-key-navigation/) — implementation tasks complete (13/13).
@@ -12,3 +11,7 @@ OpenSpec change artifacts are the source of truth for scope and task checklists.
 ## Deferred
 
 - Token-optimization tooling is not planned without a measured need and a suitable tool. No repository work remains from the previous MarkDify/Promptfoo proposal.
+
+## Completed
+
+- [Outdated threads and command cleanup](changes/archive/2026-11-07-outdated-threads-and-command-cleanup/) — merged through #85 and #86; provider coverage, mutations and final acceptance verified; specs synced and change archived.
