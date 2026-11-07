@@ -8,6 +8,7 @@ pub mod fragility;
 pub mod go;
 pub mod java;
 pub mod python;
+pub mod rust;
 pub mod security;
 pub mod swift;
 pub mod symbols;
@@ -69,6 +70,7 @@ pub fn registry() -> &'static [&'static dyn Guard] {
         &python::PythonGuard,
         &go::GoGuard,
         &java::JavaGuard,
+        &rust::RustGuard,
     ]
 }
 
@@ -178,29 +180,31 @@ impl SecurityAndTestGuard {
                         }
 
                         // 4. Test Fraud & Bypasses
-                        if is_test_file {
-                            if is_test_skip(text) {
-                                alerts.push(GuardAlert {
-                                    severity: Severity::High,
-                                    rule_id: "test/skipped".to_string(), fingerprint: String::new(), title: "Test Skipped / Ignored".to_string(),
-                                    description: "Agent added @skip / #[ignore] decorator to bypass test suite".to_string(),
-                                    line_no: line_num,
-                                    file_path: path_str.clone(),
-                                });
-                            }
-                            if is_tautological_assertion(text) {
-                                alerts.push(GuardAlert {
-                                    severity: Severity::High,
-                                    rule_id: "test/tautological-assert".to_string(),
-                                    fingerprint: String::new(),
-                                    title: "Tautological / Vacuous Assertion".to_string(),
-                                    description:
-                                        "Assertion always evaluates to true (assert True / x == x)"
-                                            .to_string(),
-                                    line_no: line_num,
-                                    file_path: path_str.clone(),
-                                });
-                            }
+                        if is_tautological_assertion(text) {
+                            alerts.push(GuardAlert {
+                                severity: Severity::High,
+                                rule_id: "test/tautological-assert".to_string(),
+                                fingerprint: String::new(),
+                                title: "Tautological / Vacuous Assertion".to_string(),
+                                description:
+                                    "Assertion always evaluates to true (assert True / x == x)"
+                                        .to_string(),
+                                line_no: line_num,
+                                file_path: path_str.clone(),
+                            });
+                        }
+                        if is_test_file && is_test_skip(text) {
+                            alerts.push(GuardAlert {
+                                severity: Severity::High,
+                                rule_id: "test/skipped".to_string(),
+                                fingerprint: String::new(),
+                                title: "Test Skipped / Ignored".to_string(),
+                                description:
+                                    "Agent added @skip / #[ignore] decorator to bypass test suite"
+                                        .to_string(),
+                                line_no: line_num,
+                                file_path: path_str.clone(),
+                            });
                         }
 
                         // 5. Bad Practices
@@ -249,6 +253,9 @@ impl SecurityAndTestGuard {
                 file_path: path_str,
             });
         }
+
+        let mut seen = std::collections::HashSet::new();
+        alerts.retain(|a| seen.insert((a.rule_id.clone(), a.file_path.clone(), a.line_no)));
 
         alerts
     }
@@ -924,6 +931,57 @@ mod tests {
 
         let e = SecurityAndTestGuard::scan_snapshot(&[tls_file(&[("requests.post(u, ", 3)])]);
         assert_ne!(a[0].fingerprint, e[0].fingerprint);
+    }
+
+    #[test]
+    fn test_tautological_assertion_detected_in_non_test_file() {
+        let file = FileDiff {
+            old_path: None,
+            new_path: PathBuf::from("src/calc.rs"),
+            change_type: ChangeType::Added,
+            hunks: vec![DiffHunk {
+                lines: vec![
+                    DiffLine {
+                        line_type: LineType::Addition,
+                        content: "fn test_inline() {".to_string(),
+                        old_line_num: None,
+                        new_line_num: Some(1),
+                    },
+                    DiffLine {
+                        line_type: LineType::Addition,
+                        content: "    assert!(true);".to_string(),
+                        old_line_num: None,
+                        new_line_num: Some(2),
+                    },
+                    DiffLine {
+                        line_type: LineType::Addition,
+                        content: "    assert_eq!(foo, foo);".to_string(),
+                        old_line_num: None,
+                        new_line_num: Some(3),
+                    },
+                    DiffLine {
+                        line_type: LineType::Addition,
+                        content: "}".to_string(),
+                        old_line_num: None,
+                        new_line_num: Some(4),
+                    },
+                ],
+                ..Default::default()
+            }],
+            additions: 4,
+            deletions: 0,
+            is_folded: false,
+            is_reviewed: false,
+        };
+
+        let alerts = SecurityAndTestGuard::scan_file(&file);
+        let taut_alerts: Vec<_> = alerts
+            .into_iter()
+            .filter(|a| a.rule_id == "test/tautological-assert")
+            .collect();
+        assert_eq!(taut_alerts.len(), 2);
+        assert_eq!(taut_alerts[0].line_no, Some(2));
+        assert_eq!(taut_alerts[1].line_no, Some(3));
     }
 
     #[test]
