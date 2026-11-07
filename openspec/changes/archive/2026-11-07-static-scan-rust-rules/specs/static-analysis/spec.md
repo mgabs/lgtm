@@ -44,4 +44,3 @@ The static AST guard analysis MUST complete within 5 milliseconds per diff hunk 
 #### Scenario: In-memory evaluation budget
 - **WHEN** the static guard analyzes a diff hunk containing up to 200 lines of Rust code
 - **THEN** analysis completes in under 5 milliseconds with zero I/O operations.
-

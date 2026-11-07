@@ -68,10 +68,10 @@ runs:
         fi
         flags=""; [ "$STRICT" = "true" ] && flags="--strict"
         rev="origin/${base}...HEAD"
-        lgtm ci --rev "$rev" $flags -f sarif -o lgtm.sarif
+        lgtm check --no-user-config --rev "$rev" $flags -f sarif -o lgtm.sarif
         code=$?
         if [ "$code" -ne 2 ]; then
-          lgtm ci --rev "$rev" $flags -f markdown -o lgtm-summary.md >/dev/null
+          lgtm check --no-user-config --rev "$rev" $flags -f markdown -o lgtm-summary.md >/dev/null
           cat lgtm-summary.md >> "$GITHUB_STEP_SUMMARY"
         fi
         count="$(grep -c '"ruleId"' lgtm.sarif 2>/dev/null || true)"

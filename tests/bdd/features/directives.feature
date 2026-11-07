@@ -47,4 +47,3 @@ Feature: Local Review Directives
   Scenario: Idempotent scan persistence
     Given "lgtm_security_scan" is invoked multiple times with persist set to true without code changes
     Then open directives for existing alerts are not duplicated in ".lgtm/directives.jsonl"
-
