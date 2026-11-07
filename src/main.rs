@@ -24,7 +24,7 @@ mod event_loop;
 mod headless;
 
 use cli::{AuditStartMode, Cli, Commands};
-use headless::{run_ci_audit, run_git_passthrough, run_init_config, run_risk_audit};
+use headless::{run_ci_audit, run_git_passthrough, run_init_config};
 
 fn canonicalize_clean(path: &Path) -> PathBuf {
     lgtm_core::sys::canonicalize_clean(path).unwrap_or_else(|_| path.to_path_buf())
@@ -99,15 +99,6 @@ fn main() -> ExitCode {
         }
     }
 
-    if cli.init {
-        let repo_path = canonicalize_clean(&cli.repo);
-        if let Err(e) = run_init_config(&repo_path) {
-            eprintln!("Error initializing config: {}", e);
-            return ExitCode::from(1);
-        }
-        return ExitCode::SUCCESS;
-    }
-
     match cli.command {
         Some(Commands::Gate {
             repo,
@@ -121,17 +112,6 @@ fn main() -> ExitCode {
                 Err(e) => {
                     eprintln!("Error running gate: {}", e);
                     ExitCode::from(2)
-                }
-            }
-        }
-        Some(Commands::Risk { repo }) => {
-            let target = repo.unwrap_or(cli.repo);
-            let repo_path = canonicalize_clean(&target);
-            match run_risk_audit(&repo_path) {
-                Ok(code) => ExitCode::from(code as u8),
-                Err(e) => {
-                    eprintln!("Error running risk audit: {}", e);
-                    ExitCode::from(1)
                 }
             }
         }
@@ -170,19 +150,6 @@ fn main() -> ExitCode {
             if let Err(e) = server.run_stdio() {
                 eprintln!("MCP server error: {}", e);
                 return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
-        Some(Commands::Serve { mcp, repo }) => {
-            eprintln!("⚠️  Notice: 'lgtm serve --mcp' is deprecated. Use 'lgtm mcp'.");
-            let target = repo.unwrap_or(cli.repo);
-            let repo_path = canonicalize_clean(&target);
-            if mcp {
-                let server = mcp::McpServer::new(&repo_path);
-                if let Err(e) = server.run_stdio() {
-                    eprintln!("MCP server error: {}", e);
-                    return ExitCode::from(1);
-                }
             }
             ExitCode::SUCCESS
         }
@@ -247,10 +214,6 @@ fn main() -> ExitCode {
                 },
             }
         }
-        Some(Commands::Prs { state }) => {
-            eprintln!("⚠️  Notice: 'lgtm prs' is deprecated. Use 'lgtm pr list'.");
-            list_prs_cli(&cli.repo, &state)
-        }
         Some(Commands::Check {
             repo,
             format,
@@ -268,27 +231,6 @@ fn main() -> ExitCode {
             no_user_config,
             rev.as_deref(),
         ),
-        // CI ignores the user-level config so results match across machines
-        Some(Commands::Ci {
-            repo,
-            format,
-            output,
-            strict,
-            show_suppressed,
-            rev,
-            ..
-        }) => {
-            eprintln!("⚠️  Notice: 'lgtm ci' is deprecated. Use 'lgtm check --no-user-config'.");
-            run_check(
-                repo.unwrap_or(cli.repo),
-                &format,
-                output.as_deref(),
-                strict,
-                show_suppressed,
-                true,
-                rev.as_deref(),
-            )
-        }
         Some(Commands::Baseline { prune, repo, .. }) => {
             let target = repo.unwrap_or(cli.repo);
             let repo_path = canonicalize_clean(&target);
@@ -300,11 +242,7 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Review {
-            action: Some(action),
-            arg,
-            repo,
-        }) => {
+        Some(Commands::Review { action, arg, repo }) => {
             let target = repo.unwrap_or(cli.repo);
             let repo_path = canonicalize_clean(&target);
             match headless::run_review(&repo_path, &action, arg.as_deref()) {
@@ -431,23 +369,6 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Status { revision }) => {
-            eprintln!("⚠️  Notice: 'lgtm status' is deprecated. Use 'lgtm' or 'lgtm diff'.");
-            let repo_path = canonicalize_clean(&cli.repo);
-            if let Err(e) = run_tui(
-                repo_path,
-                cli.agent_pane,
-                cli.agent_sink,
-                cli.debounce,
-                cli.pr,
-                revision,
-                None,
-            ) {
-                eprintln!("Error running lgtm: {}", e);
-                return ExitCode::from(1);
-            }
-            ExitCode::SUCCESS
-        }
         Some(Commands::Diff { revision }) => {
             let repo_path = canonicalize_clean(&cli.repo);
             if let Err(e) = run_tui(
@@ -455,7 +376,7 @@ fn main() -> ExitCode {
                 cli.agent_pane,
                 cli.agent_sink,
                 cli.debounce,
-                cli.pr,
+                None,
                 revision,
                 None,
             ) {
@@ -464,14 +385,14 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Some(Commands::Review { .. }) | None => {
+        None => {
             let repo_path = canonicalize_clean(&cli.repo);
             if let Err(e) = run_tui(
                 repo_path,
                 cli.agent_pane,
                 cli.agent_sink,
                 cli.debounce,
-                cli.pr,
+                None,
                 None,
                 None,
             ) {

@@ -33,6 +33,7 @@ impl Key {
 #[derive(Default)]
 pub(crate) struct Mapping {
     pub(crate) visible: Rc<Vec<usize>>,
+    pub(crate) new_line_rows: Vec<(u32, usize)>,
     pub(crate) starts: Vec<usize>,
     pub(crate) folds: Vec<Vec<Option<lgtm_core::model::BlockRange>>>,
     pub(crate) representatives: Vec<usize>,
@@ -62,6 +63,9 @@ impl Cache {
                 let mut seen = std::collections::HashMap::new();
                 for (index, folded) in folds.iter().enumerate() {
                     let raw = offset + index;
+                    if let Some(number) = hunk.lines[index].new_line_num {
+                        mapping.new_line_rows.push((number, raw));
+                    }
                     let representative = if hunk.is_folded {
                         offset
                     } else if let Some(range) = folded {
@@ -80,6 +84,7 @@ impl Cache {
                 mapping.folds.push(folds);
             }
         }
+        mapping.new_line_rows.sort_unstable();
         timing.count("lines", mapping.representatives.len() as u64);
         timing.count("visible", visible.len() as u64);
         mapping.visible = Rc::new(visible);

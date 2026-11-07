@@ -7,7 +7,7 @@ A small, consistent CLI command set, a single TUI Ex-command registry, and deter
 ## Requirements
 
 ### Requirement: Canonical CLI Commands
-The CLI SHALL expose these canonical commands: `lgtm [REVISION]` (interactive diff TUI, default), `check`, `audit`, `scan`, `pr` (`[NUMBER]` and `list [--state]`), `review` (`export`/`import`), `mcp`, `gate`, `hook`, `config`, `init` and `baseline`.
+The CLI SHALL expose only these canonical commands: `lgtm [REVISION]` (interactive diff TUI, default entrypoint), `check` (headless diff audit), `audit` (interactive repository issues TUI), `scan` (headless full-repo security & architecture report), `pr` (`[NUMBER]` and `list [--state]`), `review` (`export`/`import`), `mcp` (stdio Model Context Protocol server), `gate` (agent approval barrier), `hook` (git hook manager), `config` (configuration inspector), `init` (configuration initializer), and `baseline` (findings baseline manager).
 
 #### Scenario: Default entrypoint
 - **WHEN** the user runs `lgtm` or `lgtm HEAD~1`
@@ -17,14 +17,9 @@ The CLI SHALL expose these canonical commands: `lgtm [REVISION]` (interactive di
 - **WHEN** the user runs `lgtm check --format sarif --output r.sarif`
 - **THEN** a SARIF report is written and the exit code reflects the gate result
 
-### Requirement: Deprecated CLI Aliases
-Deprecated subcommands SHALL execute identically to their canonical replacements, MUST print a deprecation notice to `stderr`, and MUST preserve exit codes and stdout. The aliases are `diff`/`status` → `lgtm`, `ci` → `check --no-user-config`, `scan --tui`/`scan repo` → `audit`, `prs` → `pr list`, and `serve --mcp` → `mcp`.
-
-#### Scenario: Deprecated alias
-- **WHEN** the user runs `lgtm prs`
-- **THEN** the PR list runs as with `lgtm pr list`
-- **AND** `stderr` carries a notice naming `lgtm pr list`
-- **AND** stdout and the exit code are unchanged
+#### Scenario: Review command requires subcommand
+- **WHEN** the user runs `lgtm review` without `export` or `import`
+- **THEN** the CLI exits with an argument error and shows command usage
 
 ### Requirement: Single Ex-Command Registry
 All TUI `:` commands SHALL be registered in one static registry, each in exactly one of five categories (Navigation & Layout, Directives & Threads, Agent Steering, PR & Remote, Audit & Git Lifecycle). Command names MUST be unique and aliases MUST route to the canonical definition. The `:r` alias for batch review dispatch MUST NOT exist.
@@ -95,12 +90,16 @@ The help modal's seven tabs (Overview & Modes, Motions & Navigation, Review & Ag
 - **THEN** it lists `s/S`, `u/U`, `x/X` as hunk/file pairs and `C` / `:commit`
 
 ### Requirement: REQ-CLI-1 Initialization Repository Target
-The CLI MUST initialize the repository selected by `--repo` when `--init` is supplied, and MUST use the current directory when no repository is selected.
+The `init` subcommand MUST initialize the repository selected by `--repo` when supplied, and MUST initialize the current working directory when `--repo` is omitted. Top-level `--init` flag SHALL NOT be accepted.
 
 #### Scenario: Initialize selected repository
-- **WHEN** the user runs `lgtm --init --repo <path>`
-- **THEN** initialization targets `<path>` and does not initialize the current directory instead
+- **WHEN** the user runs `lgtm init --repo <path>`
+- **THEN** initialization targets `<path>` and writes starter configuration there
 
 #### Scenario: Initialize default repository
-- **WHEN** the user runs `lgtm --init` without `--repo`
+- **WHEN** the user runs `lgtm init` without `--repo`
 - **THEN** initialization targets the current directory
+
+#### Scenario: Top-level init flag rejected
+- **WHEN** the user runs `lgtm --init`
+- **THEN** argument parsing fails with an unrecognized option error

@@ -192,7 +192,7 @@ impl McpServer {
                         },
                         {
                             "name": "lgtm_list_threads",
-                            "description": "List the live review threads of a pull request from the forge (path, line, resolved state, comments).",
+                            "description": "List the live review threads of a pull request from the forge (path, line, resolved and outdated state, comments).",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
@@ -213,6 +213,10 @@ impl McpServer {
                                     "strict": {
                                         "type": "boolean",
                                         "description": "Flag only Critical and High severity alerts if true."
+                                    },
+                                    "persist": {
+                                        "type": "boolean",
+                                        "description": "Persist active findings as review directives in .lgtm/directives.jsonl if true."
                                     }
                                 }
                             }
@@ -408,6 +412,10 @@ impl McpServer {
                     .get("strict")
                     .and_then(|s| s.as_bool())
                     .unwrap_or(false);
+                let persist = args
+                    .get("persist")
+                    .and_then(|p| p.as_bool())
+                    .unwrap_or(false);
 
                 let filtered: Vec<_> = if strict {
                     alerts
@@ -423,6 +431,23 @@ impl McpServer {
                 } else {
                     alerts
                 };
+
+                if persist {
+                    let store = self.store();
+                    let existing = store.load_directives();
+                    for alert in &filtered {
+                        let candidate = lgtm_core::directive::Directive::from_guard_alert(alert);
+                        let already_open = existing.iter().any(|d| {
+                            !d.is_resolved
+                                && d.file_path == candidate.file_path
+                                && d.target_line_no == candidate.target_line_no
+                                && d.comment_text == candidate.comment_text
+                        });
+                        if !already_open {
+                            store.add_directive(&candidate)?;
+                        }
+                    }
+                }
 
                 let report = serde_json::to_string_pretty(&filtered)?;
                 Ok(report)
@@ -522,6 +547,7 @@ impl McpServer {
                     "path": t.path,
                     "line": t.line,
                     "resolved": t.resolved,
+                    "outdated": t.outdated,
                     "comments": t.comments.iter().map(|c| json!({
                         "id": c.id, "author": c.author, "body": c.body
                     })).collect::<Vec<_>>(),
@@ -710,6 +736,7 @@ mod tests {
                 path: "a.rs".into(),
                 line: Some(3),
                 resolved: true,
+                outdated: true,
                 comments: vec![ThreadComment {
                     id: 5,
                     author: "bob".into(),
@@ -723,6 +750,7 @@ mod tests {
         assert_eq!(out[0]["path"], "a.rs");
         assert_eq!(out[0]["line"], 3);
         assert_eq!(out[0]["resolved"], true);
+        assert_eq!(out[0]["outdated"], true);
         assert_eq!(out[0]["comments"][0]["author"], "bob");
         let down = FakeClient {
             error: Some("offline".into()),
@@ -1158,5 +1186,78 @@ mod tests {
             )
             .unwrap();
         assert_eq!(rs["result"]["contents"][0]["mimeType"], "application/json");
+    }
+
+    #[test]
+    fn test_security_scan_persist_directives() {
+        let d = repo();
+        std::fs::write(d.path().join(".gitignore"), "/.lgtm/\n").unwrap();
+        let s = McpServer::new(d.path());
+        let text_fn = |v: &Value| {
+            v["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+
+        // Initially no review directives
+        assert_eq!(
+            text_fn(&call(&s, "lgtm_list_directives", json!({}))),
+            "No active review directives found."
+        );
+
+        // Create a vulnerable file
+        let line = format!(
+            "import requests\nrequests.get(u, {})\n",
+            ["verify=", "False"].concat()
+        );
+        std::fs::write(d.path().join("vulnerable.py"), &line).unwrap();
+        std::process::Command::new("git")
+            .args(["add", "-N", "vulnerable.py"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+
+        // Scan without persist: findings returned, but directives not created
+        let scan_no_persist = text(&call(&s, "lgtm_security_scan", json!({ "persist": false })));
+        assert_eq!(scan_no_persist.as_array().unwrap().len(), 1);
+        assert_eq!(
+            text_fn(&call(&s, "lgtm_list_directives", json!({}))),
+            "No active review directives found."
+        );
+
+        // Scan with persist: findings returned AND persisted to directives
+        let scan_persist = text(&call(&s, "lgtm_security_scan", json!({ "persist": true })));
+        assert_eq!(scan_persist.as_array().unwrap().len(), 1);
+
+        let list_output = text_fn(&call(&s, "lgtm_list_directives", json!({})));
+        assert!(list_output.contains("vulnerable.py"));
+
+        let status_json: Value =
+            serde_json::from_str(&text_fn(&call(&s, "lgtm_directive_status", json!({})))).unwrap();
+        assert_eq!(status_json["directives"].as_array().unwrap().len(), 1);
+        assert_eq!(status_json["directives"][0]["file"], "vulnerable.py");
+
+        // Idempotency: scan again with persist=true; directives must not be duplicated
+        let scan_again = text(&call(&s, "lgtm_security_scan", json!({ "persist": true })));
+        assert_eq!(scan_again.as_array().unwrap().len(), 1);
+        let status_json_again: Value =
+            serde_json::from_str(&text_fn(&call(&s, "lgtm_directive_status", json!({})))).unwrap();
+        assert_eq!(status_json_again["directives"].as_array().unwrap().len(), 1);
+
+        // Baseline suppression: after baselining, scan with persist=true does not add new directives
+        let cfg = lgtm_core::config::LgtmConfig::load(d.path(), None).unwrap();
+        let (_, unbaselined) =
+            lgtm_core::scan::FullRepoScanner::scan_unbaselined(d.path(), &cfg).unwrap();
+        let bl_path = lgtm_core::baseline::path_for(d.path(), &cfg);
+        let mut bl = lgtm_core::baseline::Baseline::load(&bl_path).unwrap();
+        bl.update(&unbaselined, false, false);
+        bl.save(&bl_path).unwrap();
+
+        let scan_baselined = text(&call(&s, "lgtm_security_scan", json!({ "persist": true })));
+        assert!(scan_baselined.as_array().unwrap().is_empty());
+        let status_json_final: Value =
+            serde_json::from_str(&text_fn(&call(&s, "lgtm_directive_status", json!({})))).unwrap();
+        assert_eq!(status_json_final["directives"].as_array().unwrap().len(), 1);
     }
 }

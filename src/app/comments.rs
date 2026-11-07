@@ -1,6 +1,47 @@
 use super::*;
 
 impl App {
+    pub fn visible_thread_indices(&self) -> Vec<usize> {
+        self.threads
+            .iter()
+            .enumerate()
+            .filter_map(|(i, thread)| {
+                let visible = match self.thread_filter {
+                    ThreadFilter::All => true,
+                    ThreadFilter::Open => !thread.resolved && !thread.outdated,
+                    ThreadFilter::Outdated => thread.outdated,
+                };
+                visible.then_some(i)
+            })
+            .collect()
+    }
+
+    pub fn set_thread_filter(&mut self, filter: ThreadFilter) {
+        self.thread_filter = filter;
+        self.thread_selected_idx = 0;
+        self.thread_scroll_offset = 0;
+    }
+
+    pub fn cycle_thread_filter(&mut self) {
+        self.set_thread_filter(match self.thread_filter {
+            ThreadFilter::All => ThreadFilter::Open,
+            ThreadFilter::Open => ThreadFilter::Outdated,
+            ThreadFilter::Outdated => ThreadFilter::All,
+        });
+    }
+
+    pub(crate) fn normalize_threads(
+        &self,
+        mut threads: Vec<lgtm_core::github::Thread>,
+    ) -> Vec<lgtm_core::github::Thread> {
+        if lgtm_core::forge::kind_of(&self.git_engine.repo_path)
+            == lgtm_core::forge::ForgeKind::Azure
+        {
+            lgtm_core::github::mark_outdated(&mut threads, &self.snapshot);
+        }
+        threads
+    }
+
     pub fn current_line_number(&self) -> Option<u32> {
         let file = self.snapshot.files.get(self.selected_file_idx)?;
         let mut line_counter = 0;
@@ -20,6 +61,7 @@ impl App {
             self.status_message = Some("Open a PR first (:pr <n>)".to_string());
             return;
         }
+        let visible = self.visible_thread_indices();
         if self.threads.is_empty() {
             self.active_view = ActiveView::ThreadView;
             return;
@@ -27,18 +69,20 @@ impl App {
         if let Some(file) = self.snapshot.files.get(self.selected_file_idx) {
             let path = file.display_name();
             if let Some(lno) = self.current_line_number() {
-                if let Some(pos) = self
+                if let Some(idx) = self
                     .threads
                     .iter()
                     .position(|t| t.path == path && t.line == Some(lno))
                 {
-                    self.thread_selected_idx = pos;
+                    if let Some(pos) = visible.iter().position(|&i| i == idx) {
+                        self.thread_selected_idx = pos;
+                    }
                 }
             }
         }
         self.thread_selected_idx = self
             .thread_selected_idx
-            .min(self.threads.len().saturating_sub(1));
+            .min(visible.len().saturating_sub(1));
         self.thread_scroll_offset = 0;
         self.active_view = ActiveView::ThreadView;
     }
@@ -253,7 +297,7 @@ impl App {
     pub(crate) fn apply_threads(&mut self, res: anyhow::Result<Vec<lgtm_core::github::Thread>>) {
         self.status_message = Some(match res {
             Ok(t) => {
-                self.drafts.mark_stale(&t);
+                let t = self.normalize_threads(t);
                 let open: Vec<String> = t
                     .iter()
                     .filter(|t| !t.resolved)
@@ -915,6 +959,7 @@ mod tests {
             path: path.into(),
             line: Some(line),
             resolved,
+            outdated: false,
             comments: vec![],
         }
     }

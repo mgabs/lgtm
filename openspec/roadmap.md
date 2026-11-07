@@ -11,3 +11,7 @@ OpenSpec change artifacts are the source of truth for scope and task checklists.
 ## Deferred
 
 - Token-optimization tooling is not planned without a measured need and a suitable tool. No repository work remains from the previous MarkDify/Promptfoo proposal.
+
+## Completed
+
+- [Outdated threads and command cleanup](changes/archive/2026-11-07-outdated-threads-and-command-cleanup/) — merged through #85 and #86; provider coverage, mutations and final acceptance verified; specs synced and change archived.
