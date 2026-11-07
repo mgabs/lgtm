@@ -63,7 +63,7 @@ Registered into the central guard registry in `crates/lgtm-core/src/guard/mod.rs
 ```mermaid
 flowchart TD
     A[FileDiff from Git Diff / PR] --> B[SecurityAndTestGuard::scan_file]
-    
+
     subgraph Language Pack Scanning
         B --> C[registry]
         C --> D[RustGuard::scan_file]
