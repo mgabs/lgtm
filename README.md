@@ -43,11 +43,11 @@ cargo install --git https://github.com/mgabs/lgtm.git
 ```bash
 lgtm                  # Launch interactive TUI on current working tree diff
 lgtm pr 42            # Review GitHub or Azure DevOps PR #42
-lgtm pr list          # List open PRs (or --state closed / all; alias: lgtm prs)
-lgtm audit            # Launch interactive Codebase Audit TUI (findings only; alias: lgtm scan repo)
+lgtm pr list          # List open PRs (or --state closed / all)
+lgtm audit            # Launch interactive Codebase Audit TUI (findings only)
 lgtm check --strict   # Run pre-commit / CI security gate (exit 1 on block)
 lgtm scan -o rep.sarif --format sarif  # Headless SARIF export for CI
-lgtm mcp              # Run native Model Context Protocol (MCP) server (alias: lgtm serve --mcp)
+lgtm mcp              # Run native Model Context Protocol (MCP) server
 ```
 
 ---

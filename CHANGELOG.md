@@ -1,6 +1,12 @@
 # Changelog
 
-## 2.7.0
+## Unreleased
+
+### Removed
+- **BREAKING**: Removed deprecated subcommands `lgtm serve` (use `lgtm mcp`), `lgtm prs` (use `lgtm pr list`), `lgtm status` (use `lgtm` or `lgtm diff`), and `lgtm ci` (use `lgtm check --no-user-config`).
+- **BREAKING**: Removed duplicate top-level flags `--init` (use `lgtm init [--repo <path>]`) and `--pr` (use `lgtm pr <number>`).
+- **BREAKING**: Removed `lgtm risk` (folded into `lgtm check`).
+- **BREAKING**: `lgtm review` now requires an explicit action (`export` or `import`) instead of ambiguously launching the TUI.
 
 ### Added
 - Markdown preview navigation shortcuts: `e` / `o` to launch external editor directly at cursor line, `[` / `]` to trigger diff bracket navigation chords (`]f`, `]h`, `]c`, etc.), `f` / `Ctrl-p` to open file picker, `v` to toggle reviewed status, `r` to reply to comments, and `?` for help modal.

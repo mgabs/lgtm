@@ -26,10 +26,6 @@ pub struct Cli {
     #[arg(long = "agent-sink")]
     pub agent_sink: Option<String>,
 
-    /// Review an open or closed GitHub or Azure DevOps PR by number
-    #[arg(long = "pr")]
-    pub pr: Option<u64>,
-
     /// Enable timing diagnostics in the system temporary directory (lgtm-debug.jsonl)
     #[arg(long, global = true)]
     pub debug: bool,
@@ -41,10 +37,6 @@ pub struct Cli {
     /// Watcher debounce interval in milliseconds
     #[arg(short, long, default_value_t = 300)]
     pub debounce: u64,
-
-    /// Initialize configuration file
-    #[arg(long = "init")]
-    pub init: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,12 +58,6 @@ pub enum Commands {
         /// Optional message / prompt describing the agent's changes
         #[arg(short, long)]
         message: Option<String>,
-    },
-    /// Audit current diff for security risks, test neutering, and fraud
-    Risk {
-        /// Target repository path
-        #[arg(short, long, default_value = ".")]
-        repo: Option<PathBuf>,
     },
     /// Show effective `.lgtm.toml` configuration with value sources
     Config {
@@ -102,14 +88,6 @@ pub enum Commands {
         /// Pull Request number
         #[arg(value_name = "NUMBER")]
         number: Option<u64>,
-    },
-    /// List pull requests by state (closed includes merged/completed and abandoned)
-    ///
-    /// Public GitHub.com listings can fall back to anonymous HTTPS when gh is missing
-    /// or needs login and no API token is set. Anonymous requests have lower rate limits.
-    Prs {
-        #[arg(long, default_value = "open", value_parser = ["open", "closed", "all"])]
-        state: String,
     },
     /// Run headless CI / pre-commit check (fails on Critical/High risks)
     Check {
@@ -159,30 +137,6 @@ pub enum Commands {
         #[arg(short, long)]
         repo: Option<PathBuf>,
     },
-    /// Run headless CI mode: audit diff and produce sticky PR comment markdown or JSON/SARIF report
-    Ci {
-        /// Target repository path
-        #[arg(short, long)]
-        repo: Option<PathBuf>,
-        /// Output format: markdown, json, or sarif
-        #[arg(short, long, default_value = "markdown")]
-        format: String,
-        /// Optional output file to write the report to
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        /// Fail on warning severity as well as critical/high
-        #[arg(long)]
-        strict: bool,
-        /// List suppressed findings on stderr
-        #[arg(long)]
-        show_suppressed: bool,
-        /// Ignore ~/.config/lgtm/config.toml
-        #[arg(long)]
-        no_user_config: bool,
-        /// Check a revision diff instead of the working tree (e.g. origin/main...HEAD)
-        #[arg(long)]
-        rev: Option<String>,
-    },
     /// Manage the findings baseline (`.lgtm-baseline.json`)
     Baseline {
         /// Action to run
@@ -195,11 +149,11 @@ pub enum Commands {
         #[arg(short, long)]
         repo: Option<PathBuf>,
     },
-    /// Launch the TUI, or share review state: `review export [target]` prints JSON, `review import <file>` merges it
+    /// Share review state: `review export [target]` prints JSON, `review import <file>` merges it
     Review {
-        /// Optional action; without one the TUI starts
+        /// Action to run: export or import
         #[arg(value_parser = ["export", "import"])]
-        action: Option<String>,
+        action: String,
         /// Export: review target (default `working`). Import: JSON file to merge
         arg: Option<String>,
         /// Target repository path
@@ -211,22 +165,8 @@ pub enum Commands {
         /// Optional branch or revision to review (e.g. main, feat..HEAD)
         revision: Option<String>,
     },
-    /// Launch interactive diff reviewer TUI
-    Status {
-        /// Optional branch or revision to review (e.g. main, feat..HEAD)
-        revision: Option<String>,
-    },
     /// Launch Model Context Protocol (MCP) server over stdio for AI coding agents
     Mcp {
-        /// Target repository path
-        #[arg(short, long, default_value = ".")]
-        repo: Option<PathBuf>,
-    },
-    /// Run background server (e.g. lgtm serve --mcp)
-    Serve {
-        /// Run in MCP stdio mode
-        #[arg(long)]
-        mcp: bool,
         /// Target repository path
         #[arg(short, long, default_value = ".")]
         repo: Option<PathBuf>,
@@ -282,14 +222,18 @@ mod tests {
         assert!(Cli::try_parse_from(["lgtm", "--debug-log", "/tmp/review.jsonl"]).is_err());
     }
     #[test]
-    fn pr_listing_accepts_open_closed_and_all() {
+    fn pr_listing_via_pr_list() {
         for state in ["open", "closed", "all"] {
-            let cli = Cli::try_parse_from(["lgtm", "prs", "--state", state]).unwrap();
-            assert!(
-                matches!(cli.command, Some(Commands::Prs { state: actual }) if actual == state)
-            );
+            let cli = Cli::try_parse_from(["lgtm", "pr", "list", "--state", state]).unwrap();
+            assert!(matches!(
+                cli.command,
+                Some(Commands::Pr {
+                    action: Some(PrSubcommand::List { state: ref actual }),
+                    number: None,
+                }) if actual == state
+            ));
         }
-        assert!(Cli::try_parse_from(["lgtm", "prs", "--state", "invalid"]).is_err());
+        assert!(Cli::try_parse_from(["lgtm", "pr", "list", "--state", "invalid"]).is_err());
     }
 
     #[test]
@@ -314,23 +258,39 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_deprecated_commands_parse() {
-        let cli = Cli::try_parse_from(["lgtm", "ci", "--strict"]).unwrap();
+    fn test_removed_deprecated_commands_and_flags_fail() {
+        // Top-level flags removed
+        assert!(Cli::try_parse_from(["lgtm", "--init"]).is_err());
+        assert!(Cli::try_parse_from(["lgtm", "--pr", "42"]).is_err());
+        // Review requires an action
+        assert!(Cli::try_parse_from(["lgtm", "review"]).is_err());
+        // Removed subcommands are no longer native commands (they fall through to external git passthrough)
+        let cli = Cli::try_parse_from(["lgtm", "ci"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::External(ref args)) if args == &["ci"]));
+        let cli = Cli::try_parse_from(["lgtm", "serve"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::External(ref args)) if args == &["serve"]));
+        let cli = Cli::try_parse_from(["lgtm", "prs"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::External(ref args)) if args == &["prs"]));
+    }
+
+    #[test]
+    fn test_canonical_commands_parse() {
+        let cli = Cli::try_parse_from(["lgtm", "mcp"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Mcp { .. })));
+
+        let cli = Cli::try_parse_from(["lgtm", "check", "--strict"]).unwrap();
         assert!(matches!(
             cli.command,
-            Some(Commands::Ci { strict: true, .. })
+            Some(Commands::Check { strict: true, .. })
         ));
 
-        let cli = Cli::try_parse_from(["lgtm", "status"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::Status { revision: None })
-        ));
+        let cli = Cli::try_parse_from(["lgtm", "init", "--repo", "target"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Init { .. })));
 
-        let cli = Cli::try_parse_from(["lgtm", "serve", "--mcp"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::Serve { mcp: true, .. })
-        ));
+        let cli = Cli::try_parse_from(["lgtm", "review", "export"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Review { action, .. }) if action == "export"));
+
+        let cli = Cli::try_parse_from(["lgtm", "diff"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Diff { .. })));
     }
 }

@@ -119,6 +119,7 @@ pub(crate) fn run_ci_audit_to<W: std::io::Write>(
     let output_text = match format.to_lowercase().as_str() {
         "json" => serde_json::to_string_pretty(&alerts)?,
         "sarif" => generate_sarif_report(&alerts)?,
+        "text" => format_risk_text(&snapshot, &alerts),
         "github" | "annotations" => generate_ci_markdown_report(&snapshot, &alerts, has_blocking),
         _ => generate_ci_markdown_report(&snapshot, &alerts, has_blocking),
     };
@@ -282,80 +283,37 @@ pub(crate) fn generate_sarif_report(alerts: &[guard::GuardAlert]) -> Result<Stri
     Ok(serde_json::to_string_pretty(&sarif)?)
 }
 
-pub(crate) fn run_risk_audit(repo_path: &Path) -> Result<i32> {
-    let mut stdout = std::io::stdout();
-    let mut stderr = std::io::stderr();
-    run_risk_audit_to(repo_path, &mut stdout, &mut stderr)
-}
-
-pub(crate) fn run_risk_audit_to<W1: std::io::Write, W2: std::io::Write>(
-    repo_path: &Path,
-    out: &mut W1,
-    err: &mut W2,
-) -> Result<i32> {
-    let git_engine = git::GitEngine::new(repo_path);
-    if !git_engine.is_git_repo() {
-        writeln!(
-            err,
-            "Error: Directory '{}' is not a git repository.",
-            repo_path.display()
-        )?;
-        return Ok(1);
-    }
-
-    let snapshot = git_engine.compute_diff_snapshot()?;
-    let found =
-        lgtm_core::findings::run_in(repo_path, &snapshot.files, &load_config(repo_path, false)?)?;
-    report_suppressed(&found, false);
-    let alerts = found.active;
-
+fn format_risk_text(
+    snapshot: &lgtm_core::model::DiffSnapshot,
+    alerts: &[guard::GuardAlert],
+) -> String {
     if alerts.is_empty() {
-        writeln!(
-            out,
+        return format!(
             "✨ LGTM Risk Audit: No security risks or test fraud detected (0 warnings across {} files).",
             snapshot.files.len()
-        )?;
-        return Ok(0);
+        );
     }
 
-    writeln!(
-        out,
-        "🔍 LGTM Risk Audit: Found {} warning(s) in current diff:\n",
+    let mut out = format!(
+        "🔍 LGTM Risk Audit: Found {} warning(s) in current diff:\n\n",
         alerts.len()
-    )?;
-    let mut has_failure = false;
-    for alert in &alerts {
+    );
+    for alert in alerts {
         let loc = match alert.line_no {
             Some(lno) => format!("{}:{}", alert.file_path, lno),
             None => alert.file_path.clone(),
         };
 
         let badge = match alert.severity {
-            guard::Severity::Critical => {
-                has_failure = true;
-                "\x1b[1;31m🔴 CRITICAL\x1b[0m"
-            }
-            guard::Severity::High => {
-                has_failure = true;
-                "\x1b[1;33m🟠 HIGH\x1b[0m"
-            }
+            guard::Severity::Critical => "\x1b[1;31m🔴 CRITICAL\x1b[0m",
+            guard::Severity::High => "\x1b[1;33m🟠 HIGH\x1b[0m",
             guard::Severity::Warn => "\x1b[1;33m🟡 WARN\x1b[0m",
         };
 
-        writeln!(out, "  {} {} — {}", badge, loc, alert.title)?;
-        writeln!(out, "     {}", alert.description)?;
+        out.push_str(&format!("  {} {} — {}\n", badge, loc, alert.title));
+        out.push_str(&format!("     {}\n", alert.description));
     }
-
-    if has_failure {
-        writeln!(
-            err,
-            "\n❌ Risk audit failed with Critical/High severity warnings."
-        )?;
-        Ok(1)
-    } else {
-        writeln!(out, "\n⚠️ Risk audit passed with non-blocking warnings.")?;
-        Ok(0)
-    }
+    out
 }
 
 pub(crate) fn run_init_config(repo_path: &Path) -> Result<()> {
@@ -866,18 +824,31 @@ mod tests {
     }
 
     #[test]
-    fn risk_audit_flags_secrets_and_passes_clean_or_rejects_non_repos() {
-        let mut out = Vec::new();
-        let mut err = Vec::new();
-        let plain = test_dir("risk-plain");
-        assert_eq!(run_risk_audit_to(&plain, &mut out, &mut err).unwrap(), 1);
-
+    fn check_audit_text_format_flags_secrets_and_passes_clean() {
         let clean = repo_with_file("risk-clean", "a.py", "a = 1\n");
-        assert_eq!(run_risk_audit_to(&clean, &mut out, &mut err).unwrap(), 0);
+        let mut out_clean = Vec::new();
+        assert_eq!(
+            run_ci_audit_to(
+                &clean,
+                "text",
+                None,
+                false,
+                false,
+                false,
+                None,
+                &mut out_clean
+            )
+            .unwrap(),
+            0
+        );
 
         let bad = repo_with_file("risk-bad", "b.py", "key = \"AKIAABCDEFGHIJKLMNOP\"\n");
-        assert_eq!(run_risk_audit_to(&bad, &mut out, &mut err).unwrap(), 1);
-        let out_str = String::from_utf8_lossy(&out);
+        let mut out_bad = Vec::new();
+        assert_eq!(
+            run_ci_audit_to(&bad, "text", None, false, false, false, None, &mut out_bad).unwrap(),
+            1
+        );
+        let out_str = String::from_utf8_lossy(&out_bad);
         assert!(out_str.contains("CRITICAL"));
     }
 
