@@ -216,6 +216,10 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Jump to Next / Previous remote PR thread (after :threads)"),
                 ]),
                 Line::from(vec![
+                    Span::styled("  ]T / [T          ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Jump to Next / Previous unresolved outdated thread in this file"),
+                ]),
+                Line::from(vec![
                     Span::styled("  t / <Space>t     ", Style::default().fg(Color::Cyan)),
                     Span::raw("Open remote PR thread inspector (view full conversation & comments)"),
                 ]),
@@ -557,8 +561,12 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Open PR picker modal (open, closed, or all)"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :threads, :thread    ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Live PR threads; comments, replies and resolution post online"),
+                    Span::styled("  :threads [open|outdated|all]", Style::default().fg(Color::Cyan)),
+                    Span::raw("Live PR threads; Tab/o cycles modal filters; outdated badge and ~ gutter"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :thread              ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Comments, replies and resolution post online; bare reply/resolve stay local"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :checks              ", Style::default().fg(Color::Cyan)),
