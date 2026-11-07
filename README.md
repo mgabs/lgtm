@@ -58,7 +58,7 @@ lgtm mcp              # Run native Model Context Protocol (MCP) server
 - **Interactive Staging & Commit Forge**: Stage (`s`), unstage (`u`), or discard (`x`) individual hunks or visual line selections (`V`) straight to the Git index; craft conventional commits (`C` / `:commit`).
 - **AI Agent Steering & Chords**: Drop inline directives (`c`), use 2-key chord templates (`ca` coverage, `cs` security, `cr` refactor, `cp` performance, `cw` why), and dispatch context-aware `#ref` links directly into agent multiplexer panes (`Enter`) or reject hunks (`X`).
 - **Deep Static Analysis Guardrails**: Real-time detection of OWASP vulnerabilities, cognitive complexity spikes ($\ge 5$), hallucinated identifier typos, dead function additions (YAGNI), breaking API drift, and stealth test neutering.
-- **Pull Request Review**: Review open/closed PRs from GitHub (`gh`/API/HTTPS fallback) and Azure DevOps (`az`/REST) with CI checks (`:checks`), remote discussion threads (`:threads`, markers `◆`/`◇`) with local drafts (`:thread comment|reply|resolve`, `✎` gutter marker) submitted as one confirmed batch (`:thread submit`).
+- **Pull Request Review**: Review open/closed PRs from GitHub (`gh`/API/HTTPS fallback) and Azure DevOps (`az`/REST) with CI checks (`:checks`) and live discussion threads. Outdated threads show a yellow `~` gutter marker and `[⚠ Outdated]` badge; filter with `:threads open|outdated|all` or Tab/`o`, and navigate with `]T`/`[T`. Remote comments and replies use `:thread`; `:directives`/`:c` and bare `:reply`, `:resolve`, and `:unresolve` stay local. There is no local PR comment store.
 - **Markdown Preview (`m`)**: Rendered `.md` review with a cursor row, mouse-wheel scrolling, per-line directives, and `mermaid` flowcharts shown as `A ──▶ B` edge lists.
 - **Native MCP Server**: JSON-RPC stdio server for Claude Code, Cursor, Windsurf, and Aider with live file-watcher resource subscriptions.
 - **Headless CI & Security Gates**: `lgtm check` gates CI pipelines on critical findings; `lgtm hook` automates Git pre-commit verification; SARIF 2.1.0 and Markdown reporting.
@@ -88,7 +88,7 @@ Comprehensive user guides, configuration specs, and reference manuals are mainta
     - [CLI & In-App Revision Diffing](docs/WIKI.md#cli-usage) — Branch comparisons, commit hashes, `:diff <rev>`.
     - [GitHub & Azure DevOps PR Reviews](docs/WIKI.md#pull-request-reviews-github--azure-devops) — Automatic remote detection, CLI/REST authentication.
     - [Open & Closed PR State Filtering](docs/WIKI.md#open-and-closed-prs) — Filtering by state, historical commit loading, anonymous HTTPS fallback.
-    - [Discussion Threads & Gutter Markers](docs/WIKI.md#pr-threads-and-remote-discussions) — Remote discussions (`:threads`), markers `◆`/`◇`, `]t`/`[t` navigation, inline reply/resolve.
+    - [Discussion Threads & Gutter Markers](docs/WIKI.md#pr-threads-and-remote-discussions) — Live remote discussions (`:threads`), outdated markers and filters, `]T`/`[T` navigation, inline reply/resolve.
     - [Directive Outcomes & Remote Posting](docs/WIKI.md#directive-outcomes-and-remote-posting) — Tracking outcomes (`untouched`, `changed`, `gone`), batch posting.
     - [Durable Review State & Re-pinning](docs/WIKI.md#durable-review-state-and-comment-re-pinning) — Hunk marks (`M`), file review (`v`), orphan recovery.
   - 🤖 [**Model Context Protocol (MCP) Server**](docs/WIKI.md#6-model-context-protocol-mcp-server)

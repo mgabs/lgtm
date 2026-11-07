@@ -1,6 +1,36 @@
 use super::*;
 
 impl App {
+    pub(crate) fn thread_line_in_diff(&self, path: &str, line: u32) -> bool {
+        self.snapshot.files.iter().any(|file| {
+            let display = file.display_name();
+            let a = std::path::Path::new(display.trim_start_matches("./"));
+            let b = std::path::Path::new(path.trim_start_matches("./"));
+            (a == b || a.ends_with(b) || b.ends_with(a))
+                && file
+                    .hunks
+                    .iter()
+                    .flat_map(|hunk| &hunk.lines)
+                    .any(|diff_line| diff_line.new_line_num == Some(line))
+        })
+    }
+
+    pub(crate) fn jump_to_file_header(&mut self, path: &str) -> bool {
+        let target = std::path::Path::new(path.trim_start_matches("./"));
+        let Some(idx) = self.snapshot.files.iter().position(|file| {
+            let display = file.display_name();
+            let current = std::path::Path::new(display.trim_start_matches("./"));
+            current == target || current.ends_with(target) || target.ends_with(current)
+        }) else {
+            return false;
+        };
+        self.selected_file_idx = idx;
+        self.snapshot.files[idx].is_folded = false;
+        self.cursor_line_idx = 0;
+        self.diff_scroll_offset = 0;
+        true
+    }
+
     pub fn jump_to_file_and_line(&mut self, file_path: &str, target_line: u32) {
         let clean_path = file_path.trim_start_matches("./");
         let clean_path_ref = std::path::Path::new(clean_path);
@@ -591,6 +621,7 @@ impl App {
             self.status_message = Some("No threads; run :threads first".to_string());
             return;
         }
+
         let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
             return;
         };
@@ -615,6 +646,42 @@ impl App {
         match hit {
             Some(i) => self.cursor_line_idx = i,
             None => self.status_message = Some("No more threads in this file".to_string()),
+        }
+    }
+
+    /// `]T` / `[T`: jump to the next or previous outdated thread line in the current file.
+    pub fn jump_outdated_thread(&mut self, forward: bool) {
+        let Some(file) = self.snapshot.files.get(self.selected_file_idx) else {
+            return;
+        };
+        let path = file.display_name();
+        let mapping = self.cached_rows();
+        let first_line = mapping.new_line_rows.first().map(|&(number, _)| number);
+        let last_line = mapping.new_line_rows.last().map(|&(number, _)| number);
+        let cursor = self.cursor_line_idx;
+        let rows = self
+            .threads
+            .iter()
+            .filter(|thread| thread.path == path && thread.outdated && !thread.resolved)
+            .filter_map(|thread| {
+                let number = thread.line?;
+                if number < first_line? || number > last_line? {
+                    return None;
+                }
+                let index = mapping
+                    .new_line_rows
+                    .binary_search_by_key(&number, |&(line, _)| line)
+                    .ok()?;
+                Some(mapping.new_line_rows[index].1)
+            });
+        let found = if forward {
+            rows.filter(|&index| index > cursor).min()
+        } else {
+            rows.filter(|&index| index < cursor).max()
+        };
+        match found {
+            Some(index) => self.cursor_line_idx = index,
+            None => self.status_message = Some("No more outdated threads in this file".into()),
         }
     }
 
@@ -896,6 +963,7 @@ mod tests {
             path: "t.rs".into(),
             line: Some(line),
             resolved: false,
+            outdated: false,
             comments: vec![],
         };
         app.jump_thread(true);
@@ -915,6 +983,66 @@ mod tests {
         app.handle_diff_key(key_r);
         assert_eq!(app.active_view, ActiveView::CommandLine);
         assert_eq!(app.command.input, "thread reply 1 ");
+    }
+
+    #[test]
+    fn outdated_thread_jump_skips_current_and_resolved_threads() {
+        use crate::model::{ChangeType, DiffHunk, DiffLine, FileDiff, LineType};
+        let mut app = create_test_app();
+        let lines = (1..=4)
+            .map(|n| DiffLine {
+                line_type: LineType::Context,
+                content: "x".into(),
+                old_line_num: Some(n),
+                new_line_num: Some(n),
+            })
+            .collect();
+        app.snapshot = DiffSnapshot::new(vec![FileDiff {
+            old_path: None,
+            new_path: "t.rs".into(),
+            change_type: ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                header: "@@".into(),
+                old_start: 1,
+                old_lines: 4,
+                new_start: 1,
+                new_lines: 4,
+                lines,
+                is_folded: false,
+                folded_blocks: vec![],
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }]);
+        app.threads = (1..=4)
+            .map(|n| lgtm_core::github::Thread {
+                id: n.to_string(),
+                path: "t.rs".into(),
+                line: Some(n),
+                resolved: n == 3,
+                outdated: n == 2 || n == 3 || n == 4,
+                comments: vec![],
+            })
+            .collect();
+
+        app.jump_outdated_thread(true);
+        assert_eq!(app.cursor_line_idx, 1);
+        app.jump_outdated_thread(true);
+        assert_eq!(app.cursor_line_idx, 3);
+        app.jump_outdated_thread(false);
+        assert_eq!(app.cursor_line_idx, 1);
+
+        app.threads[2].resolved = false;
+        app.jump_outdated_thread(true);
+        assert_eq!(app.cursor_line_idx, 2);
+        app.threads[2].resolved = true;
+        app.snapshot.files[0].hunks[0].lines[3].new_line_num = Some(40);
+        app.threads[3].line = Some(40);
+        app.invalidate_diff_content();
+        app.jump_outdated_thread(true);
+        assert_eq!(app.cursor_line_idx, 3);
     }
 
     #[test]
@@ -1590,6 +1718,7 @@ mod tests {
             path: "a.rs".into(),
             line: Some(line),
             resolved: false,
+            outdated: false,
             comments: vec![],
         };
         app.threads = vec![t(3), t(11)];

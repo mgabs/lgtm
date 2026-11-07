@@ -95,8 +95,7 @@ pub(super) struct Index {
     pub file_alerts: Vec<usize>,
     pub alerts: HashMap<u32, Vec<usize>>,
     pub comments: HashMap<u32, Vec<usize>>,
-    pub threads: HashMap<u32, bool>,
-    pub drafts: HashMap<u32, Vec<usize>>,
+    pub threads: HashMap<u32, lgtm_core::github::ThreadMarkerKind>,
     pub alert_counts: HashMap<String, usize>,
 }
 
@@ -131,14 +130,10 @@ impl Index {
         for thread in &app.threads {
             if thread.path == name {
                 if let Some(line) = thread.line {
-                    *index.threads.entry(line).or_default() |= !thread.resolved;
-                }
-            }
-        }
-        for (i, draft) in app.drafts.items().iter().enumerate() {
-            if let lgtm_core::discussion::DraftKind::Thread { path, line, .. } = &draft.kind {
-                if path == name {
-                    index.drafts.entry(*line).or_default().push(i);
+                    index.threads.entry(line).or_insert_with(|| {
+                        lgtm_core::github::thread_marker(&app.threads, name, line)
+                            .unwrap_or(lgtm_core::github::ThreadMarkerKind::Resolved)
+                    });
                 }
             }
         }
@@ -210,11 +205,7 @@ pub(super) fn annotation_signature(app: &App) -> u64 {
 
     app.threads.len().hash(&mut hash);
     for t in &app.threads {
-        (&t.path, t.line, t.resolved).hash(&mut hash);
-    }
-    app.drafts.items().len().hash(&mut hash);
-    for d in app.drafts.items() {
-        (d.id, d.target(), &d.body, &d.stale, &d.error).hash(&mut hash);
+        (&t.path, t.line, t.resolved, t.outdated).hash(&mut hash);
     }
     hash.finish()
 }

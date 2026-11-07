@@ -35,21 +35,19 @@ pub struct Remote {
 
 fn unescape(s: &str) -> String {
     let mut decoded = Vec::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(high), Some(low)) = (
-                (bytes[i + 1] as char).to_digit(16),
-                (bytes[i + 2] as char).to_digit(16),
-            ) {
+    let mut bytes = s.as_bytes().iter();
+    while let Some(&byte) = bytes.next() {
+        if let (b'%', [high, low, ..]) = (byte, bytes.as_slice()) {
+            if let (Some(high), Some(low)) =
+                ((*high as char).to_digit(16), (*low as char).to_digit(16))
+            {
                 decoded.push((high * 16 + low) as u8);
-                i += 3;
+                bytes.next();
+                bytes.next();
                 continue;
             }
         }
-        decoded.push(bytes[i]);
-        i += 1;
+        decoded.push(byte);
     }
     String::from_utf8_lossy(&decoded).into_owned()
 }
@@ -95,18 +93,22 @@ pub fn parse_remote(url: &str) -> Option<Remote> {
 
 /// Bearer token shared by every forge instance in this process (a new forge is opened per command).
 static TOKEN: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
-const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+const TOKEN_TTL: Duration = Duration::from_secs(1800);
 type CacheEntry = (Instant, Arc<Value>);
 type RestCache = RwLock<HashMap<String, CacheEntry>>;
 /// REST read results by URL; cleared by any write so replies and resolves show up at once.
 static CACHE: LazyLock<RestCache> = LazyLock::new(|| RwLock::new(HashMap::new()));
-const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
+const CACHE_TTL: Duration = Duration::from_secs(300);
 const DEVOPS_RESOURCE: &str = "499b84ac-1321-427f-aa17-267ca6975798";
 
 type MergeKey = (PathBuf, Option<Remote>, u64);
 type MissingMergeRefs = Arc<Mutex<HashMap<MergeKey, Instant>>>;
 static MISSING_MERGES: OnceLock<MissingMergeRefs> = OnceLock::new();
-const MISSING_MERGE_TTL: Duration = Duration::from_secs(5 * 60);
+const MISSING_MERGE_TTL: Duration = Duration::from_secs(300);
+
+fn cache_fresh(at: Instant, now: Instant, ttl: Duration) -> bool {
+    now.duration_since(at) < ttl
+}
 
 pub struct AzureForge {
     repo: PathBuf,
@@ -149,7 +151,7 @@ impl AzureForge {
     fn token(&self) -> Result<String> {
         if self.shared {
             if let Some((t, at)) = &*TOKEN.lock().unwrap() {
-                if at.elapsed() < TOKEN_TTL {
+                if cache_fresh(*at, Instant::now(), TOKEN_TTL) {
                     return Ok(t.clone());
                 }
             }
@@ -204,7 +206,7 @@ impl AzureForge {
             let hit = {
                 let cache = CACHE.read().unwrap();
                 cache.get(&url).and_then(|(at, v)| {
-                    if at.elapsed() < CACHE_TTL {
+                    if cache_fresh(*at, Instant::now(), CACHE_TTL) {
                         Some(Arc::clone(v))
                     } else {
                         None
@@ -230,7 +232,8 @@ impl AzureForge {
         let v = Arc::new(v);
         if self.shared {
             let mut cache = CACHE.write().unwrap();
-            cache.retain(|_, (at, _)| at.elapsed() < CACHE_TTL);
+            let now = Instant::now();
+            cache.retain(|_, (at, _)| cache_fresh(*at, now, CACHE_TTL));
             cache.insert(url, (Instant::now(), Arc::clone(&v)));
         }
         Ok(v)
@@ -262,11 +265,12 @@ impl AzureForge {
             .lock()
             .unwrap()
             .get(&self.merge_key(pr))
-            .is_some_and(|at| at.elapsed() < MISSING_MERGE_TTL)
+            .is_some_and(|at| cache_fresh(*at, Instant::now(), MISSING_MERGE_TTL))
     }
     fn remember_missing_merge(&self, pr: u64) {
         let mut cache = self.missing_merges.lock().unwrap();
-        cache.retain(|_, at| at.elapsed() < MISSING_MERGE_TTL);
+        let now = Instant::now();
+        cache.retain(|_, at| cache_fresh(*at, now, MISSING_MERGE_TTL));
         cache.insert(self.merge_key(pr), Instant::now());
     }
 
@@ -446,6 +450,7 @@ pub fn parse_threads(v: &Value) -> Vec<Thread> {
                     .and_then(Value::as_u64)
                     .map(|l| l as u32),
                 resolved: thread_closed(&s(t, "/status")),
+                outdated: false,
                 comments,
             })
         })
@@ -1305,5 +1310,175 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("historical diff"));
+    }
+
+    #[test]
+    fn shared_rest_cache_refreshes_expired_reads_and_invalidates_after_writes() {
+        let _guard = SHARED_CACHE_TEST_LOCK.lock().unwrap();
+        let saved_token = TOKEN.lock().unwrap().take();
+        let saved_cache = std::mem::take(&mut *CACHE.write().unwrap());
+        let mut provider = forge(
+            ".",
+            vec![
+                ("get-access-token", "fixture-token"),
+                ("curl", r#"{"value":[{"id":1}]}"#),
+                ("--http-method patch", r#"{"id":1}"#),
+            ],
+        );
+        provider.shared = true;
+        provider.remote.as_mut().unwrap().repo = "cache-fixture".into();
+        *TOKEN.lock().unwrap() = Some(("expired-token".into(), Instant::now() - TOKEN_TTL));
+        let retained_url = "fixture://recent";
+        let expired_url = "fixture://expired";
+        {
+            let mut cache = CACHE.write().unwrap();
+            cache.insert(
+                retained_url.into(),
+                (
+                    Instant::now() - Duration::from_secs(120),
+                    Arc::new(serde_json::json!({"recent":true})),
+                ),
+            );
+            cache.insert(
+                expired_url.into(),
+                (
+                    Instant::now() - Duration::from_secs(301),
+                    Arc::new(serde_json::json!({"expired":true})),
+                ),
+            );
+        }
+        let first = provider.rest("repo", "threads").unwrap();
+        assert_eq!(provider.token().unwrap(), "fixture-token");
+        *TOKEN.lock().unwrap() = Some((
+            "still-valid".into(),
+            Instant::now() - Duration::from_secs(900),
+        ));
+        assert_eq!(provider.token().unwrap(), "still-valid");
+        {
+            let cache = CACHE.read().unwrap();
+            assert!(cache.contains_key(retained_url));
+            assert!(!cache.contains_key(expired_url));
+        }
+        let url =
+            "https://dev.azure.com/org/My%20Proj/_apis/git/repositories/cache-fixture/threads";
+        CACHE.write().unwrap().get_mut(url).unwrap().0 = Instant::now() - Duration::from_secs(120);
+        let hit = provider.rest("repo", "threads").unwrap();
+        assert!(Arc::ptr_eq(&first, &hit));
+        CACHE.write().unwrap().get_mut(url).unwrap().0 = Instant::now() - CACHE_TTL;
+        let refreshed = provider.rest("repo", "threads").unwrap();
+        assert!(!Arc::ptr_eq(&first, &refreshed));
+        assert_eq!(refreshed["value"][0]["id"], 1);
+        provider.set_resolved(1, "1", true).unwrap();
+        assert!(CACHE.read().unwrap().is_empty());
+        *TOKEN.lock().unwrap() = saved_token;
+        *CACHE.write().unwrap() = saved_cache;
+    }
+
+    #[test]
+    fn invalid_remotes_and_empty_tokens_fail_before_requests() {
+        let mut provider = forge(".", vec![("get-access-token", " \n")]);
+        assert!(provider
+            .token()
+            .unwrap_err()
+            .to_string()
+            .contains("no access token"));
+        provider.remote = None;
+        assert!(provider.rest("repo", "threads").is_err());
+        assert!(provider
+            .call("post", "pullRequestThreads", 1, None, None)
+            .is_err());
+        assert_eq!(unescape("broken%XX%"), "broken%XX%");
+        assert_eq!(unescape("%"), "%");
+        assert_eq!(unescape("%2"), "%2");
+        assert_eq!(unescape("a%2"), "a%2");
+        assert_eq!(unescape("%20x%2F"), " x/");
+        for url in [
+            "git@ssh.dev.azure.com:v3/org/project",
+            "https://dev.azure.com/org/project/not-git/repo",
+            "https://org.visualstudio.com/project/not-git/repo",
+            "https://org.visualstudio.com/project",
+            "https://dev.azure.com",
+        ] {
+            assert_eq!(parse_remote(url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn general_review_does_not_set_a_vote_and_metadata_without_remote_uses_cli_detection() {
+        struct Recorded {
+            calls: std::rc::Rc<RefCell<Vec<String>>>,
+            fake: Fake,
+        }
+        impl Runner for Recorded {
+            fn run(&self, program: &str, args: &[&str]) -> Result<String> {
+                self.calls
+                    .borrow_mut()
+                    .push(format!("{program} {}", args.join(" ")));
+                self.fake.run(program, args)
+            }
+        }
+        let mut provider = forge(
+            ".",
+            vec![
+                ("pr show", r#"{"lastMergeSourceCommit":{"commitId":"sha"}}"#),
+                ("--http-method post", r#"{"id":1}"#),
+            ],
+        );
+        let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
+        provider.runner = Box::new(Recorded {
+            calls: calls.clone(),
+            fake: Fake(
+                RefCell::new(vec![]),
+                vec![
+                    ("pr show", r#"{"lastMergeSourceCommit":{"commitId":"sha"}}"#),
+                    ("--http-method post", r#"{"id":1}"#),
+                ],
+            ),
+        });
+        provider
+            .post_review(1, "COMMENT", "general review")
+            .unwrap();
+        assert_eq!(
+            calls
+                .borrow()
+                .iter()
+                .filter(|c| c.contains("--http-method post"))
+                .count(),
+            1
+        );
+        calls.borrow_mut().clear();
+        provider.post_review(1, "COMMENT", "").unwrap();
+        assert!(calls.borrow().is_empty());
+        provider.remote = None;
+        assert_eq!(provider.head_sha(1).unwrap(), "sha");
+    }
+
+    #[test]
+    fn missing_merge_cache_prunes_expired_entries_and_retains_recent_failures() {
+        let provider = forge(".", vec![]);
+        let recent = provider.merge_key(1);
+        let expired = provider.merge_key(2);
+        {
+            let mut entries = provider.missing_merges.lock().unwrap();
+            entries.insert(recent.clone(), Instant::now() - Duration::from_secs(120));
+            entries.insert(expired.clone(), Instant::now() - Duration::from_secs(301));
+        }
+        assert!(provider.merge_ref_missing(1));
+        assert!(!provider.merge_ref_missing(2));
+        provider.remember_missing_merge(3);
+        let entries = provider.missing_merges.lock().unwrap();
+        assert!(entries.contains_key(&recent));
+        assert!(!entries.contains_key(&expired));
+        assert!(entries.contains_key(&provider.merge_key(3)));
+    }
+
+    #[test]
+    fn cached_values_expire_at_their_deadline() {
+        let at = Instant::now();
+        let ttl = Duration::from_secs(300);
+        assert!(cache_fresh(at, at, ttl));
+        assert!(cache_fresh(at, at + ttl - Duration::from_nanos(1), ttl));
+        assert!(!cache_fresh(at, at + ttl, ttl));
+        assert!(!cache_fresh(at, at + ttl + Duration::from_nanos(1), ttl));
     }
 }

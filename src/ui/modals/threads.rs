@@ -11,6 +11,7 @@ use ratatui::{
 pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
     let popup_area = centered_rect(84, 80, area);
     frame.render_widget(Clear, popup_area);
+    let visible = app.visible_thread_indices();
 
     if app.threads.is_empty() {
         let text = vec![
@@ -33,6 +34,20 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
         frame.render_widget(p, popup_area);
         return;
     }
+    if visible.is_empty() {
+        let p = Paragraph::new(format!(
+            "  No threads match the {:?} filter.\n\n  Press Tab or o to cycle filters.",
+            app.thread_filter
+        ))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Remote PR Review Threads ")
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
+        frame.render_widget(p, popup_area);
+        return;
+    }
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -44,16 +59,22 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
         .split(chunks[0]);
 
-    let open_count = app.threads.iter().filter(|t| !t.resolved).count();
+    let open_count = visible
+        .iter()
+        .filter(|&&idx| !app.threads[idx].resolved && !app.threads[idx].outdated)
+        .count();
 
     // Left pane: Thread list
     let items: Vec<ListItem> = app
-        .threads
+        .visible_thread_indices()
         .iter()
         .enumerate()
-        .map(|(idx, t)| {
+        .map(|(idx, &thread_idx)| {
+            let t = &app.threads[thread_idx];
             let is_selected = idx == app.thread_selected_idx;
-            let (marker, marker_color) = if t.resolved {
+            let (marker, marker_color) = if t.outdated {
+                ("~", Color::Yellow)
+            } else if t.resolved {
                 ("◇", Color::Green)
             } else {
                 ("◆", Color::Cyan)
@@ -62,11 +83,7 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
                 Some(l) => format!("{}:{}", t.path, l),
                 None => t.path.clone(),
             };
-            let count_str = format!(
-                "({}💬) {}",
-                t.comments.len(),
-                app.thread_pending_label(&t.id).unwrap_or("")
-            );
+            let count_str = format!("({}💬)", t.comments.len());
             let author = t
                 .comments
                 .first()
@@ -81,7 +98,7 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("#{:<2} ", idx + 1),
+                    format!("#{:<2} ", thread_idx + 1),
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
@@ -109,8 +126,9 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
         .collect();
 
     let list_title = format!(
-        " Threads ({} total, {} open) ",
-        app.threads.len(),
+        " Threads ({:?}: {} shown, {} open) ",
+        app.thread_filter,
+        visible.len(),
         open_count
     );
     let list_widget = List::new(items).block(
@@ -122,8 +140,13 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(list_widget, main_chunks[0]);
 
     // Right pane: Selected thread conversation with full comment bodies
-    if let Some(t) = app.threads.get(app.thread_selected_idx) {
-        let (status_text, status_color) = if t.resolved {
+    if let Some(t) = visible
+        .get(app.thread_selected_idx)
+        .and_then(|&idx| app.threads.get(idx))
+    {
+        let (status_text, status_color) = if t.outdated {
+            ("[⚠ Outdated]", Color::Yellow)
+        } else if t.resolved {
             ("✓ Resolved", Color::Green)
         } else {
             ("● Open", Color::Cyan)
@@ -134,9 +157,9 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
         };
         let detail_title = format!(
             " #{}: {} • {} ",
-            app.thread_selected_idx + 1,
+            visible[app.thread_selected_idx] + 1,
             loc,
-            app.thread_pending_label(&t.id).unwrap_or(status_text)
+            status_text
         );
 
         let mut lines = Vec::new();
@@ -195,7 +218,7 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Nav Threads  "),
+        Span::raw(" Nav  "),
         Span::styled(
             "[J/K]",
             Style::default()
@@ -209,28 +232,28 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
                 .fg(Color::Green)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Jump to line  "),
+        Span::raw(" Jump  "),
         Span::styled(
             "[v/R]",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Draft resolve  "),
+        Span::raw(" Resolve  "),
         Span::styled(
             "[r]",
             Style::default()
                 .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Draft reply  "),
+        Span::raw(" Reply  "),
         Span::styled(
-            "[s]",
+            "[Tab/o]",
             Style::default()
-                .fg(Color::Green)
+                .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Submit drafts  "),
+        Span::raw(format!(" Filter: {:?}  ", app.thread_filter)),
         Span::styled("[Esc/q]", Style::default().fg(Color::DarkGray)),
         Span::raw(" Close"),
     ]))

@@ -8,18 +8,21 @@
 - **BREAKING**: Removed `lgtm risk` (folded into `lgtm check`).
 - **BREAKING**: `lgtm review` now requires an explicit action (`export` or `import`) instead of ambiguously launching the TUI.
 
-## 2.6.2
-
 ### Added
+- Markdown preview navigation shortcuts: `e` / `o` to launch external editor directly at cursor line, `[` / `]` to trigger diff bracket navigation chords (`]f`, `]h`, `]c`, etc.), `f` / `Ctrl-p` to open file picker, `v` to toggle reviewed status, `r` to reply to comments, and `?` for help modal.
+
+## 2.6.2
 - Consistent `Ctrl-n` / `Ctrl-p` item navigation, page movement, and top/bottom jumps across pickers and document views; non-text pickers also close with `Ctrl-c` and `q`.
 - Shared word deletion in text inputs (`Ctrl-w`, `Alt-Backspace`, `Ctrl-Backspace`), command-line word motion/deletion (`Alt-b` / `Alt-f`, `Ctrl-Left` / `Ctrl-Right`, `Alt-d`), and line deletion (`Ctrl-u` / `Ctrl-k`).
 - Direct online PR commenting: `:thread comment`, `:thread reply`, and `:thread resolve` post asynchronously directly to the remote forge without draft staging.
+- Local directive commands (`:directives`, `:reply`, `:resolve`, `:unresolve`) no longer route to remote threads based on cursor position; use `:thread` for PR discussion actions.
 - In-memory `CommentRetryBuffer`: failed comment submissions retain typed text in memory with `:thread retry`, eliminating local draft disk files.
+- Outdated PR threads are fetched from GitHub and detected against the active diff for Azure DevOps; the TUI marks, filters, and navigates them without storing PR data locally.
 - Dedicated `DirectiveStore` and `Directive` subsystem in `crates/lgtm-core/src/directive/` storing local review directives exclusively in `.lgtm/directives.jsonl`.
 - Conversion of static guard scanner alerts (`GuardAlert`) into review directives.
 
 ### Removed
-- **BREAKING**: Removed `:thread submit`, `:thread drafts`, `:thread discard`, `:thread edit`, and the `.lgtm/drafts/` disk queue.
+- **BREAKING**: Removed `:thread submit`, `:thread drafts`, `:thread discard`, `:thread edit`, the `.lgtm/drafts/` disk queue, and its unused draft-queue code.
 
 ## 2.6.1
 

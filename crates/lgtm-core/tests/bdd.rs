@@ -154,8 +154,9 @@ fn bdd_core_004_authentication_failure_does_not_probe_another_transport() {
 }
 
 #[test]
-fn bdd_core_008_provider_threads_show_equivalent_open_and_resolved_markers() {
-    use lgtm_core::github::{parse_threads, thread_marker};
+fn bdd_core_008_provider_threads_show_equivalent_status_and_outdated_markers() {
+    use lgtm_core::github::{mark_outdated, parse_threads, thread_marker, ThreadMarkerKind};
+    use lgtm_core::model::DiffSnapshot;
     // Given equivalent GitHub and Azure discussions on the same reviewed line.
     for (github_closed, azure_status) in [
         (false, "active"),
@@ -184,10 +185,77 @@ fn bdd_core_008_provider_threads_show_equivalent_open_and_resolved_markers() {
         for threads in [&github_threads, &azure_threads] {
             assert_eq!(threads.len(), 1);
             assert_eq!(threads[0].comments[0].body, "please check");
-            assert_eq!(thread_marker(threads, "a.rs", 1), Some(!github_closed));
+            let want = if github_closed {
+                ThreadMarkerKind::Resolved
+            } else {
+                ThreadMarkerKind::Open
+            };
+            assert_eq!(thread_marker(threads, "a.rs", 1), Some(want));
             assert_eq!(thread_marker(threads, "other.rs", 1), None);
         }
     }
+
+    // Given an open GitHub thread flagged outdated and an Azure thread whose line left the diff.
+    let github = serde_json::json!({"data":{"repository":{"pullRequest":{
+        "reviewThreads":{"nodes":[{
+            "id":"t", "path":"a.rs", "line":1, "isResolved":false, "isOutdated":true,
+            "comments":{"nodes":[{"databaseId":10,"author":{"login":"r"},"body":"x"}]}
+        }]}
+    }}}});
+    let azure = serde_json::json!({"value":[
+        {
+            "id":7, "status":"active",
+            "threadContext":{"filePath":"/a.rs","rightFileStart":{"line":1}},
+            "comments":[{"id":10,"author":{"displayName":"r"},"content":"x","commentType":"text"}]
+        },
+        {
+            "id":8, "status":"active",
+            "threadContext":{"filePath":"/a.rs","rightFileStart":{"line":2}},
+            "comments":[{"id":11,"author":{"displayName":"r"},"content":"y","commentType":"text"}]
+        }
+    ]});
+    let gh = parse_threads(&github.to_string()).unwrap();
+    let mut az = lgtm_core::forge::azure::parse_threads(&azure);
+    let diff = DiffSnapshot::new(vec![lgtm_core::model::FileDiff {
+        old_path: Some("a.rs".into()),
+        new_path: "a.rs".into(),
+        change_type: lgtm_core::model::ChangeType::Modified,
+        additions: 1,
+        deletions: 1,
+        hunks: vec![lgtm_core::model::DiffHunk {
+            header: "@@ -1 +2 @@".into(),
+            old_start: 1,
+            old_lines: 1,
+            new_start: 2,
+            new_lines: 1,
+            lines: vec![lgtm_core::model::DiffLine {
+                line_type: lgtm_core::model::LineType::Context,
+                content: "shifted".into(),
+                old_line_num: Some(1),
+                new_line_num: Some(2),
+            }],
+            is_folded: false,
+            folded_blocks: vec![],
+        }],
+        is_folded: false,
+        is_reviewed: false,
+    }]);
+
+    // When Azure threads are reconciled against a diff where the reviewed line shifted.
+    mark_outdated(&mut az, &diff);
+
+    // Then both providers report the Outdated marker.
+    assert!(gh[0].outdated);
+    assert_eq!(
+        thread_marker(&gh, "a.rs", 1),
+        Some(ThreadMarkerKind::Outdated)
+    );
+    assert!(az[0].outdated);
+    assert!(!az[1].outdated);
+    assert_eq!(
+        thread_marker(&az, "a.rs", 1),
+        Some(ThreadMarkerKind::Outdated)
+    );
 }
 
 #[test]

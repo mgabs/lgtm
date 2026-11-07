@@ -1,30 +1,6 @@
-//! Draft-then-submit PR comments: nothing leaves the machine until `:thread submit` is confirmed.
+//! Live PR thread actions and in-memory retry data.
 use super::*;
 use lgtm_core::comment::CommentSide;
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ForgeAction {
-    PostInline {
-        pr: u64,
-        sha: String,
-        path: String,
-        line: u32,
-        side: CommentSide,
-        body: String,
-    },
-    Reply {
-        pr: u64,
-        thread_id: String,
-        comment_id: u64,
-        body: String,
-    },
-    SetResolved {
-        pr: u64,
-        thread_id: String,
-        resolved: bool,
-    },
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CommentRetryBuffer {
@@ -35,17 +11,9 @@ pub struct CommentRetryBuffer {
     pub target_thread_id: Option<String>,
 }
 
-const USAGE: &str = "Usage: :thread comment <text> | reply <n> <text> | resolve <n> | unresolve <n> | retry | refresh";
+const USAGE: &str = "Usage: :thread comment <text> | reply <n> <text> | resolve <n> | unresolve <n> | retry | refresh | outdated";
 
 impl App {
-    pub(crate) fn load_drafts(&mut self, _pr: u64) {
-        self.submit_confirm = false;
-    }
-
-    pub fn thread_pending_label(&self, _id: &str) -> Option<&'static str> {
-        None
-    }
-
     pub fn toggle_resolve_thread_at_cursor(&mut self) -> bool {
         let Some(idx) = self.thread_at_cursor() else {
             return false;
@@ -54,12 +22,14 @@ impl App {
         true
     }
 
-    pub(crate) fn draft_resolve(&mut self, idx: usize, resolved: Option<bool>) {
-        self.set_thread_resolved(idx, resolved);
-    }
-
     pub(crate) fn start_thread_reply(&mut self, index: usize) {
-        self.thread_selected_idx = index;
+        if let Some(position) = self
+            .visible_thread_indices()
+            .iter()
+            .position(|&visible| visible == index)
+        {
+            self.thread_selected_idx = position;
+        }
         self.command
             .set_text(format!("thread reply {} ", index + 1));
         self.command.history_idx = None;
@@ -304,20 +274,16 @@ impl App {
             "retry" => {
                 self.retry_failed_comment();
             }
-            "drafts" | "submit" | "discard" | "edit" => {
-                self.status_message = Some(
-                    "Draft queue removed; comments post directly online (use :thread comment | reply | resolve | retry)".into(),
-                );
+            "outdated" => {
+                self.set_thread_filter(ThreadFilter::Outdated);
+                self.open_threads_modal();
             }
             "refresh" => self.refresh_github_async(true),
             _ => self.status_message = Some(USAGE.into()),
         }
-        if verb != "submit" {
-            self.submit_confirm = false;
-        }
     }
 
-    /// Reloads live threads after a submit without replacing the submit report in the status line.
+    /// Reloads live threads after a thread action without replacing its status line.
     fn refresh_threads_quietly(&mut self, pr: u64) {
         let repo = self.git_engine.repo_path.clone();
         let factory = self.forge_factory;
@@ -327,8 +293,7 @@ impl App {
             move |app, result| {
                 if app.pr.current_number == Some(pr) && app.review_generation == generation {
                     if let Ok(threads) = result {
-                        app.drafts.mark_stale(&threads);
-                        app.threads = threads;
+                        app.threads = app.normalize_threads(threads);
                     }
                 }
             },
@@ -398,6 +363,7 @@ mod tests {
             path: "a.rs".into(),
             line: Some(2),
             resolved: false,
+            outdated: false,
             comments: vec![ThreadComment {
                 id: 9,
                 author: "bob".into(),
@@ -471,7 +437,7 @@ mod tests {
         app.thread_command(&["comment", "hi"]);
         assert!(status(&app).starts_with("Comments require a PR"));
         app.thread_command(&["submit"]);
-        assert!(status(&app).contains("Draft queue removed"));
+        assert!(status(&app).contains("Usage:"));
 
         let mut app = pr_app();
         app.cursor_line_idx = 9; // off hunk
@@ -480,7 +446,7 @@ mod tests {
 
         for deprecated in ["submit", "drafts", "discard", "edit"] {
             app.thread_command(&[deprecated]);
-            assert!(status(&app).contains("Draft queue removed"), "{deprecated}");
+            assert!(status(&app).contains("Usage:"), "{deprecated}");
         }
     }
 

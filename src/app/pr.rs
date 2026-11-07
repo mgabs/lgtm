@@ -176,7 +176,6 @@ impl App {
         self.cursor_line_idx = 0;
         self.diff_scroll_offset = 0;
         self.threads.clear();
-        self.load_drafts(pr);
         self.thread_revision += 1;
         self.ci = None;
         self.thread_selected_idx = 0;
@@ -304,6 +303,7 @@ mod tests {
             path: "a.rs".into(),
             line: Some(1),
             resolved: false,
+            outdated: false,
             comments: vec![],
         }
     }
