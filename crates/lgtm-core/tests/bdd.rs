@@ -881,11 +881,11 @@ fn bdd_core_021_rust_static_scan_detects_injections_and_inline_tautological_asse
     ).unwrap();
 
     let test_diff = PrEngine::parse_unified_diff(
-        "diff --git a/src/logic.rs b/src/logic.rs\n--- a/src/logic.rs\n+++ b/src/logic.rs\n@@ -0,0 +1,3 @@\n+#[test]\n+fn test_t() {\n+    assert!(true);\n+}\n"
+        "diff --git a/src/logic.rs b/src/logic.rs\n--- a/src/logic.rs\n+++ b/src/logic.rs\n@@ -0,0 +1,3 @@\n+#[test]\n+fn test_t() {\n+    assert!(true);\n+}\n" // lgtm:ignore
     ).unwrap();
 
     let clean_diff = PrEngine::parse_unified_diff(
-        "diff --git a/src/safe.rs b/src/safe.rs\n--- a/src/safe.rs\n+++ b/src/safe.rs\n@@ -0,0 +1,2 @@\n+let q = sqlx::query(\"SELECT * FROM users WHERE id = $1\").bind(user);\n+let out = Command::new(\"git\").arg(\"status\").output();\n"
+        "diff --git a/src/safe.rs b/src/safe.rs\n--- a/src/safe.rs\n+++ b/src/safe.rs\n@@ -0,0 +1,3 @@\n+let q = sqlx::query(\"SELECT * FROM users WHERE id = $1\").bind(user);\n+let out = Command::new(\"git\").arg(\"status\").output();\n+let log = format!(\"Deleted comment on {}:{}\", path, line);\n"
     ).unwrap();
 
     // When scanned by SecurityAndTestGuard.

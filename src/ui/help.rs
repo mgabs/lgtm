@@ -476,7 +476,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  🟠 Test Neutering & Skips:   ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-                    Span::raw("Detects deleted assertions, @pytest.mark.skip, t.Skip, and tautological tests (assert True)"),
+                    Span::raw("Detects deleted assertions, @pytest.mark.skip, t.Skip, and tautological tests (assert True)"), // lgtm:ignore
                 ]),
                 Line::from(vec![
                     Span::styled("  🟠 Architecture Sprawl & Leaks: ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),

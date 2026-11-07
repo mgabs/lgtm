@@ -187,7 +187,7 @@ impl SecurityAndTestGuard {
                                 fingerprint: String::new(),
                                 title: "Tautological / Vacuous Assertion".to_string(),
                                 description:
-                                    "Assertion always evaluates to true (assert True / x == x)"
+                                    "Assertion always evaluates to true (assert True / x == x)" // lgtm:ignore
                                         .to_string(),
                                 line_no: line_num,
                                 file_path: path_str.clone(),
@@ -563,7 +563,7 @@ fn is_test_skip(text: &str) -> bool {
         || t.contains("it.skip") // lgtm:ignore
         || t.contains("test.skip") // lgtm:ignore
         || t.contains("describe.skip") // lgtm:ignore
-        || t.contains("xit(") // lgtm:ignore
+        || (t.contains("xit(") && !t.contains("exit(")) // lgtm:ignore
 }
 
 fn is_tautological_assertion(text: &str) -> bool {
@@ -989,5 +989,18 @@ mod tests {
         assert_eq!(Severity::Critical.badge(), "🔴 CRITICAL");
         assert_eq!(Severity::High.badge(), "🟠 HIGH");
         assert_eq!(Severity::Warn.badge(), "🟡 WARN");
+    }
+
+    #[test]
+    fn test_is_test_skip_discrimination() {
+        // True positives
+        assert!(is_test_skip(r#"xit("should do something", () => {});"#));
+        assert!(is_test_skip(r#"#[ignore]"#));
+        assert!(is_test_skip(r#"@pytest.mark.skip"#));
+
+        // False positives should NOT match
+        assert!(!is_test_skip(r#"std::process::exit(1);"#));
+        assert!(!is_test_skip(r#"exit(0);"#));
+        assert!(!is_test_skip(r#"sys.exit(0)"#));
     }
 }

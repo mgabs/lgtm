@@ -9,7 +9,7 @@ const RULES: &[Rule] = &[
         severity: Severity::Critical,
         title: "SQL injection via dynamic string interpolation",
         description: "Executing SQL constructed via format! or string interpolation invites SQL injection",
-        query: r#"((macro_invocation macro: (identifier) @m (#eq? @m "format") (token_tree (string_literal (string_content) @sql (#match? @sql "(?i)(SELECT|INSERT|UPDATE|DELETE).*\\{")))) @hit)"#,
+        query: r#"((macro_invocation macro: (identifier) @m (#eq? @m "format") (token_tree (string_literal (string_content) @sql (#match? @sql "(?i)\\b(SELECT\\s+[\\s\\S]+\\s+FROM|INSERT\\s+INTO\\s+|UPDATE\\s+[\\s\\S]+\\s+SET|DELETE\\s+FROM\\s+)[\\s\\S]*\\{")))) @hit)"#,
         inside: &[],
     },
     Rule {
@@ -112,6 +112,22 @@ mod tests {
 
         // Safe format without SQL
         assert!(ids("src/db.rs", r#"let msg = format!("Hello, {}!", user);"#).is_empty());
+        // Safe UI and logging format strings with English verbs (not SQL)
+        assert!(ids(
+            "src/app/comments.rs",
+            r#"let msg = format!("Deleted comment on {}:{}", path, line);"#
+        )
+        .is_empty());
+        assert!(ids(
+            "src/app/pr.rs",
+            r#"let msg = format!("Selected PR #{}...", id);"#
+        )
+        .is_empty());
+        assert!(ids(
+            "crates/lgtm-core/src/guard/mod.rs",
+            r#"let msg = format!("Net reduction of assertions (-{} deleted, +{} added)", d, a);"#
+        )
+        .is_empty());
         // Safe parameterized SQL
         assert!(ids(
             "src/db.rs",
