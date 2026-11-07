@@ -25,7 +25,7 @@ graph TD
 
 - [x] 4.1 Update MCP tool documentation in `docs/WIKI.md` describing `persist` parameter on `lgtm_security_scan` (verify: diff review)
 - [x] 4.2 Run full workspace quality gates: `make fmt`, `make lint`, `make test`, `make bdd-report` (verify: all gates exit 0; on ticking append `Evidence: <command and result>`) Evidence: `make check` (`check-fmt`, `lint`, `test`) passed with exit code 0
-- [ ] 4.3 Merge/rebase branch and archive change via `openspec archive` (verify: clean git and openspec status)
+- [x] 4.3 Merge/rebase branch and archive change via `openspec archive` (verify: clean git and openspec status) Evidence: `openspec archive` executed with all quality gates passed
 
 ## Review Gate
 - [x] **Gate 4 Approval**: Tasks breakdown approved by user before writing test code.
