@@ -530,7 +530,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :reply, :rep [text]  ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Reply to comment or thread at cursor"),
+                    Span::raw("Reply to local directive at cursor"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :resolve, :res       ", Style::default().fg(Color::Cyan)),
@@ -550,7 +550,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :pr <number>         ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Load PR in background; close drafts and visual selections to switch"),
+                    Span::raw("Load PR in background; close the thread view and visual selections to switch"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :prs [open|closed|all]", Style::default().fg(Color::Cyan)),
@@ -558,7 +558,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :threads, :thread    ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Live PR threads; draft comment/reply/resolve, then :thread submit"),
+                    Span::raw("Live PR threads; comments, replies and resolution post online"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :checks              ", Style::default().fg(Color::Cyan)),

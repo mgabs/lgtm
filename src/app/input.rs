@@ -66,8 +66,16 @@ impl App {
                     self.jump_thread(true);
                     return;
                 }
+                (']', KeyCode::Char('T')) => {
+                    self.jump_outdated_thread(true);
+                    return;
+                }
                 ('[', KeyCode::Char('t')) => {
                     self.jump_thread(false);
+                    return;
+                }
+                ('[', KeyCode::Char('T')) => {
+                    self.jump_outdated_thread(false);
                     return;
                 }
                 ('[', KeyCode::Char('[')) => {
@@ -326,13 +334,15 @@ impl App {
             (_, KeyCode::Char(']')) => {
                 self.pending_leader = Some(']');
                 self.status_message = Some(
-                    "] (f/]: file, h: hunk, c: comment, w: alert, u: unreviewed, t: thread)".into(),
+                    "] (f/]: file, h: hunk, c: comment, w: alert, u: unreviewed, t: thread, T: outdated)"
+                        .into(),
                 );
             }
             (_, KeyCode::Char('[')) => {
                 self.pending_leader = Some('[');
                 self.status_message = Some(
-                    "[ (f/[: file, h: hunk, c: comment, w: alert, u: unreviewed, t: thread)".into(),
+                    "[ (f/[: file, h: hunk, c: comment, w: alert, u: unreviewed, t: thread, T: outdated)"
+                        .into(),
                 );
             }
             (_, KeyCode::Char(' ')) => {
@@ -731,10 +741,29 @@ impl App {
                 self.active_view = ActiveView::Diff;
             }
             (_, KeyCode::Enter) => {
-                if let Some(t) = self.threads.get(self.thread_selected_idx) {
+                let visible = self.visible_thread_indices();
+                if let Some(t) = visible
+                    .get(self.thread_selected_idx)
+                    .and_then(|&idx| self.threads.get(idx))
+                {
                     let path = t.path.clone();
-                    let line = t.line.unwrap_or(1);
-                    self.jump_to_file_and_line(&path, line);
+                    let line = t.line;
+                    if t.outdated
+                        && match line {
+                            Some(line) => !self.thread_line_in_diff(&path, line),
+                            None => true,
+                        }
+                    {
+                        if self.jump_to_file_header(&path) {
+                            self.status_message =
+                                Some("Line gone from current diff (outdated)".into());
+                        } else {
+                            self.status_message =
+                                Some(format!("File '{}' is not in the active diff", path));
+                        }
+                    } else {
+                        self.jump_to_file_and_line(&path, line.unwrap_or(1));
+                    }
                 }
                 self.active_view = ActiveView::Diff;
             }
@@ -749,7 +778,7 @@ impl App {
             (_, KeyCode::Down)
             | (KeyModifiers::CONTROL, KeyCode::Char('n'))
             | (_, KeyCode::Char('j')) => {
-                if !self.threads.is_empty() && self.thread_selected_idx < self.threads.len() - 1 {
+                if self.thread_selected_idx + 1 < self.visible_thread_indices().len() {
                     self.thread_selected_idx += 1;
                     self.thread_scroll_offset = 0;
                 }
@@ -759,8 +788,9 @@ impl App {
                 self.thread_scroll_offset = 0;
             }
             (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
-                if !self.threads.is_empty() {
-                    self.thread_selected_idx = self.threads.len() - 1;
+                let len = self.visible_thread_indices().len();
+                if len > 0 {
+                    self.thread_selected_idx = len - 1;
                     self.thread_scroll_offset = 0;
                 }
             }
@@ -776,13 +806,17 @@ impl App {
             | (_, KeyCode::Char('K')) => {
                 self.thread_scroll_offset = self.thread_scroll_offset.saturating_sub(3);
             }
+            (_, KeyCode::Tab) | (_, KeyCode::Char('o')) => self.cycle_thread_filter(),
             (_, KeyCode::Char('v')) | (_, KeyCode::Char('R')) | (_, KeyCode::Char(' ')) => {
-                self.draft_resolve(self.thread_selected_idx, None);
+                if let Some(idx) = self.visible_thread_indices().get(self.thread_selected_idx) {
+                    self.set_thread_resolved(*idx, None);
+                }
             }
-            (_, KeyCode::Char('r')) if !self.threads.is_empty() => {
-                self.start_thread_reply(self.thread_selected_idx);
+            (_, KeyCode::Char('r')) if !self.visible_thread_indices().is_empty() => {
+                if let Some(idx) = self.visible_thread_indices().get(self.thread_selected_idx) {
+                    self.start_thread_reply(*idx);
+                }
             }
-            (_, KeyCode::Char('s')) => self.thread_command(&["submit"]),
             _ => {}
         }
     }
@@ -1832,6 +1866,7 @@ mod tests {
                 path: "src/main.rs".into(),
                 line: Some(10),
                 resolved: false,
+                outdated: false,
                 comments: vec![lgtm_core::github::ThreadComment {
                     id: 101,
                     author: "alice".into(),
@@ -1843,6 +1878,7 @@ mod tests {
                 path: "src/lib.rs".into(),
                 line: Some(20),
                 resolved: true,
+                outdated: false,
                 comments: vec![lgtm_core::github::ThreadComment {
                     id: 102,
                     author: "bob".into(),
@@ -2949,6 +2985,7 @@ mod tests {
             path: path.into(),
             line,
             resolved: false,
+            outdated: false,
             comments: vec![],
         }
     }
@@ -2985,8 +3022,9 @@ mod tests {
             app.status_message.as_deref(),
             Some("Comments require a PR (:pr <n>)")
         );
+        let command_before = app.command.input.clone();
         press(&mut app, "s");
-        assert!(app.status_message.is_some());
+        assert_eq!(app.command.input, command_before);
 
         press(&mut app, "r");
         assert_eq!(app.active_view, ActiveView::CommandLine);
@@ -2998,6 +3036,70 @@ mod tests {
         assert_eq!(
             (app.active_view, app.selected_file_idx),
             (ActiveView::Diff, 2)
+        );
+    }
+
+    #[test]
+    fn thread_view_filter_cycles_all_open_outdated() {
+        let mut app = diff_app();
+        app.threads = vec![
+            thread("open", "f0.rs", Some(1)),
+            thread("resolved", "f0.rs", Some(2)),
+            thread("outdated", "f0.rs", Some(3)),
+        ];
+        app.threads[1].resolved = true;
+        app.threads[2].outdated = true;
+        app.active_view = ActiveView::ThreadView;
+
+        assert_eq!(app.visible_thread_indices(), vec![0, 1, 2]);
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.thread_filter, ThreadFilter::Open);
+        assert_eq!(app.visible_thread_indices(), vec![0]);
+        app.handle_key(key(KeyCode::Char('o')));
+        assert_eq!(app.thread_filter, ThreadFilter::Outdated);
+        assert_eq!(app.visible_thread_indices(), vec![2]);
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.thread_filter, ThreadFilter::All);
+    }
+
+    #[test]
+    fn bracket_capital_t_jumps_between_outdated_threads() {
+        let mut app = diff_app();
+        app.threads = [20, 21]
+            .into_iter()
+            .map(|line| {
+                let mut thread = thread("old", "f0.rs", Some(line));
+                thread.outdated = true;
+                thread
+            })
+            .collect();
+        app.handle_key(key(KeyCode::Char(']')));
+        app.handle_key(key(KeyCode::Char('T')));
+        assert_eq!(app.cursor_line_idx, 3);
+        app.handle_key(key(KeyCode::Char(']')));
+        app.handle_key(key(KeyCode::Char('T')));
+        assert_eq!(app.cursor_line_idx, 4);
+        app.handle_key(key(KeyCode::Char('[')));
+        app.handle_key(key(KeyCode::Char('T')));
+        assert_eq!(app.cursor_line_idx, 3);
+    }
+
+    #[test]
+    fn outdated_thread_enter_jumps_to_file_header_when_line_is_gone() {
+        let mut app = diff_app();
+        app.pr.current_number = Some(7);
+        let mut thread = thread("old", "f2.rs", Some(99));
+        thread.outdated = true;
+        app.threads = vec![thread];
+        app.active_view = ActiveView::ThreadView;
+
+        app.handle_key(key(KeyCode::Enter));
+
+        assert_eq!(app.selected_file_idx, 2);
+        assert_eq!(app.cursor_line_idx, 0);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Line gone from current diff (outdated)")
         );
 
         app.active_view = ActiveView::ThreadView;

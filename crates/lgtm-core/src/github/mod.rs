@@ -49,19 +49,51 @@ pub struct Thread {
     pub path: String,
     pub line: Option<u32>,
     pub resolved: bool,
+    pub outdated: bool,
     pub comments: Vec<ThreadComment>,
 }
 
 pub use crate::forge::PrDiscussion;
 pub use crate::forge::PrDiscussion as GithubClient;
 
-/// Remote threads on `path:line`: `Some(true)` if any is open, `Some(false)` if all are resolved.
-pub fn thread_marker(threads: &[Thread], path: &str, line: u32) -> Option<bool> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadMarkerKind {
+    Open,
+    Resolved,
+    Outdated,
+}
+
+/// Remote threads on `path:line`: `Outdated` takes precedence, then `Open`, then `Resolved`.
+pub fn thread_marker(threads: &[Thread], path: &str, line: u32) -> Option<ThreadMarkerKind> {
     let here: Vec<&Thread> = threads
         .iter()
         .filter(|t| t.path == path && t.line == Some(line))
         .collect();
-    (!here.is_empty()).then(|| here.iter().any(|t| !t.resolved))
+    if here.is_empty() {
+        return None;
+    }
+    Some(if here.iter().any(|t| t.outdated && !t.resolved) {
+        ThreadMarkerKind::Outdated
+    } else if here.iter().any(|t| !t.resolved) {
+        ThreadMarkerKind::Open
+    } else {
+        ThreadMarkerKind::Resolved
+    })
+}
+
+/// Flags threads whose line is absent from the current diff (providers that never report it).
+pub fn mark_outdated(threads: &mut [Thread], diff: &crate::model::DiffSnapshot) {
+    for t in threads.iter_mut().filter(|t| !t.outdated) {
+        let Some(line) = t.line else { continue };
+        let present = diff
+            .files
+            .iter()
+            .filter(|f| f.new_path.to_str() == Some(t.path.as_str()))
+            .flat_map(|f| &f.hunks)
+            .flat_map(|h| &h.lines)
+            .any(|l| l.new_line_num == Some(line));
+        t.outdated = !present;
+    }
 }
 
 pub struct GhClient;
@@ -112,6 +144,10 @@ pub fn parse_threads(json: &str) -> Result<Vec<Thread>> {
                 .map(|l| l as u32),
             resolved: n
                 .pointer("/isResolved")
+                .and_then(|b| b.as_bool())
+                .unwrap_or(false),
+            outdated: n
+                .pointer("/isOutdated")
                 .and_then(|b| b.as_bool())
                 .unwrap_or(false),
             comments: n
@@ -194,7 +230,7 @@ fn gh_input(args: &[&str], input: &serde_json::Value) -> Result<std::process::Ou
     result
 }
 
-pub const THREAD_QUERY: &str = "query($id:ID!){node(id:$id){... on PullRequestReviewThread{id isResolved path line comments(first:100){nodes{databaseId author{login} body}}}}}";
+pub const THREAD_QUERY: &str = "query($id:ID!){node(id:$id){... on PullRequestReviewThread{id isResolved isOutdated path line comments(first:100){nodes{databaseId author{login} body}}}}}";
 
 pub fn parse_thread(json: &str) -> Result<Option<Thread>> {
     let v: serde_json::Value =
@@ -210,7 +246,7 @@ pub fn parse_thread(json: &str) -> Result<Option<Thread>> {
     Ok(parse_threads(&wrapped.to_string())?.into_iter().next())
 }
 
-pub const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{databaseId author{login} body}}}}}}}";
+pub const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved isOutdated path line comments(first:20){nodes{databaseId author{login} body}}}}}}}";
 
 impl GithubClient for GhClient {
     fn checks(&self, pr: u64) -> Result<Vec<Check>> {

@@ -29,4 +29,3 @@ Feature: Local Review Directives
     When alerts are converted to review directives
     Then directives are stored in ".lgtm/directives.jsonl" with rule ID, severity, and remediation text
     And MCP agents receive them as actionable tasks
-

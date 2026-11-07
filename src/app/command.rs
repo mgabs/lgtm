@@ -507,6 +507,16 @@ impl App {
                 }
             }
             "threads" => {
+                let filter = match args.first().copied() {
+                    None | Some("all") => ThreadFilter::All,
+                    Some("open") => ThreadFilter::Open,
+                    Some("outdated") => ThreadFilter::Outdated,
+                    Some(_) => {
+                        self.status_message = Some("Usage: :threads [open|outdated|all]".into());
+                        return;
+                    }
+                };
+                self.set_thread_filter(filter);
                 self.refresh_github_async(true);
                 self.open_threads_modal();
             }
@@ -592,8 +602,6 @@ impl App {
                     let _ = self.comment_store.save_comments(&self.comments);
                     self.status_message =
                         Some(format!("Resolved all {} directives", self.comments.len()));
-                } else if self.thread_at_cursor().is_some() {
-                    self.toggle_resolve_thread_at_cursor();
                 } else {
                     self.toggle_resolve_current_comment();
                 }
@@ -609,8 +617,6 @@ impl App {
                         "Marked all {} directives active",
                         self.comments.len()
                     ));
-                } else if self.thread_at_cursor().is_some() {
-                    self.toggle_resolve_thread_at_cursor();
                 } else {
                     self.toggle_resolve_current_comment();
                 }
@@ -619,19 +625,14 @@ impl App {
             "reply" | "rep" => {
                 if !args.is_empty() {
                     let text = args.join(" ");
-                    if let Some(t_idx) = self.thread_at_cursor() {
-                        self.thread_command(&["reply", &(t_idx + 1).to_string(), &text]);
-                    } else if let Some(idx) = self.comment_idx_at_cursor() {
+                    if let Some(idx) = self.comment_idx_at_cursor() {
                         self.comments[idx].replies.push(text);
                         let _ = self.comment_store.save_comments(&self.comments);
                         self.status_message = Some("Reply added to local comment".to_string());
                     } else {
-                        self.status_message =
-                            Some("No thread or comment at cursor to reply to".to_string());
+                        self.status_message = Some("No comment at cursor to reply to".to_string());
                     }
                     self.active_view = ActiveView::Diff;
-                } else if let Some(t_idx) = self.thread_at_cursor() {
-                    self.start_thread_reply(t_idx);
                 } else if let Some(idx) = self.comment_idx_at_cursor() {
                     self.start_reply_to_comment(idx);
                 } else {
@@ -954,6 +955,7 @@ mod tests {
                     path: "a.rs".into(),
                     line: Some(4),
                     resolved: false,
+                    outdated: false,
                     comments: vec![],
                 },
                 Thread {
@@ -961,6 +963,7 @@ mod tests {
                     path: "b.rs".into(),
                     line: None,
                     resolved: true,
+                    outdated: false,
                     comments: vec![],
                 },
             ],
@@ -1194,6 +1197,7 @@ mod tests {
             path: "a.rs".into(),
             line: Some(4),
             resolved: false,
+            outdated: false,
             comments: vec![],
         }];
         app.execute_command(":thread");
@@ -1202,6 +1206,20 @@ mod tests {
         app.active_view = ActiveView::Diff;
         app.execute_command(":thread view");
         assert_eq!(app.active_view, ActiveView::ThreadView);
+    }
+
+    #[test]
+    fn threads_command_selects_requested_filter() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(7);
+        app.execute_command(":threads outdated");
+        assert_eq!(app.thread_filter, ThreadFilter::Outdated);
+        assert_eq!(app.active_view, ActiveView::ThreadView);
+
+        app.execute_command(":threads open");
+        assert_eq!(app.thread_filter, ThreadFilter::Open);
+        app.execute_command(":threads all");
+        assert_eq!(app.thread_filter, ThreadFilter::All);
     }
 
     #[test]
@@ -1485,37 +1503,52 @@ mod tests {
     }
 
     #[test]
-    fn resolve_toggles_the_remote_thread_under_the_cursor() {
+    fn resolve_commands_stay_local_when_a_remote_thread_shares_the_cursor() {
         let mut app = cmd_app();
-        app.pr.current_number = Some(3);
+        app.comments = vec![cmd_comment(1)];
         app.threads = vec![lgtm_core::github::Thread {
             id: "t1".into(),
             path: "src/lib.rs".into(),
             line: Some(1),
             resolved: false,
+            outdated: false,
             comments: vec![],
         }];
         app.cursor_line_idx = 0;
         assert_eq!(app.thread_at_cursor(), Some(0));
         app.execute_command("resolve");
         assert_eq!(app.active_view, ActiveView::Diff);
-        assert!(app.comments.is_empty());
+        assert!(app.comments[0].is_resolved);
+        assert!(!app.threads[0].resolved);
+
+        app.execute_command("unresolve");
+        assert!(!app.comments[0].is_resolved);
+        assert!(!app.threads[0].resolved);
     }
 
     #[test]
     fn reply_command_targets_comment_cursor_or_prompts() {
         let mut app = cmd_app();
         app.comments = vec![cmd_comment(2)];
+        app.threads = vec![lgtm_core::github::Thread {
+            id: "t1".into(),
+            path: "src/lib.rs".into(),
+            line: Some(2),
+            resolved: false,
+            outdated: false,
+            comments: vec![],
+        }];
         app.cursor_line_idx = 0;
         app.execute_command("reply hello");
         assert_eq!(
             app.status_message.as_deref(),
-            Some("No thread or comment at cursor to reply to")
+            Some("No comment at cursor to reply to")
         );
         app.cursor_line_idx = 1;
         app.execute_command("reply hello there");
         assert_eq!(app.comments[0].replies, vec!["hello there".to_string()]);
         assert_eq!(app.comment_store.load_comments()[0].replies.len(), 1);
+        assert!(app.threads[0].comments.is_empty());
         assert_eq!(
             app.status_message.as_deref(),
             Some("Reply added to local comment")

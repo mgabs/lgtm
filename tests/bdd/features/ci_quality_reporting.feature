@@ -86,4 +86,3 @@ Feature: CI Quality & Performance Reporting
     Given CI runner environments migrating to updated Ubuntu releases
     When the quality gate job executes on Ubuntu runners
     Then toolchains and build steps succeed without runner image obsolescence errors
-
