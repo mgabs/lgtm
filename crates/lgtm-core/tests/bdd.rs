@@ -866,3 +866,43 @@ fn bdd_core_020_github_and_azure_reply_resolve_and_reopen_contracts() {
         Some(serde_json::json!({"status": "active"}))
     );
 }
+
+#[test]
+fn bdd_core_021_rust_static_scan_detects_injections_and_inline_tautological_assert() {
+    use lgtm_core::guard::SecurityAndTestGuard;
+
+    // Given Rust source diffs with SQL injection, shell command injection, and tautological assert.
+    let sql_diff = PrEngine::parse_unified_diff(
+        "diff --git a/src/db.rs b/src/db.rs\n--- a/src/db.rs\n+++ b/src/db.rs\n@@ -0,0 +1,1 @@\n+let q = format!(\"SELECT * FROM users WHERE id = '{}'\", user);\n"
+    ).unwrap();
+
+    let cmd_diff = PrEngine::parse_unified_diff(
+        "diff --git a/src/exec.rs b/src/exec.rs\n--- a/src/exec.rs\n+++ b/src/exec.rs\n@@ -0,0 +1,1 @@\n+let out = Command::new(\"sh\").arg(\"-c\").arg(c).output();\n"
+    ).unwrap();
+
+    let test_diff = PrEngine::parse_unified_diff(
+        "diff --git a/src/logic.rs b/src/logic.rs\n--- a/src/logic.rs\n+++ b/src/logic.rs\n@@ -0,0 +1,3 @@\n+#[test]\n+fn test_t() {\n+    assert!(true);\n+}\n"
+    ).unwrap();
+
+    let clean_diff = PrEngine::parse_unified_diff(
+        "diff --git a/src/safe.rs b/src/safe.rs\n--- a/src/safe.rs\n+++ b/src/safe.rs\n@@ -0,0 +1,2 @@\n+let q = sqlx::query(\"SELECT * FROM users WHERE id = $1\").bind(user);\n+let out = Command::new(\"git\").arg(\"status\").output();\n"
+    ).unwrap();
+
+    // When scanned by SecurityAndTestGuard.
+    let sql_alerts = SecurityAndTestGuard::scan_file(&sql_diff.files[0]);
+    let cmd_alerts = SecurityAndTestGuard::scan_file(&cmd_diff.files[0]);
+    let test_alerts = SecurityAndTestGuard::scan_file(&test_diff.files[0]);
+    let clean_alerts = SecurityAndTestGuard::scan_file(&clean_diff.files[0]);
+
+    // Then each violation is detected with appropriate generic rule ID and clean diff has no alerts.
+    assert!(sql_alerts.iter().any(|a| a.rule_id == "sec/sql-injection"));
+    assert!(cmd_alerts
+        .iter()
+        .any(|a| a.rule_id == "sec/command-injection"));
+    assert!(test_alerts
+        .iter()
+        .any(|a| a.rule_id == "test/tautological-assert"));
+    assert!(clean_alerts.iter().all(|a| a.rule_id != "sec/sql-injection"
+        && a.rule_id != "sec/command-injection"
+        && a.rule_id != "test/tautological-assert"));
+}

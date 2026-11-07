@@ -38,6 +38,7 @@ application crash or operating-system restart.
 | `bdd_core_018` | Anonymous listing response is malformed or not an array | Error reported without retry or an empty successful listing |
 | `bdd_core_019` | GitHub (API/CLI) and Azure (`az`) list open, closed, and all PRs | Request targets, state flags, and normalized summaries match provider/transport contracts |
 | `bdd_core_020` | GitHub (API/CLI) and Azure (`az`) reply, resolve, and reopen threads | Request endpoints, payloads, numeric ID guards, and confirmation checks reject unconfirmed responses |
+| `bdd_core_021` | Rust source diffs contain dynamic SQL interpolation, shell execution, or inline tautological assert | Static guard flags `sec/sql-injection`, `sec/command-injection`, and `test/tautological-assert`; clean patterns produce no findings |
 | `bdd_cli_001` | User installs, inspects, and removes the hook | Successful exit codes, matching status, actual hook created and removed |
 | `bdd_cli_002` | User supplies `--debug-log` without `--debug` | Argument error and no log file |
 | `bdd_cli_003` | `LGTM_DEBUG_LOG` is set; run normally, then with `--debug --debug-log PATH` | Environment alone creates no log; explicit flags create the requested file |

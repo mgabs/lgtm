@@ -9,6 +9,7 @@
 - **BREAKING**: `lgtm review` now requires an explicit action (`export` or `import`) instead of ambiguously launching the TUI.
 
 ### Added
+- Static analysis guard rules for Rust source code: AST detection for dynamic SQL injection via `format!` (`sec/sql-injection`), shell command injection via `Command::new("sh" | "bash" | ...).arg("-c")` (`sec/command-injection`), and un-gated tautological assertion detection (`test/tautological-assert`) across all files including inline tests in `src/*.rs`.
 - Markdown preview navigation shortcuts: `e` / `o` to launch external editor directly at cursor line, `[` / `]` to trigger diff bracket navigation chords (`]f`, `]h`, `]c`, etc.), `f` / `Ctrl-p` to open file picker, `v` to toggle reviewed status, `r` to reply to comments, and `?` for help modal.
 
 ## 2.6.2
