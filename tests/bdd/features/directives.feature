@@ -29,3 +29,22 @@ Feature: Local Review Directives
     When alerts are converted to review directives
     Then directives are stored in ".lgtm/directives.jsonl" with rule ID, severity, and remediation text
     And MCP agents receive them as actionable tasks
+
+  # REQ-DIR-4; Scenario: Guard scan populates directives via MCP
+  Scenario: Guard scan populates directives via MCP
+    Given static guard scans detecting alerts on modified diff files
+    When an AI agent invokes "lgtm_security_scan" with persist set to true
+    Then active guard alerts are persisted to ".lgtm/directives.jsonl"
+    And the directives appear in "lgtm_list_directives" and "lgtm_directive_status"
+
+  # REQ-DIR-4; Scenario: Baseline-suppressed findings do not generate directives
+  Scenario: Baseline-suppressed findings do not generate directives
+    Given static scans detecting alerts that match repository baseline suppressions
+    When an AI agent invokes "lgtm_security_scan" with persist set to true
+    Then no directives are created for those suppressed alerts
+
+  # REQ-DIR-4; Scenario: Idempotent scan persistence
+  Scenario: Idempotent scan persistence
+    Given "lgtm_security_scan" is invoked multiple times with persist set to true without code changes
+    Then open directives for existing alerts are not duplicated in ".lgtm/directives.jsonl"
+

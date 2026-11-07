@@ -542,7 +542,7 @@ Or start Aider in one tmux/zellij/wezterm pane and `lgtm` in the other for real-
 | MCP Tool | Description | Parameters |
 |---|---|---|
 | `lgtm_diff` | Get structured diff snapshot with file-by-file stats | `rev_spec` (optional string, e.g. `main..feat`) |
-| `lgtm_security_scan` | Run static analysis guardrails for OWASP leaks, complexity spikes, and test neutering | `strict` (boolean, flag only Critical/High) |
+| `lgtm_security_scan` | Run static analysis guardrails for OWASP leaks, complexity spikes, and test neutering | `strict` (boolean, flag only Critical/High), `persist` (boolean, persist active findings as review directives in `.lgtm/directives.jsonl`) |
 | `lgtm_list_directives` | Read all human review directives from `.lgtm/directives.jsonl` | *(None)* |
 | `lgtm_add_directive` | Anchor a review directive to a specific file and line; `line` must fit the stored 32-bit line number | `file` (string), `line` (integer, at most `4294967295`), `content` (string) |
 | `lgtm_directive_status` | Directives with 1-based `id`, outcome, claim and verdict | *(None)* |
