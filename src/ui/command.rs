@@ -19,7 +19,7 @@ pub fn command_description(cmd: &str) -> &'static str {
             "Open review directives list (`:directives recheck` reclassifies outcomes; `:directives orphans` lists, re-pins or drops orphaned ones)"
         }
         "r" | "review" | "send" | "push" | "submit" => "Export & blast batch review to agent",
-        "thread" => "Draft comments, replies and resolves, then send them (:thread comment|reply|resolve|unresolve|edit|discard|drafts|submit)",
+        "thread" => "Post PR comments/replies online or view outdated threads (:thread comment|reply|resolve|retry|refresh|outdated)",
         "checks" => "Refresh CI check status for the open PR",
         "threads" => "List remote review threads for the open PR",
         "hidden" => "List suppressed and baselined findings",

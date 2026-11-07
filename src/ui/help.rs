@@ -216,6 +216,10 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw("Jump to Next / Previous remote PR thread (after :threads)"),
                 ]),
                 Line::from(vec![
+                    Span::styled("  ]T / [T          ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Jump to Next / Previous unresolved outdated thread in this file"),
+                ]),
+                Line::from(vec![
                     Span::styled("  t / <Space>t     ", Style::default().fg(Color::Cyan)),
                     Span::raw("Open remote PR thread inspector (view full conversation & comments)"),
                 ]),
@@ -530,7 +534,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :reply, :rep [text]  ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Reply to comment or thread at cursor"),
+                    Span::raw("Reply to local directive at cursor"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :resolve, :res       ", Style::default().fg(Color::Cyan)),
@@ -550,15 +554,19 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :pr <number>         ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Load PR in background; close drafts and visual selections to switch"),
+                    Span::raw("Load PR in background; close the thread view and visual selections to switch"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :prs [open|closed|all]", Style::default().fg(Color::Cyan)),
                     Span::raw("Open PR picker modal (open, closed, or all)"),
                 ]),
                 Line::from(vec![
-                    Span::styled("  :threads, :thread    ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Live PR threads; draft comment/reply/resolve, then :thread submit"),
+                    Span::styled("  :threads [open|outdated|all]", Style::default().fg(Color::Cyan)),
+                    Span::raw("Live PR threads; Tab/o cycles modal filters; outdated badge and ~ gutter"),
+                ]),
+                Line::from(vec![
+                    Span::styled("  :thread              ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Comments, replies and resolution post online; bare reply/resolve stay local"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :checks              ", Style::default().fg(Color::Cyan)),

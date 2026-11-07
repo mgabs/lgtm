@@ -17,8 +17,10 @@ mod background_tests;
 pub(crate) mod command;
 mod comments;
 mod commit;
-mod drafts;
+pub(crate) mod drafts;
 mod external;
+
+pub use drafts::CommentRetryBuffer;
 mod input;
 pub mod markdown;
 mod motion;
@@ -60,6 +62,14 @@ pub enum AuditPaneFocus {
     Inspector,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThreadFilter {
+    #[default]
+    All,
+    Open,
+    Outdated,
+}
+
 pub struct App {
     pub git_engine: GitEngine,
     forge_factory: fn(&std::path::Path) -> Box<dyn lgtm_core::forge::Forge>,
@@ -77,6 +87,7 @@ pub struct App {
     /// Read-only GitHub state for the open PR, refreshed on demand via `:checks` / `:threads`.
     pub ci: Option<lgtm_core::github::CiSummary>,
     pub threads: Vec<lgtm_core::github::Thread>,
+    pub thread_filter: ThreadFilter,
 
     // Full Repo Audit state
     pub audit: AuditState,
@@ -168,8 +179,7 @@ pub struct App {
     pr_load_lock: std::sync::Arc<std::sync::Mutex<()>>,
     pr_load_latest: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub thread_revision: u64,
-    pub drafts: lgtm_core::discussion::DraftSet,
-    submit_confirm: bool,
+    pub comment_retry: Option<CommentRetryBuffer>,
     submitting: bool,
     review_posting_prs: std::collections::HashSet<u64>,
 }
@@ -243,6 +253,7 @@ impl App {
             marks: Vec::new(),
             ci: None,
             threads: Vec::new(),
+            thread_filter: ThreadFilter::All,
             config,
             hidden: std::cell::RefCell::new(hidden),
             comments,
@@ -296,8 +307,7 @@ impl App {
             pr_load_lock: Default::default(),
             pr_load_latest: Default::default(),
             thread_revision: 0,
-            drafts: Default::default(),
-            submit_confirm: false,
+            comment_retry: None,
             submitting: false,
             review_posting_prs: Default::default(),
         };

@@ -25,7 +25,7 @@ application crash or operating-system restart.
 | `bdd_core_002` | A saved PR review is reopened after code moves or changes | Moved content stays reviewed; changed content requires review; another PR inherits no marks |
 | `bdd_core_003` | A historical GitHub PR's merge ref is missing; load its diff | Stored patch returned after one ref attempt; no guessed branch fetch |
 | `bdd_core_004` | GitHub PR fetch fails authentication | Error returned after one request; no patch or transport fallback |
-| `bdd_core_008` | Equivalent GitHub and Azure thread payloads have open or completed statuses | Normalized discussion text, location and resolution markers agree |
+| `bdd_core_008` | Equivalent GitHub and Azure thread payloads have open, completed, or outdated statuses | Normalized discussion text and location agree; resolved markers match, GitHub `isOutdated` and Azure diff reconciliation produce outdated markers |
 | `bdd_core_009` | Saved review uses an unsupported future format version | Load reports an upgrade is needed; original data stays untouched |
 | `bdd_core_010` | GitHub and Azure listing payloads include open, merged and closed reviews | Normalized open/closed/all filters select equivalent entries |
 | `bdd_core_011` | No API token; `gh` needs login or is missing | One anonymous GET lists public open/closed/all PRs without credentials |
@@ -38,6 +38,7 @@ application crash or operating-system restart.
 | `bdd_core_018` | Anonymous listing response is malformed or not an array | Error reported without retry or an empty successful listing |
 | `bdd_core_019` | GitHub (API/CLI) and Azure (`az`) list open, closed, and all PRs | Request targets, state flags, and normalized summaries match provider/transport contracts |
 | `bdd_core_020` | GitHub (API/CLI) and Azure (`az`) reply, resolve, and reopen threads | Request endpoints, payloads, numeric ID guards, and confirmation checks reject unconfirmed responses |
+| `bdd_core_021` | Rust source diffs contain dynamic SQL interpolation, shell execution, or inline tautological assert | Static guard flags `sec/sql-injection`, `sec/command-injection`, and `test/tautological-assert`; clean patterns produce no findings |
 | `bdd_cli_001` | User installs, inspects, and removes the hook | Successful exit codes, matching status, actual hook created and removed |
 | `bdd_cli_002` | User supplies `--debug-log` without `--debug` | Argument error and no log file |
 | `bdd_cli_003` | `LGTM_DEBUG_LOG` is set; run normally, then with `--debug --debug-log PATH` | Environment alone creates no log; explicit flags create the requested file |
@@ -77,12 +78,15 @@ by `--test bdd`.
 | `REQ-NAV-1`..`REQ-NAV-4` | Universal item, page, top/bottom, and dismiss keys across pickers and document views | `universal_navigation_bindings_cover_all_list_pickers` and `universal_page_navigation_covers_document_views`, `src/app/input.rs`; scenarios in `tests/bdd/features/universal_key_navigation.feature` |
 | `bdd_provider_001` | Azure historical reloads use recorded commits without repeated ref probes | `historical_pr_cold_and_reload_request_budgets`, `crates/lgtm-core/src/forge/azure/performance_tests.rs` |
 | `bdd_provider_002` | GitHub stored-patch retrieval keeps a bounded request count | `historical_api_patch_request_budget` and `historical_cli_patch_request_budget`, `crates/lgtm-core/src/forge/github/performance_tests.rs` |
+| `REQ-COM-6` | Outdated modal badge, All/Open/Outdated filter cycle, yellow gutter marker, forward/backward current-file navigation, and safe header fallback for missing lines | `test_full_ui_rendering_on_test_backend`, `src/ui/mod.rs`; `thread_view_filter_cycles_all_open_outdated`, `bracket_capital_t_jumps_between_outdated_threads`, `outdated_thread_enter_jumps_to_file_header_when_line_is_gone`, `src/app/input.rs`; `outdated_threads_render_the_yellow_gutter_marker`, `src/ui/diff/regression.rs`; `outdated_thread_jump_skips_current_and_resolved_threads`, `src/app/motion.rs` |
+| `NFR-COM-1` | 100 threads over 1,000 diff lines: reconciliation/gutter mapping <1ms, cold full frame <16ms at 120x40, Tab/o and ]T/[T <1us per keystroke; median of seven warmed measurement samples | `outdated_thread_performance_budgets`, `src/ui/diff/regression.rs`; opt-in release build with `--features perf-budgets` |
 
 Run a mapped internal test by its test name, for example:
 
 ```sh
 cargo test --bin lgtm preparation_runs_off_thread_and_does_not_replace_an_open_draft
 cargo test -p lgtm-core historical_pr_cold_and_reload_request_budgets
+cargo test --release --features perf-budgets --bin lgtm outdated_thread_performance_budgets -- --nocapture
 ```
 
 ## Automated reporting and coverage metrics

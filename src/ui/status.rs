@@ -127,10 +127,18 @@ pub(crate) fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
             Span::raw(" Raw Diff | "),
             Span::styled("[j/k]", Style::default().fg(Color::Cyan)),
             Span::raw(" Move | "),
+            Span::styled("[e]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Edit | "),
+            Span::styled("[[/]]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Nav | "),
+            Span::styled("[f]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Files | "),
+            Span::styled("[v]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Review | "),
             Span::styled("[g/G]", Style::default().fg(Color::Cyan)),
             Span::raw(" Top/End | "),
             Span::styled("[Tab]", Style::default().fg(Color::Cyan)),
-            Span::raw(" Files | "),
+            Span::raw(" Drawer | "),
             Span::styled("[c/l/R/x]", Style::default().fg(Color::Cyan)),
             Span::raw(" Directive add/list/resolve/del | "),
             Span::styled("[:]", Style::default().fg(Color::Cyan)),
@@ -361,6 +369,8 @@ mod tests {
         let text = status_text(&app);
         assert!(text.contains("[MARKDOWN PREVIEW]"));
         assert!(text.contains("[m/Esc] Raw Diff"));
+        assert!(text.contains("[e] Edit"));
+        assert!(text.contains("[[/]] Nav"));
         assert!(text.contains("[g/G] Top/End"));
     }
 

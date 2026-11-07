@@ -46,11 +46,11 @@ check: check-fmt lint test
 
 ## Run headless security & test fraud audit on working tree diff
 risk:
-	cargo run -- risk
+	cargo run -- check
 
 ## Run full CI pipeline (fmt, lint, tests, SARIF report)
 ci: check
-	-cargo run -- ci --format sarif --output lgtm-results.sarif
+	-cargo run -- check --no-user-config --format sarif --output lgtm-results.sarif
 	@echo "✨ Generated SARIF report at lgtm-results.sarif"
 
 ## Install git pre-commit hooks
