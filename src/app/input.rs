@@ -4480,7 +4480,11 @@ mod tests {
         app.active_view = ActiveView::MarkdownPreview;
         app.markdown_preview.cursor_row = 1;
         app.handle_key(key(KeyCode::Enter));
-        assert!(app.status_message.as_deref().unwrap_or("").contains("RFC.md"));
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("RFC.md"));
         assert!(app.status_message.as_deref().unwrap_or("").contains(":2"));
 
         // Wrapped continuation line: cursor on row 2 (line_number is None)
@@ -4488,7 +4492,11 @@ mod tests {
         app.active_view = ActiveView::MarkdownPreview;
         app.markdown_preview.cursor_row = 2;
         app.handle_key(key(KeyCode::Enter));
-        assert!(app.status_message.as_deref().unwrap_or("").contains("RFC.md"));
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("RFC.md"));
         assert!(app.status_message.as_deref().unwrap_or("").contains(":2"));
 
         // Empty preview rows

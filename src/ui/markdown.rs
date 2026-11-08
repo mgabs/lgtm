@@ -84,11 +84,7 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
         }
     };
 
-    let file_threads: Vec<_> = app
-        .threads
-        .iter()
-        .filter(|t| t.path == file_name)
-        .collect();
+    let file_threads: Vec<_> = app.threads.iter().filter(|t| t.path == file_name).collect();
     let threads_for = |row: &RenderedMarkdownRow| -> Vec<&lgtm_core::github::Thread> {
         let deleted = row.diff_kind == MarkdownDiffKind::Deletion;
         match row.line_number {
@@ -203,7 +199,10 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
             if let Some(first) = t.comments.first() {
                 lines.push(Line::from(vec![
                     Span::styled(
-                        format!("       │ 🧵 [@{} ({}{})] ", first.author, status, outdated_badge),
+                        format!(
+                            "       │ 🧵 [@{} ({}{})] ",
+                            first.author, status, outdated_badge
+                        ),
                         Style::default().fg(icon_color),
                     ),
                     Span::styled(&first.body, Style::default().fg(body_color)),
@@ -392,13 +391,11 @@ mod tests {
             is_folded: false,
             is_reviewed: false,
         }];
-        app.markdown_preview.rendered_rows = vec![
-            RenderedMarkdownRow {
-                line_number: Some(20),
-                diff_kind: MarkdownDiffKind::Unchanged,
-                spans: vec![Span::raw("Line 20 text")],
-            },
-        ];
+        app.markdown_preview.rendered_rows = vec![RenderedMarkdownRow {
+            line_number: Some(20),
+            diff_kind: MarkdownDiffKind::Unchanged,
+            spans: vec![Span::raw("Line 20 text")],
+        }];
         app.markdown_preview.cached_file_idx = Some(0);
         app.markdown_preview.cached_width = 80;
 
@@ -432,13 +429,11 @@ mod tests {
                 outdated: true,
                 can_resolve: Some(true),
                 can_unresolve: Some(true),
-                comments: vec![
-                    lgtm_core::github::ThreadComment {
-                        id: 201,
-                        author: "bot".into(),
-                        body: "Old discussion".into(),
-                    },
-                ],
+                comments: vec![lgtm_core::github::ThreadComment {
+                    id: 201,
+                    author: "bot".into(),
+                    body: "Old discussion".into(),
+                }],
             },
         ];
 

@@ -41,8 +41,8 @@ graph TD
 
 ## 6. Integration & Verification
 
-- [ ] 6.1 Update `docs/bdd-scenarios.md` and `CHANGELOG.md` with new preview shortcuts and inline thread support
-- [ ] 6.2 Full quality gates check: `make check` (fmt, lint, test, coverage)
+- [x] 6.1 Update `docs/bdd-scenarios.md` and `CHANGELOG.md` with new preview shortcuts and inline thread support
+- [x] 6.2 Full quality gates check: `make check` (fmt, lint, test, coverage) Evidence: `make check` exited with code 0 (all fmt, clippy, boundary, test, and coverage checks passed)
 - [ ] 6.3 Gate 6 approval and archive via `/openspec-archive-change`
 
 ## Review Gate
