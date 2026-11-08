@@ -1012,7 +1012,7 @@ impl App {
             (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                 self.comment_reply_input.clear();
                 self.comment_reply_target_idx = None;
-                self.active_view = ActiveView::Diff;
+                self.active_view = self.comment_source_view;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('s')) | (_, KeyCode::Enter) => {
                 if !self.comment_reply_input.trim().is_empty() {
@@ -1034,7 +1034,7 @@ impl App {
                 }
                 self.comment_reply_input.clear();
                 self.comment_reply_target_idx = None;
-                self.active_view = ActiveView::Diff;
+                self.active_view = self.comment_source_view;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('w'))
             | (KeyModifiers::ALT, KeyCode::Backspace)
@@ -1755,6 +1755,42 @@ impl App {
 
     pub(crate) fn handle_markdown_preview_key(&mut self, key: KeyEvent) {
         let vh = self.markdown_preview.viewport_height;
+        if let Some(leader) = self.pending_leader.take() {
+            if leader == 'c' {
+                if !self.sync_cursor_to_markdown_row() {
+                    return;
+                }
+                match key.code {
+                    KeyCode::Char('p') => {
+                        self.comment_input =
+                            "🚀 [PERF] Optimize hot-path allocations and database query batching."
+                                .to_string();
+                    }
+                    KeyCode::Char('w') => {
+                        self.comment_input =
+                            "❓ [WHY] Explain rationale and verify architectural invariants."
+                                .to_string();
+                    }
+                    KeyCode::Char('s') => {
+                        self.comment_input = "🔒 [SECURITY] Ensure inputs are sanitized, parameterized, and auth checks enforced.".to_string();
+                    }
+                    KeyCode::Char('r') => {
+                        self.comment_input = "🧹 [REFACTOR] Simplify logic, reduce cognitive nesting, eliminate duplication.".to_string();
+                    }
+                    KeyCode::Char('a') => {
+                        self.comment_input =
+                            "⚡ [COVERAGE] Add unit/regression tests covering these branches."
+                                .to_string();
+                    }
+                    _ => {
+                        self.comment_input.clear();
+                    }
+                }
+                self.comment_source_view = ActiveView::MarkdownPreview;
+                self.active_view = ActiveView::CommentInput;
+                return;
+            }
+        }
         match (key.modifiers, key.code) {
             (KeyModifiers::NONE, KeyCode::Char('m')) | (KeyModifiers::NONE, KeyCode::Esc) => {
                 self.comment_source_view = ActiveView::Diff;
@@ -1787,12 +1823,13 @@ impl App {
                 self.toggle_review_current_file();
             }
             (KeyModifiers::NONE, KeyCode::Char('r')) => {
+                self.sync_cursor_to_markdown_row();
                 if let Some(t_idx) = self.thread_at_cursor() {
                     self.start_thread_reply(t_idx);
                 } else if let Some(idx) = self.comment_idx_at_cursor() {
                     self.start_reply_to_comment(idx);
+                    self.comment_source_view = ActiveView::MarkdownPreview;
                 } else {
-                    self.sync_cursor_to_markdown_row();
                     self.comment_input.clear();
                     self.comment_source_view = ActiveView::MarkdownPreview;
                     self.active_view = ActiveView::CommentInput;
@@ -1805,11 +1842,7 @@ impl App {
                 self.show_file_drawer = !self.show_file_drawer;
             }
             (KeyModifiers::NONE, KeyCode::Char('c')) => {
-                if self.sync_cursor_to_markdown_row() {
-                    self.comment_input.clear();
-                    self.comment_source_view = ActiveView::MarkdownPreview;
-                    self.active_view = ActiveView::CommentInput;
-                }
+                self.pending_leader = Some('c');
             }
             (KeyModifiers::NONE, KeyCode::Char('l')) => {
                 self.sync_cursor_to_markdown_row();
@@ -4451,5 +4484,152 @@ mod tests {
         app.status_message = None;
         app.handle_key(key(KeyCode::Enter));
         assert!(app.status_message.is_some());
+    }
+
+    #[test]
+    fn test_markdown_preview_comment_leader_and_reply_return() {
+        let mut app = test_util::create_test_app();
+        app.snapshot.files = vec![crate::model::FileDiff {
+            old_path: None,
+            new_path: "RFC.md".into(),
+            change_type: crate::model::ChangeType::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: vec![crate::model::DiffHunk {
+                old_start: 1,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 2,
+                header: "@@ -1,0 +1,2 @@".into(),
+                folded_blocks: Vec::new(),
+                is_folded: false,
+                lines: vec![
+                    crate::model::DiffLine {
+                        line_type: crate::model::LineType::Context,
+                        content: "# Title".into(),
+                        old_line_num: Some(1),
+                        new_line_num: Some(1),
+                    },
+                    crate::model::DiffLine {
+                        line_type: crate::model::LineType::Addition,
+                        content: "Line 2 content".into(),
+                        old_line_num: None,
+                        new_line_num: Some(2),
+                    },
+                ],
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }];
+        app.markdown_preview.rendered_rows = vec![
+            markdown::RenderedMarkdownRow {
+                line_number: Some(1),
+                diff_kind: markdown::MarkdownDiffKind::Unchanged,
+                spans: vec![ratatui::text::Span::raw("# Title")],
+            },
+            markdown::RenderedMarkdownRow {
+                line_number: Some(2),
+                diff_kind: markdown::MarkdownDiffKind::Addition,
+                spans: vec![ratatui::text::Span::raw("Line 2 content")],
+            },
+        ];
+
+        // 1. Leader sequence: 'c' then 'p' opens CommentInput with PERF template
+        app.active_view = ActiveView::MarkdownPreview;
+        app.markdown_preview.cursor_row = 1;
+        app.handle_key(key(KeyCode::Char('c')));
+        assert_eq!(app.pending_leader, Some('c'));
+        app.handle_key(key(KeyCode::Char('p')));
+        assert_eq!(app.active_view, ActiveView::CommentInput);
+        assert!(app.comment_input.contains("[PERF]"));
+        assert_eq!(app.comment_source_view, ActiveView::MarkdownPreview);
+
+        // Cancel comment input returns to MarkdownPreview
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+
+        // 2. Leader sequence: 'c' then 'w' opens CommentInput with WHY template
+        app.handle_key(key(KeyCode::Char('c')));
+        app.handle_key(key(KeyCode::Char('w')));
+        assert_eq!(app.active_view, ActiveView::CommentInput);
+        assert!(app.comment_input.contains("[WHY]"));
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+
+        // 3. Leader sequence: 'c' then 'c' opens empty CommentInput
+        app.handle_key(key(KeyCode::Char('c')));
+        app.handle_key(key(KeyCode::Char('c')));
+        assert_eq!(app.active_view, ActiveView::CommentInput);
+        assert!(app.comment_input.is_empty());
+        app.handle_key(key(KeyCode::Esc));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+
+        // Leader sequences: 's' (SECURITY), 'r' (REFACTOR), 'a' (COVERAGE), and fallback
+        app.handle_key(key(KeyCode::Char('c')));
+        app.handle_key(key(KeyCode::Char('s')));
+        assert!(app.comment_input.contains("[SECURITY]"));
+        app.handle_key(key(KeyCode::Esc));
+
+        app.handle_key(key(KeyCode::Char('c')));
+        app.handle_key(key(KeyCode::Char('r')));
+        assert!(app.comment_input.contains("[REFACTOR]"));
+        app.handle_key(key(KeyCode::Esc));
+
+        app.handle_key(key(KeyCode::Char('c')));
+        app.handle_key(key(KeyCode::Char('a')));
+        assert!(app.comment_input.contains("[COVERAGE]"));
+        app.handle_key(key(KeyCode::Esc));
+
+        app.handle_key(key(KeyCode::Char('c')));
+        app.handle_key(key(KeyCode::Char('z')));
+        assert!(app.comment_input.is_empty());
+        app.handle_key(key(KeyCode::Esc));
+
+        // When no source line exists, 'c' leader does not open CommentInput
+        app.markdown_preview.rendered_rows.clear();
+        app.handle_key(key(KeyCode::Char('c')));
+        app.handle_key(key(KeyCode::Char('p')));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
+
+        // 4. Reply to directive on line 2 from MarkdownPreview
+        app.markdown_preview.rendered_rows = vec![
+            markdown::RenderedMarkdownRow {
+                line_number: Some(1),
+                diff_kind: markdown::MarkdownDiffKind::Unchanged,
+                spans: vec![ratatui::text::Span::raw("# Title")],
+            },
+            markdown::RenderedMarkdownRow {
+                line_number: Some(2),
+                diff_kind: markdown::MarkdownDiffKind::Addition,
+                spans: vec![ratatui::text::Span::raw("Line 2 content")],
+            },
+        ];
+        app.comments.push(lgtm_core::comment::CommentAnchor {
+            id: "dir1".into(),
+            file_path: "RFC.md".into(),
+            target_line_no: 2,
+            target_code: "Line 2 content".into(),
+            context_before: Vec::new(),
+            context_after: Vec::new(),
+            comment_text: "Existing directive".into(),
+            replies: Vec::new(),
+            created_at_turn: 0,
+            is_resolved: false,
+            pr_number: None,
+            orphaned: false,
+            track: Default::default(),
+        });
+        // Diff cursor is at line 0 (stale), markdown preview cursor is at row 1 (line 2)
+        app.cursor_line_idx = 0;
+        app.markdown_preview.cursor_row = 1;
+        app.active_view = ActiveView::MarkdownPreview;
+        app.handle_key(key(KeyCode::Char('r')));
+        assert_eq!(app.active_view, ActiveView::CommentReply);
+        assert_eq!(app.comment_source_view, ActiveView::MarkdownPreview);
+
+        // Submitting reply returns to MarkdownPreview
+        app.comment_reply_input = "My reply".into();
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.active_view, ActiveView::MarkdownPreview);
     }
 }
