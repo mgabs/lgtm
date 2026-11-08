@@ -407,8 +407,14 @@ pub fn parse_prs(v: &Value) -> Vec<PullRequestSummary> {
 }
 
 /// Azure thread statuses that mean "done"; the rest (active, pending, unknown) stay open.
-fn thread_closed(status: &str) -> bool {
-    matches!(status, "fixed" | "closed" | "wontFix" | "byDesign")
+pub fn map_azure_status(status: &str) -> ThreadState {
+    match status {
+        "fixed" => ThreadState::Resolved(Resolution::Done),
+        "wontFix" => ThreadState::Resolved(Resolution::WontFix),
+        "closed" => ThreadState::Resolved(Resolution::Other("closed".to_string())),
+        "byDesign" => ThreadState::Resolved(Resolution::Other("byDesign".to_string())),
+        _ => ThreadState::Open,
+    }
 }
 
 pub fn parse_threads(v: &Value) -> Vec<Thread> {
@@ -450,11 +456,7 @@ pub fn parse_threads(v: &Value) -> Vec<Thread> {
                     .pointer("/threadContext/rightFileStart/line")
                     .and_then(Value::as_u64)
                     .map(|l| l as u32),
-                state: if thread_closed(&s(t, "/status")) {
-                    ThreadState::Resolved(Resolution::Done)
-                } else {
-                    ThreadState::Open
-                },
+                state: map_azure_status(&s(t, "/status")),
                 outdated: false,
                 can_resolve: None,
                 can_unresolve: None,
@@ -935,6 +937,37 @@ mod tests {
         );
         assert_eq!(parse_remote("git@github.com:a/b.git"), None);
         assert_eq!(parse_remote("https://dev.azure.com/o/p"), None);
+    }
+
+    #[test]
+    fn azure_status_mapping_and_wontfix_payload() {
+        for (status, expected) in [
+            ("fixed", ThreadState::Resolved(Resolution::Done)),
+            ("wontFix", ThreadState::Resolved(Resolution::WontFix)),
+            (
+                "closed",
+                ThreadState::Resolved(Resolution::Other("closed".into())),
+            ),
+            (
+                "byDesign",
+                ThreadState::Resolved(Resolution::Other("byDesign".into())),
+            ),
+            ("active", ThreadState::Open),
+            ("pending", ThreadState::Open),
+            ("unknown", ThreadState::Open),
+        ] {
+            let json = serde_json::json!({
+                "value": [{
+                    "id": 1,
+                    "status": status,
+                    "threadContext": { "filePath": "/src/a.rs", "rightFileStart": { "line": 10 } },
+                    "comments": [{ "id": 1, "author": { "displayName": "Ann" }, "content": "text" }]
+                }]
+            });
+            let threads = parse_threads(&json);
+            assert_eq!(threads[0].state, expected, "status {status} mapping");
+            assert!(!threads[0].outdated);
+        }
     }
 
     #[test]
