@@ -1913,8 +1913,10 @@ mod tests {
                 id: "t1".into(),
                 path: "src/main.rs".into(),
                 line: Some(10),
-                resolved: false,
+                state: lgtm_core::forge::ThreadState::Open,
                 outdated: false,
+                can_resolve: None,
+                can_unresolve: None,
                 comments: vec![lgtm_core::github::ThreadComment {
                     id: 101,
                     author: "alice".into(),
@@ -1925,8 +1927,10 @@ mod tests {
                 id: "t2".into(),
                 path: "src/lib.rs".into(),
                 line: Some(20),
-                resolved: true,
+                state: lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done),
                 outdated: false,
+                can_resolve: None,
+                can_unresolve: None,
                 comments: vec![lgtm_core::github::ThreadComment {
                     id: 102,
                     author: "bob".into(),
@@ -3032,8 +3036,10 @@ mod tests {
             id: id.into(),
             path: path.into(),
             line,
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }
     }
@@ -3095,7 +3101,8 @@ mod tests {
             thread("resolved", "f0.rs", Some(2)),
             thread("outdated", "f0.rs", Some(3)),
         ];
-        app.threads[1].resolved = true;
+        app.threads[1].state =
+            lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done);
         app.threads[2].outdated = true;
         app.active_view = ActiveView::ThreadView;
 

@@ -209,8 +209,10 @@ mod tests {
             id: "1".into(),
             path: "test.rs".into(),
             line: Some(5),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: true,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![
                 lgtm_core::github::ThreadComment {
                     id: 1,

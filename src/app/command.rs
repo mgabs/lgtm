@@ -954,16 +954,22 @@ mod tests {
                     id: "1".into(),
                     path: "a.rs".into(),
                     line: Some(4),
-                    resolved: false,
+                    state: lgtm_core::forge::ThreadState::Open,
                     outdated: false,
+                    can_resolve: None,
+                    can_unresolve: None,
                     comments: vec![],
                 },
                 Thread {
                     id: "2".into(),
                     path: "b.rs".into(),
                     line: None,
-                    resolved: true,
+                    state: lgtm_core::forge::ThreadState::Resolved(
+                        lgtm_core::forge::Resolution::Done,
+                    ),
                     outdated: false,
+                    can_resolve: None,
+                    can_unresolve: None,
                     comments: vec![],
                 },
             ],
@@ -1196,8 +1202,10 @@ mod tests {
             id: "1".into(),
             path: "a.rs".into(),
             line: Some(4),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }];
         app.execute_command(":thread");
@@ -1510,8 +1518,10 @@ mod tests {
             id: "t1".into(),
             path: "src/lib.rs".into(),
             line: Some(1),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }];
         app.cursor_line_idx = 0;
@@ -1519,11 +1529,11 @@ mod tests {
         app.execute_command("resolve");
         assert_eq!(app.active_view, ActiveView::Diff);
         assert!(app.comments[0].is_resolved);
-        assert!(!app.threads[0].resolved);
+        assert!(!app.threads[0].resolved());
 
         app.execute_command("unresolve");
         assert!(!app.comments[0].is_resolved);
-        assert!(!app.threads[0].resolved);
+        assert!(!app.threads[0].resolved());
     }
 
     #[test]
@@ -1534,8 +1544,10 @@ mod tests {
             id: "t1".into(),
             path: "src/lib.rs".into(),
             line: Some(2),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }];
         app.cursor_line_idx = 0;

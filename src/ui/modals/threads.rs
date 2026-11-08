@@ -61,7 +61,7 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
 
     let open_count = visible
         .iter()
-        .filter(|&&idx| !app.threads[idx].resolved && !app.threads[idx].outdated)
+        .filter(|&&idx| !app.threads[idx].resolved() && !app.threads[idx].outdated)
         .count();
 
     // Left pane: Thread list
@@ -74,7 +74,7 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
             let is_selected = idx == app.thread_selected_idx;
             let (marker, marker_color) = if t.outdated {
                 ("~", Color::Yellow)
-            } else if t.resolved {
+            } else if t.resolved() {
                 ("◇", Color::Green)
             } else {
                 ("◆", Color::Cyan)
@@ -146,7 +146,7 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
     {
         let (status_text, status_color) = if t.outdated {
             ("[⚠ Outdated]", Color::Yellow)
-        } else if t.resolved {
+        } else if t.resolved() {
             ("✓ Resolved", Color::Green)
         } else {
             ("● Open", Color::Cyan)

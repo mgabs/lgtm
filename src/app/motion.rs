@@ -662,7 +662,7 @@ impl App {
         let rows = self
             .threads
             .iter()
-            .filter(|thread| thread.path == path && thread.outdated && !thread.resolved)
+            .filter(|thread| thread.path == path && thread.outdated && !thread.resolved())
             .filter_map(|thread| {
                 let number = thread.line?;
                 if number < first_line? || number > last_line? {
@@ -962,8 +962,10 @@ mod tests {
             id: "1".into(),
             path: "t.rs".into(),
             line: Some(line),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         };
         app.jump_thread(true);
@@ -1021,8 +1023,14 @@ mod tests {
                 id: n.to_string(),
                 path: "t.rs".into(),
                 line: Some(n),
-                resolved: n == 3,
+                state: if n == 3 {
+                    lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done)
+                } else {
+                    lgtm_core::forge::ThreadState::Open
+                },
                 outdated: n == 2 || n == 3 || n == 4,
+                can_resolve: None,
+                can_unresolve: None,
                 comments: vec![],
             })
             .collect();
@@ -1034,10 +1042,11 @@ mod tests {
         app.jump_outdated_thread(false);
         assert_eq!(app.cursor_line_idx, 1);
 
-        app.threads[2].resolved = false;
+        app.threads[2].state = lgtm_core::forge::ThreadState::Open;
         app.jump_outdated_thread(true);
         assert_eq!(app.cursor_line_idx, 2);
-        app.threads[2].resolved = true;
+        app.threads[2].state =
+            lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done);
         app.snapshot.files[0].hunks[0].lines[3].new_line_num = Some(40);
         app.threads[3].line = Some(40);
         app.invalidate_diff_content();
@@ -1717,8 +1726,10 @@ mod tests {
             id: "t".into(),
             path: "a.rs".into(),
             line: Some(line),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         };
         app.threads = vec![t(3), t(11)];

@@ -546,7 +546,7 @@ impl McpServer {
                     "id": t.id,
                     "path": t.path,
                     "line": t.line,
-                    "resolved": t.resolved,
+                    "resolved": t.resolved(),
                     "outdated": t.outdated,
                     "comments": t.comments.iter().map(|c| json!({
                         "id": c.id, "author": c.author, "body": c.body
@@ -735,8 +735,10 @@ mod tests {
                 id: "T1".into(),
                 path: "a.rs".into(),
                 line: Some(3),
-                resolved: true,
+                state: lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done),
                 outdated: true,
+                can_resolve: None,
+                can_unresolve: None,
                 comments: vec![ThreadComment {
                     id: 5,
                     author: "bob".into(),

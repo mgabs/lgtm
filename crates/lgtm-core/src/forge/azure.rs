@@ -1,8 +1,9 @@
 //! Azure DevOps REST with cached CLI authentication and an `az` CLI fallback.
+use super::model::{Applied, Resolution, Thread, ThreadComment, ThreadState};
 use super::{Forge, PrDiscussion};
 
 use crate::comment::CommentSide;
-use crate::github::{Bucket, Check, Thread, ThreadComment};
+use crate::github::{Bucket, Check};
 use crate::model::DiffSnapshot;
 use crate::pr::{PrAuthor, PullRequestSummary};
 use anyhow::{bail, Context, Result};
@@ -449,8 +450,14 @@ pub fn parse_threads(v: &Value) -> Vec<Thread> {
                     .pointer("/threadContext/rightFileStart/line")
                     .and_then(Value::as_u64)
                     .map(|l| l as u32),
-                resolved: thread_closed(&s(t, "/status")),
+                state: if thread_closed(&s(t, "/status")) {
+                    ThreadState::Resolved(Resolution::Done)
+                } else {
+                    ThreadState::Open
+                },
                 outdated: false,
+                can_resolve: None,
+                can_unresolve: None,
                 comments,
             })
         })
@@ -692,17 +699,24 @@ impl PrDiscussion for AzureForge {
             .as_u64()
             .context("Azure DevOps returned no comment id")
     }
-    fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
+    fn set_state(&self, pr: u64, thread_id: &str, state: ThreadState) -> Result<Applied> {
         thread_id
             .parse::<u64>()
             .context("invalid Azure thread id")?;
-        let status = if resolved { "fixed" } else { "active" };
+        let status = match state {
+            ThreadState::Open => "active",
+            ThreadState::Resolved(Resolution::Done) => "fixed",
+            ThreadState::Resolved(Resolution::WontFix) => "wontFix",
+            ThreadState::Resolved(Resolution::Other(ref kind)) => {
+                bail!("Resolution Other({kind}) is read-only and cannot be set")
+            }
+        };
         let b = serde_json::json!({ "status": status });
         let v = self.call("patch", "pullRequestThreads", pr, Some(thread_id), Some(&b))?;
         v["id"]
             .as_u64()
             .context("Thread update has no confirmation; refresh before retrying")?;
-        Ok(())
+        Ok(Applied::exact(state))
     }
 }
 
@@ -940,12 +954,12 @@ mod tests {
                 t[0].id.as_str(),
                 t[0].path.as_str(),
                 t[0].line,
-                t[0].resolved
+                t[0].resolved()
             ),
             ("3", "src/a.rs", Some(12), false)
         );
         assert_eq!(t[0].comments[0].author, "Ann");
-        assert!(t[1].resolved && t[1].line.is_none() && t[1].path.is_empty());
+        assert!(t[1].resolved() && t[1].line.is_none() && t[1].path.is_empty());
     }
 
     #[test]
@@ -967,7 +981,8 @@ mod tests {
         );
         assert_eq!(f.post_general(2, "hi").unwrap(), 7);
         assert_eq!(f.reply(2, "5", 1, "ok").unwrap(), 7);
-        f.set_resolved(2, "5", true).unwrap();
+        f.set_state(2, "5", ThreadState::Resolved(Resolution::Done))
+            .unwrap();
         f.post_review(2, "APPROVE", "lgtm").unwrap();
         f.post_review(2, "REQUEST_CHANGES", "").unwrap();
         assert!(f.post_review(2, "NOPE", "").is_err());
@@ -1076,7 +1091,7 @@ mod tests {
         );
         let thread = provider.thread(12, "3").unwrap().unwrap();
         assert_eq!(thread.id, "3");
-        assert!(thread.resolved);
+        assert!(thread.resolved());
         assert_eq!(thread.comments[0].author, "Ann");
         assert!(provider.thread(12, "../other").is_err());
     }
@@ -1368,7 +1383,9 @@ mod tests {
         let refreshed = provider.rest("repo", "threads").unwrap();
         assert!(!Arc::ptr_eq(&first, &refreshed));
         assert_eq!(refreshed["value"][0]["id"], 1);
-        provider.set_resolved(1, "1", true).unwrap();
+        provider
+            .set_state(1, "1", ThreadState::Resolved(Resolution::Done))
+            .unwrap();
         assert!(CACHE.read().unwrap().is_empty());
         *TOKEN.lock().unwrap() = saved_token;
         *CACHE.write().unwrap() = saved_cache;

@@ -8,7 +8,7 @@ impl App {
             .filter_map(|(i, thread)| {
                 let visible = match self.thread_filter {
                     ThreadFilter::All => true,
-                    ThreadFilter::Open => !thread.resolved && !thread.outdated,
+                    ThreadFilter::Open => !thread.resolved() && !thread.outdated,
                     ThreadFilter::Outdated => thread.outdated,
                 };
                 visible.then_some(i)
@@ -307,7 +307,7 @@ impl App {
                 let t = self.normalize_threads(t);
                 let open: Vec<String> = t
                     .iter()
-                    .filter(|t| !t.resolved)
+                    .filter(|t| !t.resolved())
                     .take(5)
                     .map(|t| format!("{}:{}", t.path, t.line.unwrap_or(0)))
                     .collect();
@@ -965,8 +965,14 @@ mod tests {
             id: format!("t{line}"),
             path: path.into(),
             line: Some(line),
-            resolved,
+            state: if resolved {
+                lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done)
+            } else {
+                lgtm_core::forge::ThreadState::Open
+            },
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }
     }

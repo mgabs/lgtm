@@ -36,22 +36,9 @@ impl CiSummary {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ThreadComment {
-    pub id: u64,
-    pub author: String,
-    pub body: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Thread {
-    pub id: String,
-    pub path: String,
-    pub line: Option<u32>,
-    pub resolved: bool,
-    pub outdated: bool,
-    pub comments: Vec<ThreadComment>,
-}
+pub use crate::forge::model::{
+    Applied, DraftSetResolved, Resolution, Thread, ThreadComment, ThreadState,
+};
 
 pub use crate::forge::PrDiscussion;
 pub use crate::forge::PrDiscussion as GithubClient;
@@ -72,9 +59,9 @@ pub fn thread_marker(threads: &[Thread], path: &str, line: u32) -> Option<Thread
     if here.is_empty() {
         return None;
     }
-    Some(if here.iter().any(|t| t.outdated && !t.resolved) {
+    Some(if here.iter().any(|t| t.outdated && !t.resolved()) {
         ThreadMarkerKind::Outdated
-    } else if here.iter().any(|t| !t.resolved) {
+    } else if here.iter().any(|t| !t.resolved()) {
         ThreadMarkerKind::Open
     } else {
         ThreadMarkerKind::Resolved
@@ -142,14 +129,21 @@ pub fn parse_threads(json: &str) -> Result<Vec<Thread>> {
                 .pointer("/line")
                 .and_then(|l| l.as_u64())
                 .map(|l| l as u32),
-            resolved: n
+            state: if n
                 .pointer("/isResolved")
                 .and_then(|b| b.as_bool())
-                .unwrap_or(false),
+                .unwrap_or(false)
+            {
+                ThreadState::Resolved(Resolution::Done)
+            } else {
+                ThreadState::Open
+            },
             outdated: n
                 .pointer("/isOutdated")
                 .and_then(|b| b.as_bool())
                 .unwrap_or(false),
+            can_resolve: None,
+            can_unresolve: None,
             comments: n
                 .pointer("/comments/nodes")
                 .and_then(|c| c.as_array())
@@ -340,18 +334,30 @@ impl GithubClient for GhClient {
         post_id(gh_input(&["api", &ep, "--input", "-"], &payload)?)
     }
 
-    fn set_resolved(&self, _pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
-        let op = if resolved {
-            "resolveReviewThread"
-        } else {
-            "unresolveReviewThread"
+    fn set_state(&self, _pr: u64, thread_id: &str, state: ThreadState) -> Result<Applied> {
+        let (op, applied) = match state {
+            ThreadState::Open => ("unresolveReviewThread", ThreadState::Open),
+            ThreadState::Resolved(Resolution::Done) => (
+                "resolveReviewThread",
+                ThreadState::Resolved(Resolution::Done),
+            ),
+            ThreadState::Resolved(Resolution::WontFix) => (
+                "resolveReviewThread",
+                ThreadState::Resolved(Resolution::Done),
+            ),
+            ThreadState::Resolved(Resolution::Other(ref kind)) => {
+                bail!("Resolution Other({kind}) is read-only and cannot be set")
+            }
         };
         let q = format!("query=mutation($id:ID!){{{op}(input:{{threadId:$id}}){{thread{{id}}}}}}");
         let out = gh(&["api", "graphql", "-F", &format!("id={thread_id}"), "-f", &q])?;
         if !out.status.success() {
             bail!(explain(&String::from_utf8_lossy(&out.stderr)));
         }
-        Ok(())
+        Ok(Applied {
+            requested: state,
+            applied,
+        })
     }
 }
 
@@ -433,9 +439,20 @@ impl GithubClient for FakeClient {
     fn reply(&self, _pr: u64, _thread: &str, comment_id: u64, body: &str) -> Result<u64> {
         self.record(format!("reply:{comment_id}:{body}"))
     }
-    fn set_resolved(&self, _pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
-        self.record(format!("resolve:{thread_id}:{resolved}"))
-            .map(|_| ())
+    fn set_state(&self, _pr: u64, thread_id: &str, state: ThreadState) -> Result<Applied> {
+        let applied = match state {
+            ThreadState::Open => ThreadState::Open,
+            ThreadState::Resolved(Resolution::Done) => ThreadState::Resolved(Resolution::Done),
+            ThreadState::Resolved(Resolution::WontFix) => ThreadState::Resolved(Resolution::Done),
+            ThreadState::Resolved(Resolution::Other(ref kind)) => {
+                bail!("Resolution Other({kind}) is read-only and cannot be set")
+            }
+        };
+        self.record(format!("state:{thread_id}:{}", state.display_name()))?;
+        Ok(Applied {
+            requested: state,
+            applied,
+        })
     }
 }
 

@@ -27,7 +27,7 @@ fn parses_threads() {
     )
     .unwrap();
     assert_eq!(t.len(), 2);
-    assert!(t[0].resolved);
+    assert!(t[0].resolved());
     assert_eq!(
         (t[0].line, t[0].comments[0].author.as_str()),
         (Some(7), "bob")
@@ -67,8 +67,14 @@ fn thread_marker_reports_open_resolved_outdated_and_none() {
         id: "1".into(),
         path: path.into(),
         line: Some(line),
-        resolved,
+        state: if resolved {
+            ThreadState::Resolved(Resolution::Done)
+        } else {
+            ThreadState::Open
+        },
         outdated,
+        can_resolve: None,
+        can_unresolve: None,
         comments: vec![],
     };
     let ts = [
@@ -302,11 +308,14 @@ fn gh_client_fixture_child() {
     assert_eq!(client.reply(42, "T1", 71, "reply").unwrap(), 71);
     assert!(args().contains("comments/71/replies"));
     assert_eq!(payload()["body"], "reply");
-    for (resolved, operation) in [
-        (true, "resolveReviewThread"),
-        (false, "unresolveReviewThread"),
+    for (state, operation) in [
+        (
+            ThreadState::Resolved(Resolution::Done),
+            "resolveReviewThread",
+        ),
+        (ThreadState::Open, "unresolveReviewThread"),
     ] {
-        client.set_resolved(42, "T1", resolved).unwrap();
+        client.set_state(42, "T1", state).unwrap();
         assert!(args().contains(operation));
         assert!(args().contains("id=T1"));
     }
@@ -318,7 +327,9 @@ fn gh_client_fixture_child() {
         client.thread(42, "T1").map(|_| ()),
         client.head_sha(42).map(|_| ()),
         client.post_general(42, "body").map(|_| ()),
-        client.set_resolved(42, "T1", true),
+        client
+            .set_state(42, "T1", ThreadState::Resolved(Resolution::Done))
+            .map(|_| ()),
     ] {
         assert!(result.unwrap_err().to_string().contains("gh auth login"));
     }
@@ -360,14 +371,14 @@ fn fake_client_retry_state_and_failures() {
     );
     assert_eq!(fake.post_general(1, "general").unwrap(), 102);
     assert_eq!(fake.reply(1, "T1", 7, "reply").unwrap(), 103);
-    fake.set_resolved(1, "T1", false).unwrap();
+    fake.set_state(1, "T1", ThreadState::Open).unwrap();
     assert_eq!(
         *fake.posted.borrow(),
         [
             "a.rs:3:inline",
             "general:general",
             "reply:7:reply",
-            "resolve:T1:false"
+            "state:T1:Open"
         ]
     );
     let failing = FakeClient {
@@ -424,8 +435,10 @@ fn reconciliation_keeps_provider_outdated_state_when_the_line_is_present() {
         id: "T1".into(),
         path: "a.rs".into(),
         line: Some(1),
-        resolved: false,
+        state: ThreadState::Open,
         outdated: true,
+        can_resolve: None,
+        can_unresolve: None,
         comments: vec![],
     }];
     mark_outdated(&mut threads, &diff);

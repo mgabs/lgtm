@@ -1,5 +1,6 @@
 //! GitHub forge: native Git diffs, authenticated API/CLI access, and anonymous public reads.
 use super::failure::is_ambiguous_write;
+use super::model::{Applied, Resolution, ThreadState};
 use super::{post_each, Forge, InlineDraft, PrDiscussion};
 use crate::comment::CommentSide;
 use crate::github::{parse_threads, Bucket, Check, GhClient, Thread, THREADS_QUERY};
@@ -589,12 +590,21 @@ impl PrDiscussion for GitHubForge {
         GhClient.reply(pr, thread_id, comment_id, body)
     }
 
-    fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
+    fn set_state(&self, pr: u64, thread_id: &str, state: ThreadState) -> Result<Applied> {
         if self.token().is_some() {
-            let op = if resolved {
-                "resolveReviewThread"
-            } else {
-                "unresolveReviewThread"
+            let (op, applied) = match state {
+                ThreadState::Open => ("unresolveReviewThread", ThreadState::Open),
+                ThreadState::Resolved(Resolution::Done) => (
+                    "resolveReviewThread",
+                    ThreadState::Resolved(Resolution::Done),
+                ),
+                ThreadState::Resolved(Resolution::WontFix) => (
+                    "resolveReviewThread",
+                    ThreadState::Resolved(Resolution::Done),
+                ),
+                ThreadState::Resolved(Resolution::Other(ref kind)) => {
+                    bail!("Resolution Other({kind}) is read-only and cannot be set")
+                }
             };
             let q = format!("mutation($id:ID!){{{op}(input:{{threadId:$id}}){{thread{{id}}}}}}");
             let payload = serde_json::json!({
@@ -609,9 +619,12 @@ impl PrDiscussion for GitHubForge {
                 .pointer(&format!("/data/{op}/thread/id"))
                 .and_then(Value::as_str)
                 .context("Thread update has no confirmation; refresh before retrying")?;
-            return Ok(());
+            return Ok(Applied {
+                requested: state,
+                applied,
+            });
         }
-        GhClient.set_resolved(pr, thread_id, resolved)
+        GhClient.set_state(pr, thread_id, state)
     }
 }
 
@@ -968,7 +981,9 @@ mod tests {
             provider.post_general(1, "text").map(|_| ()),
             provider.reply(1, "RT1", 1, "reply").map(|_| ()),
             provider.post_review(1, "COMMENT", "body"),
-            provider.set_resolved(1, "RT1", true),
+            provider
+                .set_state(1, "RT1", ThreadState::Resolved(Resolution::Done))
+                .map(|_| ()),
         ];
         for result in failures {
             assert_eq!(
