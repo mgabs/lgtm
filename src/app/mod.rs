@@ -76,7 +76,7 @@ pub struct App {
     pub comment_store: CommentStore,
     pub turn_manager: TurnManager,
     pub snapshot: DiffSnapshot,
-    diff_revision: u64,
+    pub(crate) diff_revision: u64,
     fold_revision: u64,
     rows_cache: std::cell::RefCell<rows::Cache>,
     pub(crate) render_cache: std::cell::RefCell<crate::ui::RenderCache>,
