@@ -6,7 +6,7 @@
 > **Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner built in Rust.**
 > *"Because code shouldn't ship until it actually looks good to you."*
 
-`lgtm` is a keyboard-driven diff reviewer and deterministic guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It combines Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST hunk folding, an interactive Commit Forge, GitHub & Azure DevOps PR review, and direct `#ref` injection into `tmux`, `zellij`, `wezterm`, `kitty` agent panes or clipboards.
+`lgtm` is a keyboard-driven diff reviewer and deterministic guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It combines Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST hunk folding, an interactive Commit Forge, GitHub, Azure DevOps & GitLab PR/MR review, and direct `#ref` injection into `tmux`, `zellij`, `wezterm`, `kitty` agent panes or clipboards.
 
 ```
 ┌── Files (35 cols) ─────────┬── Diff: src/guard/mod.rs ────────────────────────┐

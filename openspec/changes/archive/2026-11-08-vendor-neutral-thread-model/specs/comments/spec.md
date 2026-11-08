@@ -63,6 +63,10 @@ Opening the comments view or running `:refresh` SHALL fetch threads live from th
 - **WHEN** a PR is loaded and the comments view opens
 - **THEN** live threads are listed with path, line, side, resolution status and comments
 
+#### Scenario: Outdated comment marker in diff gutter
+- **WHEN** a remote thread targets a line modified or deleted by a newer commit in the PR
+- **THEN** the diff gutter renders an outdated marker `~` rather than an active open marker
+
 #### Scenario: Outdated thread
 - **WHEN** a fetched thread is outdated
 - **THEN** it shows an `OUTDATED` badge and no draft is marked `STALE` because of it
@@ -71,34 +75,31 @@ Opening the comments view or running `:refresh` SHALL fetch threads live from th
 - **WHEN** no PR or forge target exists
 - **THEN** the view shows "Comments require a PR" and offers no create, reply or resolve actions
 
-### Requirement: Draft Resolve and Unresolve
-Users SHALL be able to draft resolving (with `Done` or `WontFix`) or unresolving a focused thread; the last draft per thread MUST win. A draft MUST be rejected with a reason when the thread's `can_resolve` or `can_unresolve` is false. Unknown permission MUST allow the draft. Applying a state the thread already has MUST succeed idempotently.
+### Requirement: REQ-COM-3 Direct Online Thread Resolution
+Users SHALL be able to toggle thread resolution (resolve with `Done` or `WontFix`, or unresolve) directly against the forge API. The resolved state MUST update immediately in the TUI upon forge confirmation, rejecting actions when the thread's `can_resolve` or `can_unresolve` is false.
 
-#### Scenario: Last draft wins
-- **WHEN** the user drafts resolve and then unresolve for the same thread
-- **THEN** only the unresolve draft remains
+#### Scenario: Resolve thread online
+- **WHEN** the user resolves a focused thread
+- **THEN** the resolution status is updated directly on the forge and reflected in the TUI
+
+#### Scenario: Resolve thread with WontFix
+- **WHEN** the user resolves a focused thread with `wontfix`
+- **THEN** the resolution status is set to `WontFix` or falls back to `Done` on providers without native support
 
 #### Scenario: Known missing permission
-- **WHEN** the user drafts resolve on a thread with `can_resolve` false
-- **THEN** the draft is rejected with the reason and nothing is stored
-
-#### Scenario: Unknown permission
-- **WHEN** the user drafts resolve on a thread with unknown `can_resolve`
-- **THEN** the draft is stored and any failure surfaces at submit
-
-### Requirement: Persistent Draft Store
-Drafts SHALL persist atomically in `.lgtm/drafts/pr-<N>.json`, survive restarts and be scoped per PR and forge repo. Resolve drafts MUST store their target resolution, and legacy drafts holding only a resolved boolean MUST load as `Done` or unresolve without data loss. Drafts MUST appear in the comments view with a `DRAFT` badge and be editable or discardable individually (`:thread discard <id>`) or all at once. The store MUST hold drafts only, never fetched remote threads.
-
-#### Scenario: Drafts survive restart
-- **WHEN** drafts exist and the TUI restarts on the same PR
-- **THEN** the drafts are shown as pending `DRAFT` items
-
-#### Scenario: Legacy resolve draft
-- **WHEN** a draft file written with `resolved: true` is loaded
-- **THEN** it appears as a resolve draft with resolution `Done`
+- **WHEN** the user attempts to resolve on a thread with `can_resolve` false
+- **THEN** the action is rejected with the reason and not sent to the forge
 
 ### Requirement: Provider Parity
 Live listing and the draft thread, reply and resolve behavior SHALL behave identically on GitHub (`side`) and Azure DevOps (`leftFileStart` versus `rightFileStart`) through the neutral model, and on GitLab (`old_line` versus `new_line`). Provider statuses MUST map per REQ-COMMENTS-1. Azure outdated MUST be false unless derivable reliably. Unsupported capabilities MUST return an explicit error.
+
+#### Scenario: GitHub outdated thread parsing
+- **WHEN** a GitHub review thread GraphQL response contains `isOutdated: true`
+- **THEN** the thread model sets `outdated = true`
+
+#### Scenario: Azure DevOps outdated thread reconciliation
+- **WHEN** an Azure DevOps thread targets a line not present in the current diff snapshot hunks
+- **THEN** the thread model sets `outdated = true`
 
 #### Scenario: Azure side mapping
 - **WHEN** a `LEFT` thread is submitted to Azure DevOps
@@ -123,6 +124,10 @@ Live listing and the draft thread, reply and resolve behavior SHALL behave ident
 ### Requirement: Thread Command and Key Surface
 PR comment work SHALL be namespaced under `:thread` (`comment`, `reply`, `resolve [wontfix]`, `unresolve`, `submit`, `discard [id|all]`, `refresh`), and `:threads` MUST open the single PR comments view. Local directive commands MUST be unchanged. In the view, `j/k`, `Enter`, `c`, `r`, `x`, `e`, `d`, `s` and `Esc` MUST be scoped to the view with no global key reassigned. Removed commands MUST NOT be aliased, and without a loaded PR `:thread *` MUST show "Comments require a PR".
 
+#### Scenario: Command domains stay separate
+- **WHEN** a local directive and remote thread share the cursor line and the user runs bare `:reply`, `:resolve`, or `:unresolve`
+- **THEN** only the local directive is changed; remote thread actions require the explicit `:thread` namespace
+
 #### Scenario: Draft via command
 - **WHEN** a PR is loaded and the user runs `:thread comment looks wrong`
 - **THEN** a draft thread with that body is created at the cursor line
@@ -135,12 +140,26 @@ PR comment work SHALL be namespaced under `:thread` (`comment`, `reply`, `resolv
 - **WHEN** the user runs `:post`
 - **THEN** it is reported as an unknown command
 
+#### Scenario: Filter threads by outdated status
+- **WHEN** the user runs `:threads outdated`
+- **THEN** only threads with `outdated == true` are displayed in the list, including resolved outdated threads
+
+#### Scenario: Cycle thread status filters
+- **WHEN** the user presses `Tab` or `o` in the thread modal
+- **THEN** the filter advances from `All` to `Open` to `Outdated` and back to `All`
+- **AND** `Open` includes only unresolved, non-outdated threads, while `Outdated` includes all outdated threads
+
+#### Scenario: Unknown removed command
+- **WHEN** the user runs `:thread submit` or `:thread drafts`
+- **THEN** the command is rejected as unknown with usage instructions
+
+#### Scenario: Navigation to outdated thread line
+- **WHEN** the user presses `Enter` on an outdated thread whose line is absent from the diff
+- **THEN** cursor navigates to the file header and status bar displays "Line gone from current diff (outdated)"
+
 ### Requirement: MCP and Watcher Source Live Threads
 The `lgtm-mcp` comment tools and the watcher SHALL source PR comments from live forge threads, not from local jsonl files. MCP thread output MUST include resolution status and `outdated`, and MUST keep the existing `resolved` boolean.
 
 #### Scenario: MCP lists live threads
 - **WHEN** an MCP client requests PR comments
 - **THEN** the response reflects threads fetched from the forge with status, `outdated` and `resolved`
-
-## Review Gate
-- [x] **Gate 2 Approval**: Specifications reviewed and approved by human before technical design.
