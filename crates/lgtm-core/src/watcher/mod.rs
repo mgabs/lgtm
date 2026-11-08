@@ -103,7 +103,9 @@ impl RepoWatcher {
                             if let Some(ref gd) = watched_gitdir {
                                 let _ = debouncer.watcher().unwatch(gd);
                             }
-                            let _ = debouncer.watcher().watch(&workdir, RecursiveMode::Recursive);
+                            let _ = debouncer
+                                .watcher()
+                                .watch(&workdir, RecursiveMode::Recursive);
                             if let Some(ref gd) = git_dir {
                                 let _ = debouncer.watcher().watch(gd, RecursiveMode::Recursive);
                             }

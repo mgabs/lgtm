@@ -40,16 +40,16 @@ flowchart TD
 ## 5. Slice 3: Worktree Switch Watcher Rebinding
 
 - [x] 5.1 BDD scenarios for `:wt` switch re-binding the active watcher (verify: `docs/bdd-scenarios.md` updated)
-- [ ] 5.2 Gate 5.3 human sign-off on BDD scenarios
-- [ ] 5.3 Red unit tests: `apply_worktree_switch` rebinds active watcher paths and watches linked gitdir (verify: `rtk cargo test -p lgtm worktree` fails)
-- [ ] 5.4 Green implementation: update `src/app/worktree.rs`, `src/app/input.rs`, `src/main.rs` to pass watcher controller and rebind on switch (verify: tests pass)
-- [ ] 5.5 Line and branch coverage >= 95% on touched modules (verify: `rtk cargo llvm-cov`)
+- [x] 5.2 Gate 5.3 human sign-off on BDD scenarios
+- [x] 5.3 Red unit tests: `apply_worktree_switch` rebinds active watcher paths and watches linked gitdir (verify: `rtk cargo test -p lgtm worktree` fails)
+- [x] 5.4 Green implementation: update `src/app/worktree.rs`, `src/app/input.rs`, `src/main.rs` to pass watcher controller and rebind on switch (verify: tests pass)
+- [x] 5.5 Line and branch coverage >= 95% on touched modules (verify: `rtk cargo llvm-cov`)
 
 ## 6. Slice 4: Documentation, CHANGELOG & Verification
 
-- [ ] 6.1 Update `CHANGELOG.md` with markdown preview live refresh and worktree watcher fix
-- [ ] 6.2 Update `README.md` and user docs if necessary
-- [ ] 6.3 Full quality gate run: `make check`, `make lint`, `make test`, `make bdd-report`
+- [x] 6.1 Update `CHANGELOG.md` with markdown preview live refresh and worktree watcher fix
+- [x] 6.2 Update `README.md` and user docs if necessary
+- [x] 6.3 Full quality gate run: `make check`, `make lint`, `make test`, `make bdd-report`
 - [ ] 6.4 Human sign-off on change before archive
 
 ## Review Gate
