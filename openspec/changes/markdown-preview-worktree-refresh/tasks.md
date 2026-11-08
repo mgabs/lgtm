@@ -24,14 +24,14 @@ flowchart TD
 ## 3. Slice 1: Markdown Preview Live Refresh & Cache Invalidation
 
 - [x] 3.1 BDD scenarios for preview live refresh and drawer updates during preview (verify: `docs/bdd-scenarios.md` updated)
-- [ ] 3.2 Gate 5.1 human sign-off on BDD scenarios
-- [ ] 3.3 Red unit tests: verify `local_ready_to_apply` accepts `ActiveView::MarkdownPreview` and `diff_revision` change triggers preview row rebuild (verify: `rtk cargo test -p lgtm refresh` fails as expected)
-- [ ] 3.4 Green implementation: update `src/app/refresh.rs`, `src/app/markdown.rs`, `src/ui/markdown.rs` to allow diff apply in markdown preview and track `cached_diff_revision` (verify: tests pass)
-- [ ] 3.5 Line and branch coverage >= 95% on touched modules (verify: `rtk cargo llvm-cov --package lgtm`)
+- [x] 3.2 Gate 5.1 human sign-off on BDD scenarios
+- [x] 3.3 Red unit tests: verify `local_ready_to_apply` accepts `ActiveView::MarkdownPreview` and `diff_revision` change triggers preview row rebuild (verify: `rtk cargo test -p lgtm refresh` fails as expected)
+- [x] 3.4 Green implementation: update `src/app/refresh.rs`, `src/app/markdown.rs`, `src/ui/markdown.rs` to allow diff apply in markdown preview and track `cached_diff_revision` (verify: tests pass)
+- [x] 3.5 Line and branch coverage >= 95% on touched modules (verify: `rtk cargo llvm-cov --package lgtm`)
 
 ## 4. Slice 2: Core Watcher Classification for Linked Worktrees
 
-- [ ] 4.1 BDD scenarios for worktree gitdir index and HEAD path classification (verify: `docs/bdd-scenarios.md` updated)
+- [x] 4.1 BDD scenarios for worktree gitdir index and HEAD path classification (verify: `docs/bdd-scenarios.md` updated)
 - [ ] 4.2 Gate 5.2 human sign-off on BDD scenarios
 - [ ] 4.3 Red unit tests: `affects_diff` test cases for `.git/worktrees/<name>/index` and `.git/worktrees/<name>/HEAD` (verify: `rtk cargo test -p lgtm-core watcher` fails)
 - [ ] 4.4 Green implementation: update `crates/lgtm-core/src/watcher/mod.rs` to recognize worktree git administrative files (verify: tests pass)

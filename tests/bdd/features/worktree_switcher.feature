@@ -80,3 +80,17 @@ Feature: Git Worktree Switcher
     Given the active worktree is "/repo/.worktrees/feat-ui" on branch "feat-ui"
     When the diff view is rendered
     Then the status bar contains "[wt: feat-ui]"
+
+  # REQ-WT-07: Worktree File Watcher Classification & Rebinding (bdd_core_022)
+  Scenario: Classifying linked worktree git administrative files in file watcher
+    Given a git repository with linked worktree "feat-ui"
+    When the file watcher receives a file change event for path:
+      | path                                    | expected_affects_diff |
+      | .git/worktrees/feat-ui/index            | true                  |
+      | .git/worktrees/feat-ui/HEAD             | true                  |
+      | .git/worktrees/feat-ui/refs/heads/feat  | true                  |
+      | .git/worktrees/feat-ui/FETCH_HEAD       | false                 |
+      | .git/worktrees/feat-ui/logs/HEAD        | false                 |
+      | .git/worktrees/feat-ui/config           | false                 |
+    Then affects_diff classification matches the expected status for each path
+
