@@ -228,4 +228,18 @@ Feature: Markdown Preview with Diff Highlighting
     When the reviewer submits the reply with "Enter"
     Then the active view returns to "MarkdownPreview"
 
+  # REQ-MDP-THREADS: Inline PR Thread Rendering and Modal Shortcut in Preview; Rust test: test_markdown_preview_renders_threads_and_opens_modal
+  Scenario: Render inline PR discussion threads under source rows
+    Given a PR thread by author "@reviewer" with 1 reply is anchored to line 20 of "RFC.md"
+    When markdown preview is rendered for "RFC.md"
+    Then the thread is rendered beneath line 20 with "🧵" badge and author "@reviewer"
+    And the reply is rendered beneath the thread with "↳" indentation
+
+  # REQ-MDP-THREADS: Inline PR Thread Rendering and Modal Shortcut in Preview; Rust test: test_markdown_preview_renders_threads_and_opens_modal
+  Scenario: Open PR threads modal via t shortcut in preview
+    Given the reviewer is viewing "RFC.md" in markdown preview mode
+    When the reviewer presses the "t" key
+    Then the active view switches to "ThreadView"
+
+
 

@@ -1838,6 +1838,10 @@ impl App {
             (KeyModifiers::NONE, KeyCode::Char('?')) => {
                 self.active_view = ActiveView::Help;
             }
+            (KeyModifiers::NONE, KeyCode::Char('t')) => {
+                self.sync_cursor_to_markdown_row();
+                self.open_threads_modal();
+            }
             (_, KeyCode::Tab) | (_, KeyCode::BackTab) => {
                 self.show_file_drawer = !self.show_file_drawer;
             }
@@ -2306,6 +2310,8 @@ mod tests {
         app.handle_key(key(KeyCode::Char('j')));
         app.handle_key(key(KeyCode::Char('k')));
         assert!(app.wants_mouse_capture());
+        app.handle_key(key(KeyCode::Char('c')));
+        assert_eq!(app.pending_leader, Some('c'));
         app.handle_key(key(KeyCode::Char('c')));
         assert_eq!(app.active_view, ActiveView::CommentInput);
         assert_eq!(app.cursor_line_idx, 1);
@@ -4403,6 +4409,12 @@ mod tests {
         app.handle_key(key(KeyCode::Char('?')));
         assert_eq!(app.active_view, ActiveView::Help);
 
+        // 't' opens Threads modal (requires active PR)
+        app.active_view = ActiveView::MarkdownPreview;
+        app.pr.current_number = Some(42);
+        app.handle_key(key(KeyCode::Char('t')));
+        assert_eq!(app.active_view, ActiveView::ThreadView);
+
         // 'r' opens CommentInput if no comment at cursor
         app.active_view = ActiveView::MarkdownPreview;
         app.handle_key(key(KeyCode::Char('r')));
@@ -4558,6 +4570,7 @@ mod tests {
 
         // 3. Leader sequence: 'c' then 'c' opens empty CommentInput
         app.handle_key(key(KeyCode::Char('c')));
+        assert_eq!(app.pending_leader, Some('c'));
         app.handle_key(key(KeyCode::Char('c')));
         assert_eq!(app.active_view, ActiveView::CommentInput);
         assert!(app.comment_input.is_empty());
