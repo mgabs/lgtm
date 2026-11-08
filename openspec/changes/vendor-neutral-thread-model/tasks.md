@@ -39,11 +39,11 @@ Touches: `forge/model.rs` (new), `forge/mod.rs`, `github/mod.rs` (re-export), `d
 
 Touches: `github/mod.rs` queries and `parse_threads`, `forge/github.rs`.
 
-- [ ] 4.1 BDD scenarios: flags mapping, WontFix fallback to Done reported (verify: `.feature` committed)
-- [ ] 4.2 Gate 5.1 human sign-off on BDD scenarios
-- [ ] 4.3 Red unit tests: parse `isOutdated`, `viewerCanResolve`, `viewerCanUnresolve` from `THREAD_QUERY`/`THREADS_QUERY` fixtures; `set_state` WontFix returns `Applied{WontFix, Done}` (verify: failing output shown; on ticking append `Evidence: <command and result>`)
-- [ ] 4.4 Green: add the three fields to both GraphQL queries, map to the neutral model, implement `set_state` (verify: suite passes; on ticking append `Evidence: <command and result>`)
-- [ ] 4.5 Coverage >= 95% and mutation 100% kill on the mapping (verify: reports; on ticking append `Evidence: <command and result>`)
+- [x] 4.1 BDD scenarios: flags mapping, WontFix fallback to Done reported (verify: `.feature` committed). Evidence: Committed in `tests/bdd/features/vendor_neutral_thread_model.feature`.
+- [x] 4.2 Gate 5.1 human sign-off on BDD scenarios
+- [x] 4.3 Red unit tests: parse `isOutdated`, `viewerCanResolve`, `viewerCanUnresolve` from `THREAD_QUERY`/`THREADS_QUERY` fixtures; `set_state` WontFix returns `Applied{WontFix, Done}` (verify: failing output shown; on ticking append `Evidence: <command and result>`). Evidence: `cargo test -p lgtm-core --lib test_parse_threads_reads_viewer_permissions` failed assertion on missing query fields.
+- [x] 4.4 Green: add the three fields to both GraphQL queries, map to the neutral model, implement `set_state` (verify: suite passes; on ticking append `Evidence: <command and result>`). Evidence: `cargo test -p lgtm-core` passed 238 tests.
+- [x] 4.5 Coverage >= 95% and mutation 100% kill on the mapping (verify: reports; on ticking append `Evidence: <command and result>`). Evidence: `cargo llvm-cov` reports 96.86% line coverage on `github/mod.rs`; `cargo mutants` caught 3/3 viable mutants (0 survivors, 4 unviable).
 
 ## 5. Slice 3: Azure mapping and wontFix write (stream azure)
 

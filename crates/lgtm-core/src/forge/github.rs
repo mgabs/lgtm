@@ -1054,4 +1054,52 @@ mod tests {
         assert_eq!(snapshot.total_additions, 1);
         assert_eq!(snapshot.files.len(), 1);
     }
+
+    #[test]
+    fn set_state_handles_resolutions_and_wontfix_fallback() {
+        let provider = test_forge(
+            ".",
+            vec![(
+                "graphql",
+                r#"{"data":{"resolveReviewThread":{"thread":{"id":"RT1"}}}}"#,
+            )],
+        );
+        let applied_done = provider
+            .set_state(1, "RT1", ThreadState::Resolved(Resolution::Done))
+            .unwrap();
+        assert_eq!(
+            applied_done,
+            Applied::exact(ThreadState::Resolved(Resolution::Done))
+        );
+        assert!(!applied_done.is_fallback());
+
+        let applied_wontfix = provider
+            .set_state(1, "RT1", ThreadState::Resolved(Resolution::WontFix))
+            .unwrap();
+        assert!(applied_wontfix.is_fallback());
+        assert_eq!(
+            applied_wontfix.summary_note(),
+            Some("requested WontFix, applied Done".to_string())
+        );
+
+        let unres_provider = test_forge(
+            ".",
+            vec![(
+                "graphql",
+                r#"{"data":{"unresolveReviewThread":{"thread":{"id":"RT1"}}}}"#,
+            )],
+        );
+        let applied_open = unres_provider
+            .set_state(1, "RT1", ThreadState::Open)
+            .unwrap();
+        assert_eq!(applied_open, Applied::exact(ThreadState::Open));
+
+        assert!(provider
+            .set_state(
+                1,
+                "RT1",
+                ThreadState::Resolved(Resolution::Other("custom".into()))
+            )
+            .is_err());
+    }
 }

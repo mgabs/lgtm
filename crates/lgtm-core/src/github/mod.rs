@@ -142,8 +142,8 @@ pub fn parse_threads(json: &str) -> Result<Vec<Thread>> {
                 .pointer("/isOutdated")
                 .and_then(|b| b.as_bool())
                 .unwrap_or(false),
-            can_resolve: None,
-            can_unresolve: None,
+            can_resolve: n.pointer("/viewerCanResolve").and_then(|b| b.as_bool()),
+            can_unresolve: n.pointer("/viewerCanUnresolve").and_then(|b| b.as_bool()),
             comments: n
                 .pointer("/comments/nodes")
                 .and_then(|c| c.as_array())
@@ -224,7 +224,7 @@ fn gh_input(args: &[&str], input: &serde_json::Value) -> Result<std::process::Ou
     result
 }
 
-pub const THREAD_QUERY: &str = "query($id:ID!){node(id:$id){... on PullRequestReviewThread{id isResolved isOutdated path line comments(first:100){nodes{databaseId author{login} body}}}}}";
+pub const THREAD_QUERY: &str = "query($id:ID!){node(id:$id){... on PullRequestReviewThread{id isResolved isOutdated viewerCanResolve viewerCanUnresolve path line comments(first:100){nodes{databaseId author{login} body}}}}}";
 
 pub fn parse_thread(json: &str) -> Result<Option<Thread>> {
     let v: serde_json::Value =
@@ -240,7 +240,7 @@ pub fn parse_thread(json: &str) -> Result<Option<Thread>> {
     Ok(parse_threads(&wrapped.to_string())?.into_iter().next())
 }
 
-pub const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved isOutdated path line comments(first:20){nodes{databaseId author{login} body}}}}}}}";
+pub const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved isOutdated viewerCanResolve viewerCanUnresolve path line comments(first:20){nodes{databaseId author{login} body}}}}}}}";
 
 impl GithubClient for GhClient {
     fn checks(&self, pr: u64) -> Result<Vec<Check>> {

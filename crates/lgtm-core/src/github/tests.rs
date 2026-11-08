@@ -444,3 +444,45 @@ fn reconciliation_keeps_provider_outdated_state_when_the_line_is_present() {
     mark_outdated(&mut threads, &diff);
     assert!(threads[0].outdated);
 }
+
+#[test]
+fn test_parse_threads_reads_viewer_permissions() {
+    assert!(
+        THREAD_QUERY.contains("viewerCanResolve") && THREAD_QUERY.contains("viewerCanUnresolve")
+    );
+    assert!(
+        THREADS_QUERY.contains("viewerCanResolve") && THREADS_QUERY.contains("viewerCanUnresolve")
+    );
+
+    let j = r#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+        {"id":"a","isResolved":true,"isOutdated":false,"viewerCanResolve":true,"viewerCanUnresolve":false,"path":"x","line":1,"comments":{"nodes":[]}},
+        {"id":"b","isResolved":false,"isOutdated":true,"path":"x","line":1,"comments":{"nodes":[]}}]}}}}}"#;
+    let threads = parse_threads(j).unwrap();
+    assert_eq!(threads[0].can_resolve, Some(true));
+    assert_eq!(threads[0].can_unresolve, Some(false));
+    assert_eq!(threads[1].can_resolve, None);
+    assert_eq!(threads[1].can_unresolve, None);
+
+    let single_json = r#"{"data":{"node":{"id":"T1","path":"a.rs","line":null,"isResolved":false,"isOutdated":true,"viewerCanResolve":false,"viewerCanUnresolve":true,"comments":{"nodes":[]}}}}"#;
+    let single = parse_thread(single_json).unwrap().unwrap();
+    assert_eq!(single.can_resolve, Some(false));
+    assert_eq!(single.can_unresolve, Some(true));
+}
+
+#[test]
+fn test_github_set_state_wontfix_fallback() {
+    let fake = FakeClient::default();
+    let applied = fake
+        .set_state(1, "t1", ThreadState::Resolved(Resolution::WontFix))
+        .unwrap();
+    assert_eq!(
+        applied.requested,
+        ThreadState::Resolved(Resolution::WontFix)
+    );
+    assert_eq!(applied.applied, ThreadState::Resolved(Resolution::Done));
+    assert!(applied.is_fallback());
+    assert_eq!(
+        applied.summary_note(),
+        Some("requested WontFix, applied Done".to_string())
+    );
+}
