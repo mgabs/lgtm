@@ -66,6 +66,40 @@ Feature: Vendor-Neutral Thread Model and Resolution State
     Then the discussion is resolved with Done
     And the submit summary states "requested WontFix, applied Done"
 
+  # REQ-COMMENTS-3; Scenario: GitLab Delegated Authentication and host detection
+  Scenario: GitLab host detection selects GitLab provider
+    Given an origin remote URL with host "<host>"
+    When the forge detects the provider
+    Then the detected forge kind is "GitLab"
+
+    Examples:
+      | host                  |
+      | gitlab.com            |
+      | gitlab.internal.corp  |
+      | my-gitlab.org         |
+
+  Scenario: GitLab environment override token
+    Given environment variable "GITLAB_TOKEN" is set to "gl-secret-token"
+    When GitLab forge authenticates API requests
+    Then the request uses bearer token "gl-secret-token"
+    And the token is passed via private header file and not command arguments
+
+  Scenario: GitLab authentication failure maps to glab auth login
+    Given a GitLab API request returning HTTP 401
+    When the error is classified
+    Then the failure kind is "Authentication"
+    And the error message suggests "glab auth login"
+
+  Scenario: GitLab unsupported CI checks
+    Given a GitLab merge request
+    When CI checks are requested
+    Then an explicit unsupported error is returned
+
+  Scenario: GitLab per-item inline batch submit
+    Given a batch of inline comments for a GitLab merge request
+    When the batch is submitted
+    Then each inline comment is posted individually
+
   # REQ-COMMENTS-2; Scenario: Other resolution is read-only
   Scenario: Other resolution is read-only
     Given an attempt to set resolution to an Other variant such as "closed"
