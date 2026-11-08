@@ -182,3 +182,12 @@ Feature: Markdown Preview with Diff Highlighting
     When the preview is built at a narrow width
     Then unterminated markers stay literal and no row panics
     And wrapped rows keep the source line number on the first row only
+
+  # REQ-MDP-05: Live Refresh and Cache Invalidation during Preview; Rust test: test_markdown_preview_live_refresh_applies_and_rebuilds_cache
+  Scenario: Live file modification and drawer update while in markdown preview
+    Given the reviewer is viewing "README.md" in markdown preview
+    When an external file change arrives for "README.md" and other files
+    Then the diff snapshot applies without exiting markdown preview
+    And the file change drawer reflects the updated file statuses
+    And the preview row cache invalidates and re-renders the updated content
+    And the preview cursor and scroll offset are clamped within bounds
