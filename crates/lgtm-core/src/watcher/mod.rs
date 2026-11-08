@@ -20,8 +20,15 @@ pub fn affects_diff(root: &Path, path: &Path) -> bool {
         return false;
     }
     if let Ok(git_path) = relative.strip_prefix(".git") {
-        return matches!(git_path.to_str(), Some("index" | "HEAD"))
-            || git_path.starts_with("refs/heads");
+        let s = git_path.to_str().unwrap_or("");
+        if matches!(s, "index" | "HEAD") || s.starts_with("refs/heads") {
+            return true;
+        }
+        if let Some(wt_git) = s.strip_prefix("worktrees/") {
+            let rest = wt_git.split_once('/').map(|(_, r)| r).unwrap_or(wt_git);
+            return matches!(rest, "index" | "HEAD") || rest.starts_with("refs/heads");
+        }
+        return false;
     }
     true
 }
@@ -84,6 +91,27 @@ mod tests {
             ".git/refs/heads/main",
         ] {
             assert!(affects_diff(root, &root.join(path)), "{path}");
+        }
+    }
+
+    #[test]
+    fn worktree_gitdir_paths_classified_correctly() {
+        let root = Path::new("/repo");
+        for path in [
+            ".git/worktrees/feat1/index",
+            ".git/worktrees/feat1/HEAD",
+            ".git/worktrees/feat1/refs/heads/feature",
+        ] {
+            assert!(affects_diff(root, &root.join(path)), "{path}");
+        }
+        for path in [
+            ".git/worktrees/feat1/FETCH_HEAD",
+            ".git/worktrees/feat1/logs/HEAD",
+            ".git/worktrees/feat1/config",
+            ".git/worktrees/feat1/COMMIT_EDITMSG",
+            ".git/worktrees/bare",
+        ] {
+            assert!(!affects_diff(root, &root.join(path)), "{path}");
         }
     }
 
