@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.7.1
 
 ### Removed
 - **BREAKING**: Removed deprecated subcommands `lgtm serve` (use `lgtm mcp`), `lgtm prs` (use `lgtm pr list`), `lgtm status` (use `lgtm` or `lgtm diff`), and `lgtm ci` (use `lgtm check --no-user-config`).
