@@ -988,6 +988,10 @@ impl App {
         self.pr.current_number = None;
         self.active_revision = None;
         self.git_engine = crate::git::GitEngine::new(&target_path);
+        if let Some(ref handle) = self.watcher_handle {
+            let git_dir = self.git_engine.git_dir().ok();
+            let _ = handle.rebind(&target_path, git_dir);
+        }
         self.comment_store = lgtm_core::comment::CommentStore::new(&target_path);
         self.comments = self.comment_store.load_comments();
         self.marks.clear();

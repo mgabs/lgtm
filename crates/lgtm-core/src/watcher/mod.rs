@@ -10,6 +10,30 @@ pub enum WatcherMessage {
     Error(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WatcherCommand {
+    Rebind {
+        workdir: PathBuf,
+        git_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct WatcherHandle {
+    pub tx: crossbeam_channel::Sender<WatcherCommand>,
+}
+
+impl WatcherHandle {
+    pub fn rebind<P: AsRef<Path>>(&self, workdir: P, git_dir: Option<PathBuf>) -> Result<()> {
+        self.tx
+            .send(WatcherCommand::Rebind {
+                workdir: workdir.as_ref().to_path_buf(),
+                git_dir,
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to send rebind command to watcher: {}", e))
+    }
+}
+
 /// Internal review writes and fetched refs must not trigger diff/scan feedback loops.
 pub fn affects_diff(root: &Path, path: &Path) -> bool {
     let relative = path.strip_prefix(root).unwrap_or(path);
@@ -34,10 +58,15 @@ pub fn affects_diff(root: &Path, path: &Path) -> bool {
 }
 
 pub struct RepoWatcher {
-    _debouncer: notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
+    controller: WatcherHandle,
+    _worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl RepoWatcher {
+    pub fn controller(&self) -> WatcherHandle {
+        self.controller.clone()
+    }
+
     pub fn spawn<P: AsRef<Path>>(
         repo_root: P,
         sender: Sender<WatcherMessage>,
@@ -59,8 +88,35 @@ impl RepoWatcher {
 
         debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
 
+        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+        let controller = WatcherHandle { tx: cmd_tx };
+
+        let worker = std::thread::Builder::new()
+            .name("lgtm-watcher-controller".into())
+            .spawn(move || {
+                let mut watched_workdir = root;
+                let mut watched_gitdir: Option<PathBuf> = None;
+                while let Ok(cmd) = cmd_rx.recv() {
+                    match cmd {
+                        WatcherCommand::Rebind { workdir, git_dir } => {
+                            let _ = debouncer.watcher().unwatch(&watched_workdir);
+                            if let Some(ref gd) = watched_gitdir {
+                                let _ = debouncer.watcher().unwatch(gd);
+                            }
+                            let _ = debouncer.watcher().watch(&workdir, RecursiveMode::Recursive);
+                            if let Some(ref gd) = git_dir {
+                                let _ = debouncer.watcher().watch(gd, RecursiveMode::Recursive);
+                            }
+                            watched_workdir = workdir;
+                            watched_gitdir = git_dir;
+                        }
+                    }
+                }
+            })?;
+
         Ok(Self {
-            _debouncer: debouncer,
+            controller,
+            _worker: Some(worker),
         })
     }
 }
