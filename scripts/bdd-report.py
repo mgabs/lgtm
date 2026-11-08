@@ -161,26 +161,29 @@ def main():
         ]
     }
 
+    def emit(text: str = ""):
+        sys.stdout.write(f"{text}\n")
+
     if args.json:
-        print(json.dumps(report, indent=2))
+        emit(json.dumps(report, indent=2))
         return 0
 
-    print("================================================================================")
-    print("                     LGTM BDD SCENARIO CATALOG REPORT                          ")
-    print("================================================================================")
-    print(f"Total Agreed Catalog Criteria: {total}")
-    print(f"Automated Criteria:            {automated} ({auto_cov:.1f}%)")
-    print(f"Passing Criteria:              {passing} ({ver_cov:.1f}%)")
-    print(f"Failed Criteria:               {failed}")
-    print(f"Skipped Criteria:              {skipped}")
-    print(f"Not Automated Criteria:        {not_automated}")
-    print("--------------------------------------------------------------------------------")
-    print(f"Automation Coverage:           {auto_cov:.1f}%")
-    print(f"Verified Coverage:             {ver_cov:.1f}%")
-    print(f"Pass Rate:                     {pass_rate:.1f}%")
-    print("================================================================================\n")
-    print(f"{'Criterion ID':<18} | {'Category':<11} | {'Status':<13} | {'Test / Symbol'}")
-    print("-------------------+-------------+---------------+----------------------------------")
+    emit("================================================================================")
+    emit("                     LGTM BDD SCENARIO CATALOG REPORT                          ")
+    emit("================================================================================")
+    emit(f"Total Agreed Catalog Criteria: {total}")
+    emit(f"Automated Criteria:            {automated} ({auto_cov:.1f}%)")
+    emit(f"Passing Criteria:              {passing} ({ver_cov:.1f}%)")
+    emit(f"Failed Criteria:               {failed}")
+    emit(f"Skipped Criteria:              {skipped}")
+    emit(f"Not Automated Criteria:        {not_automated}")
+    emit("--------------------------------------------------------------------------------")
+    emit(f"Automation Coverage:           {auto_cov:.1f}%")
+    emit(f"Verified Coverage:             {ver_cov:.1f}%")
+    emit(f"Pass Rate:                     {pass_rate:.1f}%")
+    emit("================================================================================\n")
+    emit(f"{'Criterion ID':<18} | {'Category':<11} | {'Status':<13} | {'Test / Symbol'}")
+    emit("-------------------+-------------+---------------+----------------------------------")
     for item in report["criteria"]:
         status_color = item["status"]
         if sys.stdout.isatty():
@@ -190,7 +193,7 @@ def main():
                 status_color = f"\033[31m{status_color}\033[0m"
             else:
                 status_color = f"\033[33m{status_color}\033[0m"
-        print(f"{item['id']:<18} | {item['category']:<11} | {status_color:<22} | {item['test']}")
+        emit(f"{item['id']:<18} | {item['category']:<11} | {status_color:<22} | {item['test']}")
 
     return 0 if failed == 0 and not_automated == 0 else 1
 

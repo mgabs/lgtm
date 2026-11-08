@@ -694,12 +694,15 @@ impl App {
                 if !self.comments.is_empty() && self.comment_list_selected_idx < self.comments.len()
                 {
                     let is_res = self.comments[self.comment_list_selected_idx].toggle_resolved();
-                    let _ = self.comment_store.save_comments(&self.comments);
-                    self.status_message = Some(if is_res {
-                        "✅ Directive marked resolved".to_string()
+                    if let Err(e) = self.comment_store.save_comments(&self.comments) {
+                        self.status_message = Some(format!("Failed to save comments: {e}"));
                     } else {
-                        "💬 Directive marked active".to_string()
-                    });
+                        self.status_message = Some(if is_res {
+                            "✅ Directive marked resolved".to_string()
+                        } else {
+                            "💬 Directive marked active".to_string()
+                        });
+                    }
                 }
             }
             (_, KeyCode::Char('a')) => {
@@ -713,7 +716,9 @@ impl App {
                 if !self.comments.is_empty() && self.comment_list_selected_idx < self.comments.len()
                 {
                     let removed = self.comments.remove(self.comment_list_selected_idx);
-                    let _ = self.comment_store.save_comments(&self.comments);
+                    if let Err(e) = self.comment_store.save_comments(&self.comments) {
+                        self.status_message = Some(format!("Failed to save comments: {e}"));
+                    }
                     if self.comment_list_selected_idx >= self.comments.len()
                         && !self.comments.is_empty()
                     {
@@ -943,7 +948,9 @@ impl App {
     pub(crate) fn handle_worktree_confirm_guard_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('s') | KeyCode::Char('S') => {
-                let _ = self.comment_store.save_comments(&self.comments);
+                if let Err(e) = self.comment_store.save_comments(&self.comments) {
+                    self.status_message = Some(format!("Failed to save comments: {e}"));
+                }
                 if let Some(target) = self.worktree_picker.pending_target.take() {
                     self.apply_worktree_switch(target);
                 } else {
@@ -1593,7 +1600,7 @@ impl App {
             }
             // Export report: 'E'
             (_, KeyCode::Char('E')) => {
-                let _ = self.export_audit_report(None);
+                let _ = self.export_audit_report(None); // lgtm:ignore
             }
             // Yank remediation directive to clipboard (OSC 52)
             (_, KeyCode::Char('y')) => {

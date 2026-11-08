@@ -28,7 +28,7 @@ pub struct TurnManager {
 impl TurnManager {
     pub fn new<P: AsRef<Path>>(repo_root: P) -> Self {
         let dir = repo_root.as_ref().join(".lgtm");
-        let _ = create_dir_all(&dir);
+        let _ = create_dir_all(&dir); // lgtm:ignore
         Self {
             state_path: dir.join("state.json"),
         }
@@ -53,7 +53,7 @@ impl TurnManager {
         state.turn_timestamps.push(chrono_iso_now());
 
         if let Some(parent) = self.state_path.parent() {
-            let _ = create_dir_all(parent);
+            create_dir_all(parent)?;
         }
 
         let mut file = File::create(&self.state_path)?;

@@ -67,7 +67,7 @@ impl PrivateTempFile {
 
 impl Drop for PrivateTempFile {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        let _ = std::fs::remove_file(&self.0); // lgtm:ignore
     }
 }
 

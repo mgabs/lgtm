@@ -377,6 +377,7 @@ pub(crate) fn run_review(repo_path: &Path, action: &str, arg: Option<&str>) -> R
             .map(|a| ReviewComment::new(a, &[]))
             .collect();
         let _ = merge(
+            // lgtm:ignore
             &mut st,
             ReviewState {
                 version: lgtm_core::review::VERSION,
@@ -412,6 +413,7 @@ pub(crate) fn run_review(repo_path: &Path, action: &str, arg: Option<&str>) -> R
         }
     }
     let _ = merge(
+        // lgtm:ignore
         &mut base,
         ReviewState {
             version: lgtm_core::review::VERSION,

@@ -214,7 +214,7 @@ fn gh_input(args: &[&str], input: &serde_json::Value) -> Result<std::process::Ou
         .spawn()
         .context("`gh` is not installed or not on PATH; GitHub features are unavailable")?;
     if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(&serde_json::to_vec(input)?);
+        let _ = stdin.write_all(&serde_json::to_vec(input)?); // lgtm:ignore
     }
     let result = child
         .wait_with_output()

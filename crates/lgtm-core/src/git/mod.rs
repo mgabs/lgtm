@@ -120,7 +120,7 @@ impl GitEngine {
         let mut current_file: Option<FileDiff> = None;
         let mut current_hunk: Option<DiffHunk> = None;
 
-        let _ = diff.print(DiffFormat::Patch, |delta_cb, hunk_cb, line_cb| {
+        diff.print(DiffFormat::Patch, |delta_cb, hunk_cb, line_cb| {
             let old_file = delta_cb.old_file().path().map(|p| p.to_path_buf());
             let new_file = delta_cb
                 .new_file()
@@ -235,7 +235,7 @@ impl GitEngine {
             }
 
             true
-        });
+        })?;
 
         if let Some(h) = current_hunk {
             if let Some(ref mut f) = current_file {
