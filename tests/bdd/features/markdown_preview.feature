@@ -191,3 +191,21 @@ Feature: Markdown Preview with Diff Highlighting
     And the file change drawer reflects the updated file statuses
     And the preview row cache invalidates and re-renders the updated content
     And the preview cursor and scroll offset are clamped within bounds
+
+  # REQ-MDP-NAV: Agent Reference Injection on Enter; Rust test: test_markdown_preview_enter_injects_ref
+  Scenario: Inject reference on direct markdown row
+    Given the reviewer is viewing "RFC.md" in markdown preview mode
+    And the preview cursor is on row with source line 12
+    When the reviewer presses the "Enter" key
+    Then an agent reference payload targeting "RFC.md" at line 12 is delivered to the sink
+    And the status message reports delivery to the agent sink
+
+  # REQ-MDP-NAV: Agent Reference Injection on Wrapped Row; Rust test: test_markdown_preview_enter_injects_ref_on_wrapped_row
+  Scenario: Inject reference on wrapped continuation row
+    Given the reviewer is viewing "RFC.md" in markdown preview mode
+    And paragraph starting at line 12 is wrapped across multiple preview rows
+    And the preview cursor is on a continuation row with no direct line number
+    When the reviewer presses the "Enter" key
+    Then the source line resolves to line 12
+    And an agent reference payload targeting "RFC.md" at line 12 is delivered to the sink
+

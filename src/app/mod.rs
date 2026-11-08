@@ -573,14 +573,28 @@ impl App {
         self.status_message = Some("No active agent gate waiting.".to_string());
     }
 
+    /// Resolves the 1-based source line and diff kind for the current markdown preview cursor row,
+    /// scanning backward if the cursor is on a wrapped continuation row without a direct line number.
+    pub(crate) fn markdown_preview_cursor_source_line(
+        &self,
+    ) -> Option<(u32, markdown::MarkdownDiffKind)> {
+        let preview = &self.markdown_preview;
+        let rows = &preview.rendered_rows;
+        if rows.is_empty() {
+            return None;
+        }
+        let cursor = preview.cursor_row.min(rows.len().saturating_sub(1));
+        for r in rows[..=cursor].iter().rev() {
+            if let Some(line) = r.line_number {
+                return Some((line, r.diff_kind));
+            }
+        }
+        None
+    }
+
     /// Aims the diff cursor at the preview cursor row so directive commands target it.
     pub(crate) fn sync_cursor_to_markdown_row(&mut self) -> bool {
-        let preview = &self.markdown_preview;
-        let Some((line, kind)) = preview
-            .rendered_rows
-            .get(preview.cursor_row)
-            .and_then(|r| r.line_number.map(|n| (n, r.diff_kind)))
-        else {
+        let Some((line, kind)) = self.markdown_preview_cursor_source_line() else {
             return false;
         };
         let deleted = kind == markdown::MarkdownDiffKind::Deletion;

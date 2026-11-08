@@ -1760,6 +1760,10 @@ impl App {
                 self.comment_source_view = ActiveView::Diff;
                 self.active_view = ActiveView::Diff;
             }
+            (_, KeyCode::Enter) => {
+                self.sync_cursor_to_markdown_row();
+                self.inject_reference_to_agent();
+            }
             (KeyModifiers::NONE, KeyCode::Char('e')) | (KeyModifiers::NONE, KeyCode::Char('o')) => {
                 self.sync_cursor_to_markdown_row();
                 self.comment_source_view = ActiveView::Diff;
@@ -4370,5 +4374,82 @@ mod tests {
         app.active_view = ActiveView::MarkdownPreview;
         app.handle_key(key(KeyCode::Char('r')));
         assert_eq!(app.active_view, ActiveView::CommentInput);
+    }
+
+    #[test]
+    fn test_markdown_preview_enter_injects_ref() {
+        let mut app = test_util::create_test_app();
+        app.snapshot.files = vec![crate::model::FileDiff {
+            old_path: None,
+            new_path: "RFC.md".into(),
+            change_type: crate::model::ChangeType::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: vec![crate::model::DiffHunk {
+                old_start: 1,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 2,
+                header: "@@ -1,0 +1,2 @@".into(),
+                folded_blocks: Vec::new(),
+                is_folded: false,
+                lines: vec![
+                    crate::model::DiffLine {
+                        line_type: crate::model::LineType::Context,
+                        content: "# Title".into(),
+                        old_line_num: Some(1),
+                        new_line_num: Some(1),
+                    },
+                    crate::model::DiffLine {
+                        line_type: crate::model::LineType::Addition,
+                        content: "Added content that wraps across multiple preview rows".into(),
+                        old_line_num: None,
+                        new_line_num: Some(2),
+                    },
+                ],
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }];
+
+        // Row 0 has line 1. Row 1 has line 2. Row 2 is continuation of line 2 (line_number: None).
+        app.markdown_preview.rendered_rows = vec![
+            markdown::RenderedMarkdownRow {
+                line_number: Some(1),
+                diff_kind: markdown::MarkdownDiffKind::Unchanged,
+                spans: vec![ratatui::text::Span::raw("# Title")],
+            },
+            markdown::RenderedMarkdownRow {
+                line_number: Some(2),
+                diff_kind: markdown::MarkdownDiffKind::Addition,
+                spans: vec![ratatui::text::Span::raw("Added content")],
+            },
+            markdown::RenderedMarkdownRow {
+                line_number: None,
+                diff_kind: markdown::MarkdownDiffKind::Addition,
+                spans: vec![ratatui::text::Span::raw("wrapped continuation")],
+            },
+        ];
+
+        // Direct line: cursor on row 1 (line 2)
+        app.active_view = ActiveView::MarkdownPreview;
+        app.markdown_preview.cursor_row = 1;
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.status_message.as_deref().unwrap_or("").contains("RFC.md"));
+        assert!(app.status_message.as_deref().unwrap_or("").contains(":2"));
+
+        // Wrapped continuation line: cursor on row 2 (line_number is None)
+        app.status_message = None;
+        app.active_view = ActiveView::MarkdownPreview;
+        app.markdown_preview.cursor_row = 2;
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.status_message.as_deref().unwrap_or("").contains("RFC.md"));
+        assert!(app.status_message.as_deref().unwrap_or("").contains(":2"));
+
+        // Empty preview rows
+        app.markdown_preview.rendered_rows.clear();
+        app.status_message = None;
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.status_message.is_some());
     }
 }
