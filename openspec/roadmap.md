@@ -14,4 +14,5 @@ OpenSpec change artifacts are the source of truth for scope and task checklists.
 
 ## Completed
 
+- [Guard false positives hardening](changes/archive/2026-11-08-guard-false-positives-hardening/) — eliminated 11 critical SQL injection and 4 high test skip/tautological assert false positives; specs synced and change archived.
 - [Outdated threads and command cleanup](changes/archive/2026-11-07-outdated-threads-and-command-cleanup/) — merged through #85 and #86; provider coverage, mutations and final acceptance verified; specs synced and change archived.
