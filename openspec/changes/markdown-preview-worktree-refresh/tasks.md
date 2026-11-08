@@ -32,14 +32,14 @@ flowchart TD
 ## 4. Slice 2: Core Watcher Classification for Linked Worktrees
 
 - [x] 4.1 BDD scenarios for worktree gitdir index and HEAD path classification (verify: `docs/bdd-scenarios.md` updated)
-- [ ] 4.2 Gate 5.2 human sign-off on BDD scenarios
-- [ ] 4.3 Red unit tests: `affects_diff` test cases for `.git/worktrees/<name>/index` and `.git/worktrees/<name>/HEAD` (verify: `rtk cargo test -p lgtm-core watcher` fails)
-- [ ] 4.4 Green implementation: update `crates/lgtm-core/src/watcher/mod.rs` to recognize worktree git administrative files (verify: tests pass)
-- [ ] 4.5 Mutation testing 100% kill on `crates/lgtm-core/src/watcher/` (verify: `rtk cargo mutants --package lgtm-core --file crates/lgtm-core/src/watcher/mod.rs`)
+- [x] 4.2 Gate 5.2 human sign-off on BDD scenarios
+- [x] 4.3 Red unit tests: `affects_diff` test cases for `.git/worktrees/<name>/index` and `.git/worktrees/<name>/HEAD` (verify: `rtk cargo test -p lgtm-core watcher` fails)
+- [x] 4.4 Green implementation: update `crates/lgtm-core/src/watcher/mod.rs` to recognize worktree git administrative files (verify: tests pass)
+- [x] 4.5 Mutation testing 100% kill on `crates/lgtm-core/src/watcher/` (verify: `rtk cargo mutants --package lgtm-core --file crates/lgtm-core/src/watcher/mod.rs`)
 
 ## 5. Slice 3: Worktree Switch Watcher Rebinding
 
-- [ ] 5.1 BDD scenarios for `:wt` switch re-binding the active watcher (verify: `docs/bdd-scenarios.md` updated)
+- [x] 5.1 BDD scenarios for `:wt` switch re-binding the active watcher (verify: `docs/bdd-scenarios.md` updated)
 - [ ] 5.2 Gate 5.3 human sign-off on BDD scenarios
 - [ ] 5.3 Red unit tests: `apply_worktree_switch` rebinds active watcher paths and watches linked gitdir (verify: `rtk cargo test -p lgtm worktree` fails)
 - [ ] 5.4 Green implementation: update `src/app/worktree.rs`, `src/app/input.rs`, `src/main.rs` to pass watcher controller and rebind on switch (verify: tests pass)

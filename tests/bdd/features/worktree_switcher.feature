@@ -94,3 +94,11 @@ Feature: Git Worktree Switcher
       | .git/worktrees/feat-ui/config           | false                 |
     Then affects_diff classification matches the expected status for each path
 
+  # REQ-WT-08: Worktree Switch Watcher Rebinding (bdd_ui_011)
+  Scenario: Rebinding file watcher when switching active worktree
+    Given active worktree "/repo" with an active file watcher
+    When the reviewer enters command ":wt feat-ui"
+    Then the active worktree switches to "/repo/.worktrees/feat-ui"
+    And the file watcher is rebound to watch "/repo/.worktrees/feat-ui" and its git administrative dir
+
+
