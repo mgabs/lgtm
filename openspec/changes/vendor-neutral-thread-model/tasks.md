@@ -29,7 +29,7 @@ Slice 1 is committed on the main change branch before any stream is created. Sli
 
 Touches: `forge/model.rs` (new), `forge/mod.rs`, `github/mod.rs` (re-export), `discussion/mod.rs`, call sites of `Thread.resolved`.
 
-- [ ] 3.1 BDD scenarios for REQ-COMMENTS-1, REQ-COMMENTS-2 (fallback note) and legacy draft load (verify: `.feature` committed in `crates/lgtm-core/tests/`)
+- [x] 3.1 BDD scenarios for REQ-COMMENTS-1, REQ-COMMENTS-2 (fallback note) and legacy draft load (verify: `.feature` committed in `crates/lgtm-core/tests/`). Evidence: Committed `crates/lgtm-core/tests/vendor_neutral_thread_model.feature` and `tests/bdd/features/vendor_neutral_thread_model.feature`.
 - [ ] 3.2 Gate 5.1 human sign-off on BDD scenarios
 - [ ] 3.3 Red unit tests: `ThreadState`/`Resolution`, `Thread::resolved()`, `Applied` fallback, draft serde with and without `resolution`, `Other` not settable, permission rejection (verify: failing output shown, expected reason; on ticking append `Evidence: <command and result>`)
 - [ ] 3.4 Green: move `Thread`/`ThreadComment` to `forge::model` with `github` re-export; replace `resolved: bool` with `state` plus `outdated`, `can_resolve`, `can_unresolve`; replace `set_resolved` with `set_state` in trait, `ForgeImpl`, `TimedForge` and fakes; extend `DraftKind::SetResolved`; migrate call sites; providers keep behavior via adapters mapping bool to `Done`/`Open` (verify: `cargo test --workspace` passes; on ticking append `Evidence: <command and result>`)
@@ -83,4 +83,4 @@ Merge order: contract, then github, azure, gitlab, ui. Expect conflicts only in 
 - [ ] 8.3 `openspec archive vendor-neutral-thread-model`, remove worktrees without force (verify: clean `git status`)
 
 ## Review Gate
-- [ ] **Gate 4 Approval**: Tasks breakdown approved by human before writing test code.
+- [x] **Gate 4 Approval**: Tasks breakdown approved by human before writing test code.
