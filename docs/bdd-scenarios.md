@@ -39,6 +39,8 @@ application crash or operating-system restart.
 | `bdd_core_019` | GitHub (API/CLI) and Azure (`az`) list open, closed, and all PRs | Request targets, state flags, and normalized summaries match provider/transport contracts |
 | `bdd_core_020` | GitHub (API/CLI) and Azure (`az`) reply, resolve, and reopen threads | Request endpoints, payloads, numeric ID guards, and confirmation checks reject unconfirmed responses |
 | `bdd_core_021` | Rust source diffs contain dynamic SQL interpolation, shell execution, or inline tautological assert | Static guard flags `sec/sql-injection`, `sec/command-injection`, and `test/tautological-assert`; clean patterns produce no findings |
+| `bdd_core_022` | File watcher receives events for linked worktree administrative paths | Index, HEAD, and branch refs trigger diff reload; administrative noise is filtered |
+| `bdd_ui_011` | Worktree switch command (:wt) executes | Diff reloads and file watcher rebinds to target worktree and gitdir |
 | `bdd_cli_001` | User installs, inspects, and removes the hook | Successful exit codes, matching status, actual hook created and removed |
 | `bdd_cli_002` | User supplies `--debug-log` without `--debug` | Argument error and no log file |
 | `bdd_cli_003` | `LGTM_DEBUG_LOG` is set; run normally, then with `--debug --debug-log PATH` | Environment alone creates no log; explicit flags create the requested file |
@@ -79,6 +81,9 @@ by `--test bdd`.
 | `bdd_provider_001` | Azure historical reloads use recorded commits without repeated ref probes | `historical_pr_cold_and_reload_request_budgets`, `crates/lgtm-core/src/forge/azure/performance_tests.rs` |
 | `bdd_provider_002` | GitHub stored-patch retrieval keeps a bounded request count | `historical_api_patch_request_budget` and `historical_cli_patch_request_budget`, `crates/lgtm-core/src/forge/github/performance_tests.rs` |
 | `REQ-COM-6` | Outdated modal badge, All/Open/Outdated filter cycle, yellow gutter marker, forward/backward current-file navigation, and safe header fallback for missing lines | `test_full_ui_rendering_on_test_backend`, `src/ui/mod.rs`; `thread_view_filter_cycles_all_open_outdated`, `bracket_capital_t_jumps_between_outdated_threads`, `outdated_thread_enter_jumps_to_file_header_when_line_is_gone`, `src/app/input.rs`; `outdated_threads_render_the_yellow_gutter_marker`, `src/ui/diff/regression.rs`; `outdated_thread_jump_skips_current_and_resolved_threads`, `src/app/motion.rs` |
+| `bdd_ui_010` | Background file update arrives while viewing MarkdownPreview | `test_markdown_preview_live_refresh_applies_and_rebuilds_cache`, `src/app/refresh/tests.rs` |
+| `bdd_core_022` | Linked worktree git administrative files trigger diff reload while noise is filtered | `worktree_gitdir_paths_classified_correctly`, `crates/lgtm-core/src/watcher/mod.rs` |
+| `bdd_ui_011` | Worktree switch rebinds file watcher to target worktree and gitdir | `test_worktree_switch_rebinds_file_watcher`, `src/app/worktree.rs` |
 | `NFR-COM-1` | 100 threads over 1,000 diff lines: reconciliation/gutter mapping <1ms, cold full frame <16ms at 120x40, Tab/o and ]T/[T <1us per keystroke; median of seven warmed measurement samples | `outdated_thread_performance_budgets`, `src/ui/diff/regression.rs`; opt-in release build with `--features perf-budgets` |
 
 Run a mapped internal test by its test name, for example:

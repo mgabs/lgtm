@@ -317,3 +317,22 @@ fn startup_and_initial_diff_audit_wait_for_the_background_snapshot() {
     assert_eq!(app.active_view, ActiveView::AuditReport);
     assert_eq!(app.audit.files, app.snapshot.files);
 }
+
+#[test]
+fn test_markdown_preview_live_refresh_applies_and_rebuilds_cache() {
+    let mut app = create_test_app();
+    let initial_rev = app.diff_revision;
+    app.active_view = ActiveView::AuditReport;
+    queue(&mut app, "updated content in preview");
+    apply_next(&mut app);
+    // Not ready to apply while in AuditReport
+    assert!(!app.local_ready_to_apply());
+
+    // MarkdownPreview is ready to apply
+    app.active_view = ActiveView::MarkdownPreview;
+    assert!(app.local_ready_to_apply());
+    let applied = app.apply_ready_local();
+    assert!(applied);
+    assert_eq!(text(&app), "updated content in preview");
+    assert!(app.diff_revision > initial_rev);
+}

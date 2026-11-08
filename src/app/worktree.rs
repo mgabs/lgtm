@@ -303,4 +303,22 @@ mod tests {
         );
         assert_eq!(app.active_view, ActiveView::Diff);
     }
+
+    #[test]
+    fn test_worktree_switch_rebinds_file_watcher() {
+        let (mut app, wt) = app_with_linked_worktree();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        app.watcher_handle = Some(lgtm_core::watcher::WatcherHandle { tx });
+
+        app.apply_worktree_switch(wt.clone());
+
+        let cmd = rx.try_recv().expect("rebind command not sent");
+        match cmd {
+            lgtm_core::watcher::WatcherCommand::Rebind { workdir, git_dir } => {
+                assert_eq!(workdir, wt);
+                assert!(git_dir.is_some());
+                assert!(git_dir.unwrap().to_string_lossy().contains("worktrees"));
+            }
+        }
+    }
 }

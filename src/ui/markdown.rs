@@ -23,15 +23,26 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
         let width = area.width;
         let needs_rebuild = app.markdown_preview.rendered_rows.is_empty()
             || app.markdown_preview.cached_file_idx != Some(app.selected_file_idx)
-            || app.markdown_preview.cached_width != width;
+            || app.markdown_preview.cached_width != width
+            || app.markdown_preview.cached_diff_revision != app.diff_revision;
 
         if needs_rebuild {
+            let is_revision_refresh = !app.markdown_preview.rendered_rows.is_empty()
+                && app.markdown_preview.cached_file_idx == Some(app.selected_file_idx)
+                && app.markdown_preview.cached_width == width;
+
             app.markdown_preview.rendered_rows =
                 crate::app::markdown::build_markdown_preview(file, width);
             app.markdown_preview.cached_file_idx = Some(app.selected_file_idx);
             app.markdown_preview.cached_width = width;
-            app.markdown_preview.scroll_offset = 0;
-            app.markdown_preview.cursor_row = 0;
+            app.markdown_preview.cached_diff_revision = app.diff_revision;
+            if is_revision_refresh {
+                let max_row = app.markdown_preview.rendered_rows.len().saturating_sub(1);
+                app.markdown_preview.cursor_row = app.markdown_preview.cursor_row.min(max_row);
+            } else {
+                app.markdown_preview.scroll_offset = 0;
+                app.markdown_preview.cursor_row = 0;
+            }
             app.markdown_preview.set_row_heights(Vec::new());
         }
     }
@@ -381,5 +392,38 @@ mod tests {
             app.markdown_preview.scroll_offset,
             app.markdown_preview.max_scroll(vh)
         );
+    }
+
+    #[test]
+    fn test_diff_revision_change_triggers_rebuild_and_clamps_cursor() {
+        let mut app = crate::app::test_util::create_test_app();
+        let patch = "diff --git a/doc.md b/doc.md\n--- /dev/null\n+++ b/doc.md\n@@ -0,0 +1,5 @@\n+# Title\n+Line 1\n+Line 2\n+Line 3\n+Line 4\n";
+        app.snapshot = crate::pr::PrEngine::parse_unified_diff(patch).unwrap();
+        app.selected_file_idx = 0;
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal
+            .draw(|f| render_markdown_preview(f, f.area(), &mut app))
+            .unwrap();
+
+        assert!(!app.markdown_preview.rendered_rows.is_empty());
+        let initial_rows_count = app.markdown_preview.rendered_rows.len();
+        app.markdown_preview.cursor_row = initial_rows_count - 1;
+        app.markdown_preview.scroll_offset = 2;
+
+        let shorter_patch = "diff --git a/doc.md b/doc.md\n--- /dev/null\n+++ b/doc.md\n@@ -0,0 +1,2 @@\n+# Title\n+Line 1\n";
+        app.snapshot = crate::pr::PrEngine::parse_unified_diff(shorter_patch).unwrap();
+        app.invalidate_diff_content();
+
+        terminal
+            .draw(|f| render_markdown_preview(f, f.area(), &mut app))
+            .unwrap();
+
+        assert!(app.markdown_preview.rendered_rows.len() < initial_rows_count);
+        assert_eq!(
+            app.markdown_preview.cursor_row,
+            app.markdown_preview.rendered_rows.len() - 1
+        );
+        assert_eq!(app.markdown_preview.cached_diff_revision, app.diff_revision);
     }
 }

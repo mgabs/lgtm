@@ -76,7 +76,7 @@ pub struct App {
     pub comment_store: CommentStore,
     pub turn_manager: TurnManager,
     pub snapshot: DiffSnapshot,
-    diff_revision: u64,
+    pub(crate) diff_revision: u64,
     fold_revision: u64,
     rows_cache: std::cell::RefCell<rows::Cache>,
     pub(crate) render_cache: std::cell::RefCell<crate::ui::RenderCache>,
@@ -167,6 +167,7 @@ pub struct App {
 
     // Watcher receiver
     pub watcher_rx: Receiver<WatcherMessage>,
+    pub watcher_handle: Option<lgtm_core::watcher::WatcherHandle>,
 
     // Results of slow remote calls, applied on the UI thread by `handle_background_events`
     jobs_tx: crossbeam_channel::Sender<Job>,
@@ -297,6 +298,7 @@ impl App {
             visual_mode: false,
             visual_anchor_idx: None,
             watcher_rx,
+            watcher_handle: None,
             jobs_tx,
             jobs_rx,
             local_refresh: Default::default(),

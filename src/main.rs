@@ -437,14 +437,18 @@ fn run_tui(
 ) -> Result<()> {
     // Setup watcher channel
     let (watcher_tx, watcher_rx) = crossbeam_channel::unbounded();
-    let _watcher = match RepoWatcher::spawn(&repo_path, watcher_tx, debounce) {
-        Ok(w) => Some(w),
+    let (_watcher, watcher_controller) = match RepoWatcher::spawn(&repo_path, watcher_tx, debounce)
+    {
+        Ok(w) => {
+            let handle = w.controller();
+            (Some(w), Some(handle))
+        }
         Err(e) => {
             eprintln!(
                 "Warning: Failed to start file watcher: {}. Status updates use polling; use :reload for file changes.",
                 e
             );
-            None
+            (None, None)
         }
     };
 
@@ -459,6 +463,7 @@ fn run_tui(
 
             // Initialize application state (handles non-git directory, PR mode, and revision diffs cleanly)
             let mut app = App::new(repo_path, watcher_rx, agent_pane, pr_number, revision);
+            app.watcher_handle = watcher_controller;
             if let Some(sink_str) = agent_sink {
                 if let Ok(kind) = sink_str.parse() {
                     app.agent_sink_kind = Some(kind);

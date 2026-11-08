@@ -32,6 +32,11 @@ impl GitEngine {
             .with_context(|| format!("No git repository found at {}", self.repo_path.display()))
     }
 
+    pub fn git_dir(&self) -> Result<PathBuf> {
+        let repo = self.open_repo()?;
+        Ok(repo.path().to_path_buf())
+    }
+
     pub fn compute_diff_snapshot(&self) -> Result<DiffSnapshot> {
         let repo = match self.open_repo() {
             Ok(r) => r,
