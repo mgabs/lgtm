@@ -50,7 +50,7 @@ flowchart TD
 - [x] 6.1 Update `CHANGELOG.md` with markdown preview live refresh and worktree watcher fix
 - [x] 6.2 Update `README.md` and user docs if necessary
 - [x] 6.3 Full quality gate run: `make check`, `make lint`, `make test`, `make bdd-report`
-- [ ] 6.4 Human sign-off on change before archive
+- [x] 6.4 Human sign-off on change before archive
 
 ## Review Gate
-- [ ] **Gate 4 Approval**: Tasks breakdown approved by human before writing test code.
+- [x] **Gate 4 Approval**: Tasks breakdown approved by human before writing test code.
