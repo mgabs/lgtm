@@ -12,7 +12,7 @@ pub struct CommentRetryBuffer {
     pub target_thread_id: Option<String>,
 }
 
-const USAGE: &str = "Usage: :thread comment <text> | reply <n> <text> | resolve <n> | unresolve <n> | retry | refresh | outdated";
+const USAGE: &str = "Usage: :thread comment <text> | reply <n> <text> | resolve [wontfix] <n> | unresolve <n> | retry | refresh | outdated";
 
 impl App {
     pub fn toggle_resolve_thread_at_cursor(&mut self) -> bool {
@@ -301,7 +301,21 @@ impl App {
                 self.post_reply(i, &text);
             }
             "resolve" | "unresolve" => {
-                let Some(i) = thread_at(self) else {
+                let is_wontfix = rest
+                    .first()
+                    .is_some_and(|arg| arg.eq_ignore_ascii_case("wontfix"));
+                let num_arg = if is_wontfix {
+                    rest.get(1)
+                } else {
+                    rest.first()
+                };
+                let thread_index = num_arg
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .and_then(|n| n.checked_sub(1))
+                    .filter(|i| *i < self.threads.len())
+                    .or_else(|| self.thread_at_cursor());
+
+                let Some(i) = thread_index else {
                     self.status_message = Some(if rest.is_empty() {
                         USAGE.into()
                     } else {
@@ -309,7 +323,13 @@ impl App {
                     });
                     return;
                 };
-                self.set_thread_resolved(i, Some(verb == "resolve"));
+                if verb == "unresolve" {
+                    self.set_thread_state(i, ThreadState::Open);
+                } else if is_wontfix {
+                    self.set_thread_state(i, ThreadState::Resolved(Resolution::WontFix));
+                } else {
+                    self.set_thread_state(i, ThreadState::Resolved(Resolution::Done));
+                }
             }
             "retry" => {
                 self.retry_failed_comment();

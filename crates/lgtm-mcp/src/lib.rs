@@ -546,6 +546,7 @@ impl McpServer {
                     "id": t.id,
                     "path": t.path,
                     "line": t.line,
+                    "status": t.state.display_name(),
                     "resolved": t.resolved(),
                     "outdated": t.outdated,
                     "comments": t.comments.iter().map(|c| json!({
@@ -751,6 +752,7 @@ mod tests {
             serde_json::from_str(&McpServer::threads_report(&fake, 1).unwrap()).unwrap();
         assert_eq!(out[0]["path"], "a.rs");
         assert_eq!(out[0]["line"], 3);
+        assert_eq!(out[0]["status"], "Done");
         assert_eq!(out[0]["resolved"], true);
         assert_eq!(out[0]["outdated"], true);
         assert_eq!(out[0]["comments"][0]["author"], "bob");

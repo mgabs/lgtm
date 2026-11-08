@@ -1231,6 +1231,54 @@ mod tests {
     }
 
     #[test]
+    fn test_thread_resolve_wontfix_and_permission_rejection() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(7);
+        app.threads = vec![
+            lgtm_core::github::Thread {
+                id: "1".into(),
+                path: "a.rs".into(),
+                line: Some(4),
+                state: lgtm_core::forge::ThreadState::Open,
+                outdated: false,
+                can_resolve: Some(true),
+                can_unresolve: None,
+                comments: vec![],
+            },
+            lgtm_core::github::Thread {
+                id: "2".into(),
+                path: "b.rs".into(),
+                line: Some(10),
+                state: lgtm_core::forge::ThreadState::Open,
+                outdated: false,
+                can_resolve: Some(false),
+                can_unresolve: None,
+                comments: vec![],
+            },
+        ];
+
+        // Thread 1: resolve wontfix succeeds
+        app.execute_command(":thread resolve wontfix 1");
+        assert_eq!(
+            app.threads[0].state,
+            lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::WontFix)
+        );
+
+        // Thread 2: can_resolve is false -> rejected with permission reason
+        app.execute_command(":thread resolve 2");
+        assert_eq!(app.threads[1].state, lgtm_core::forge::ThreadState::Open);
+        assert!(app
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("permission to resolve"));
+
+        // Unresolve thread 1
+        app.execute_command(":thread unresolve 1");
+        assert_eq!(app.threads[0].state, lgtm_core::forge::ThreadState::Open);
+    }
+
+    #[test]
     fn test_execute_command_hook() {
         let mut app = create_test_app();
         // create_test_app uses a temp dir without git repo initially

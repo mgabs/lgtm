@@ -1,5 +1,6 @@
 use crate::app::App;
 use crate::ui::centered_rect;
+use lgtm_core::forge::{Resolution, ThreadState};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -90,7 +91,17 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
                 .map(|c| c.author.as_str())
                 .unwrap_or("unknown");
 
-            let line = Line::from(vec![
+            let status_badge: Option<(String, Color)> = match &t.state {
+                ThreadState::Resolved(Resolution::WontFix) => {
+                    Some(("[WontFix] ".to_string(), Color::Magenta))
+                }
+                ThreadState::Resolved(Resolution::Other(text)) => {
+                    Some((format!("[{text}] "), Color::Green))
+                }
+                _ => None,
+            };
+
+            let mut spans = vec![
                 Span::styled(
                     format!("{marker} "),
                     Style::default()
@@ -101,19 +112,33 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
                     format!("#{:<2} ", thread_idx + 1),
                     Style::default().fg(Color::DarkGray),
                 ),
-                Span::styled(
-                    format!("{line_str} "),
-                    if is_selected {
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(Color::White)
-                    },
-                ),
-                Span::styled(format!("@{author} "), Style::default().fg(Color::Yellow)),
-                Span::styled(count_str, Style::default().fg(Color::DarkGray)),
-            ]);
+            ];
+            if let Some((badge, color)) = status_badge {
+                spans.push(Span::styled(
+                    badge,
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ));
+            }
+            spans.push(Span::styled(
+                format!("{line_str} "),
+                if is_selected {
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                },
+            ));
+            spans.push(Span::styled(
+                format!("@{author} "),
+                Style::default().fg(Color::Yellow),
+            ));
+            spans.push(Span::styled(
+                count_str,
+                Style::default().fg(Color::DarkGray),
+            ));
+
+            let line = Line::from(spans);
 
             let item_style = if is_selected {
                 Style::default().bg(Color::Rgb(20, 50, 70))
@@ -146,10 +171,13 @@ pub(crate) fn render_threads_modal(frame: &mut Frame, area: Rect, app: &App) {
     {
         let (status_text, status_color) = if t.outdated {
             ("[⚠ Outdated]", Color::Yellow)
-        } else if t.resolved() {
-            ("✓ Resolved", Color::Green)
         } else {
-            ("● Open", Color::Cyan)
+            match &t.state {
+                ThreadState::Open => ("● Open", Color::Cyan),
+                ThreadState::Resolved(Resolution::Done) => ("✓ Resolved", Color::Green),
+                ThreadState::Resolved(Resolution::WontFix) => ("[WontFix]", Color::Magenta),
+                ThreadState::Resolved(Resolution::Other(text)) => (text.as_str(), Color::Green),
+            }
         };
         let loc = match t.line {
             Some(l) => format!("{}:{}", t.path, l),
