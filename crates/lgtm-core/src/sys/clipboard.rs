@@ -6,15 +6,15 @@ pub fn copy_to_clipboard(text: &str) -> io::Result<()> {
     let b64 = base64_encode(text.as_bytes());
     let osc_sequence = format!("\x1b]52;c;{}\x07", b64);
     let mut stdout = io::stdout();
-    let _ = stdout.write_all(osc_sequence.as_bytes());
-    let _ = stdout.flush();
+    stdout.write_all(osc_sequence.as_bytes())?;
+    stdout.flush()?;
 
     // 2. On Windows, pipe to native clip.exe as fallback for legacy conhost / CMD
     #[cfg(target_os = "windows")]
     {
         if copy_via_clip_exe(text).is_err() {
             // 3. Secondary fallback to PowerShell Set-Clipboard
-            let _ = copy_via_powershell(text);
+            let _ = copy_via_powershell(text); // lgtm:ignore
         }
     }
 

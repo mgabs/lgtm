@@ -27,7 +27,7 @@ fn parses_threads() {
     )
     .unwrap();
     assert_eq!(t.len(), 2);
-    assert!(t[0].resolved);
+    assert!(t[0].resolved());
     assert_eq!(
         (t[0].line, t[0].comments[0].author.as_str()),
         (Some(7), "bob")
@@ -67,8 +67,14 @@ fn thread_marker_reports_open_resolved_outdated_and_none() {
         id: "1".into(),
         path: path.into(),
         line: Some(line),
-        resolved,
+        state: if resolved {
+            ThreadState::Resolved(Resolution::Done)
+        } else {
+            ThreadState::Open
+        },
         outdated,
+        can_resolve: None,
+        can_unresolve: None,
         comments: vec![],
     };
     let ts = [
@@ -302,11 +308,14 @@ fn gh_client_fixture_child() {
     assert_eq!(client.reply(42, "T1", 71, "reply").unwrap(), 71);
     assert!(args().contains("comments/71/replies"));
     assert_eq!(payload()["body"], "reply");
-    for (resolved, operation) in [
-        (true, "resolveReviewThread"),
-        (false, "unresolveReviewThread"),
+    for (state, operation) in [
+        (
+            ThreadState::Resolved(Resolution::Done),
+            "resolveReviewThread",
+        ),
+        (ThreadState::Open, "unresolveReviewThread"),
     ] {
-        client.set_resolved(42, "T1", resolved).unwrap();
+        client.set_state(42, "T1", state).unwrap();
         assert!(args().contains(operation));
         assert!(args().contains("id=T1"));
     }
@@ -318,7 +327,9 @@ fn gh_client_fixture_child() {
         client.thread(42, "T1").map(|_| ()),
         client.head_sha(42).map(|_| ()),
         client.post_general(42, "body").map(|_| ()),
-        client.set_resolved(42, "T1", true),
+        client
+            .set_state(42, "T1", ThreadState::Resolved(Resolution::Done))
+            .map(|_| ()),
     ] {
         assert!(result.unwrap_err().to_string().contains("gh auth login"));
     }
@@ -360,14 +371,14 @@ fn fake_client_retry_state_and_failures() {
     );
     assert_eq!(fake.post_general(1, "general").unwrap(), 102);
     assert_eq!(fake.reply(1, "T1", 7, "reply").unwrap(), 103);
-    fake.set_resolved(1, "T1", false).unwrap();
+    fake.set_state(1, "T1", ThreadState::Open).unwrap();
     assert_eq!(
         *fake.posted.borrow(),
         [
             "a.rs:3:inline",
             "general:general",
             "reply:7:reply",
-            "resolve:T1:false"
+            "state:T1:Open"
         ]
     );
     let failing = FakeClient {
@@ -424,10 +435,54 @@ fn reconciliation_keeps_provider_outdated_state_when_the_line_is_present() {
         id: "T1".into(),
         path: "a.rs".into(),
         line: Some(1),
-        resolved: false,
+        state: ThreadState::Open,
         outdated: true,
+        can_resolve: None,
+        can_unresolve: None,
         comments: vec![],
     }];
     mark_outdated(&mut threads, &diff);
     assert!(threads[0].outdated);
+}
+
+#[test]
+fn test_parse_threads_reads_viewer_permissions() {
+    assert!(
+        THREAD_QUERY.contains("viewerCanResolve") && THREAD_QUERY.contains("viewerCanUnresolve")
+    );
+    assert!(
+        THREADS_QUERY.contains("viewerCanResolve") && THREADS_QUERY.contains("viewerCanUnresolve")
+    );
+
+    let j = r#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+        {"id":"a","isResolved":true,"isOutdated":false,"viewerCanResolve":true,"viewerCanUnresolve":false,"path":"x","line":1,"comments":{"nodes":[]}},
+        {"id":"b","isResolved":false,"isOutdated":true,"path":"x","line":1,"comments":{"nodes":[]}}]}}}}}"#;
+    let threads = parse_threads(j).unwrap();
+    assert_eq!(threads[0].can_resolve, Some(true));
+    assert_eq!(threads[0].can_unresolve, Some(false));
+    assert_eq!(threads[1].can_resolve, None);
+    assert_eq!(threads[1].can_unresolve, None);
+
+    let single_json = r#"{"data":{"node":{"id":"T1","path":"a.rs","line":null,"isResolved":false,"isOutdated":true,"viewerCanResolve":false,"viewerCanUnresolve":true,"comments":{"nodes":[]}}}}"#;
+    let single = parse_thread(single_json).unwrap().unwrap();
+    assert_eq!(single.can_resolve, Some(false));
+    assert_eq!(single.can_unresolve, Some(true));
+}
+
+#[test]
+fn test_github_set_state_wontfix_fallback() {
+    let fake = FakeClient::default();
+    let applied = fake
+        .set_state(1, "t1", ThreadState::Resolved(Resolution::WontFix))
+        .unwrap();
+    assert_eq!(
+        applied.requested,
+        ThreadState::Resolved(Resolution::WontFix)
+    );
+    assert_eq!(applied.applied, ThreadState::Resolved(Resolution::Done));
+    assert!(applied.is_fallback());
+    assert_eq!(
+        applied.summary_note(),
+        Some("requested WontFix, applied Done".to_string())
+    );
 }

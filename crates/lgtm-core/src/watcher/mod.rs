@@ -10,6 +10,30 @@ pub enum WatcherMessage {
     Error(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WatcherCommand {
+    Rebind {
+        workdir: PathBuf,
+        git_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct WatcherHandle {
+    pub tx: crossbeam_channel::Sender<WatcherCommand>,
+}
+
+impl WatcherHandle {
+    pub fn rebind<P: AsRef<Path>>(&self, workdir: P, git_dir: Option<PathBuf>) -> Result<()> {
+        self.tx
+            .send(WatcherCommand::Rebind {
+                workdir: workdir.as_ref().to_path_buf(),
+                git_dir,
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to send rebind command to watcher: {}", e))
+    }
+}
+
 /// Internal review writes and fetched refs must not trigger diff/scan feedback loops.
 pub fn affects_diff(root: &Path, path: &Path) -> bool {
     let relative = path.strip_prefix(root).unwrap_or(path);
@@ -20,17 +44,29 @@ pub fn affects_diff(root: &Path, path: &Path) -> bool {
         return false;
     }
     if let Ok(git_path) = relative.strip_prefix(".git") {
-        return matches!(git_path.to_str(), Some("index" | "HEAD"))
-            || git_path.starts_with("refs/heads");
+        let s = git_path.to_str().unwrap_or("");
+        if matches!(s, "index" | "HEAD") || s.starts_with("refs/heads") {
+            return true;
+        }
+        if let Some(wt_git) = s.strip_prefix("worktrees/") {
+            let rest = wt_git.split_once('/').map(|(_, r)| r).unwrap_or(wt_git);
+            return matches!(rest, "index" | "HEAD") || rest.starts_with("refs/heads");
+        }
+        return false;
     }
     true
 }
 
 pub struct RepoWatcher {
-    _debouncer: notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
+    controller: WatcherHandle,
+    _worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl RepoWatcher {
+    pub fn controller(&self) -> WatcherHandle {
+        self.controller.clone()
+    }
+
     pub fn spawn<P: AsRef<Path>>(
         repo_root: P,
         sender: Sender<WatcherMessage>,
@@ -52,8 +88,37 @@ impl RepoWatcher {
 
         debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
 
+        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+        let controller = WatcherHandle { tx: cmd_tx };
+
+        let worker = std::thread::Builder::new()
+            .name("lgtm-watcher-controller".into())
+            .spawn(move || {
+                let mut watched_workdir = root;
+                let mut watched_gitdir: Option<PathBuf> = None;
+                while let Ok(cmd) = cmd_rx.recv() {
+                    match cmd {
+                        WatcherCommand::Rebind { workdir, git_dir } => {
+                            let _ = debouncer.watcher().unwatch(&watched_workdir);
+                            if let Some(ref gd) = watched_gitdir {
+                                let _ = debouncer.watcher().unwatch(gd);
+                            }
+                            let _ = debouncer
+                                .watcher()
+                                .watch(&workdir, RecursiveMode::Recursive);
+                            if let Some(ref gd) = git_dir {
+                                let _ = debouncer.watcher().watch(gd, RecursiveMode::Recursive);
+                            }
+                            watched_workdir = workdir;
+                            watched_gitdir = git_dir;
+                        }
+                    }
+                }
+            })?;
+
         Ok(Self {
-            _debouncer: debouncer,
+            controller,
+            _worker: Some(worker),
         })
     }
 }
@@ -84,6 +149,27 @@ mod tests {
             ".git/refs/heads/main",
         ] {
             assert!(affects_diff(root, &root.join(path)), "{path}");
+        }
+    }
+
+    #[test]
+    fn worktree_gitdir_paths_classified_correctly() {
+        let root = Path::new("/repo");
+        for path in [
+            ".git/worktrees/feat1/index",
+            ".git/worktrees/feat1/HEAD",
+            ".git/worktrees/feat1/refs/heads/feature",
+        ] {
+            assert!(affects_diff(root, &root.join(path)), "{path}");
+        }
+        for path in [
+            ".git/worktrees/feat1/FETCH_HEAD",
+            ".git/worktrees/feat1/logs/HEAD",
+            ".git/worktrees/feat1/config",
+            ".git/worktrees/feat1/COMMIT_EDITMSG",
+            ".git/worktrees/bare",
+        ] {
+            assert!(!affects_diff(root, &root.join(path)), "{path}");
         }
     }
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.7.1
 
 ### Removed
 - **BREAKING**: Removed deprecated subcommands `lgtm serve` (use `lgtm mcp`), `lgtm prs` (use `lgtm pr list`), `lgtm status` (use `lgtm` or `lgtm diff`), and `lgtm ci` (use `lgtm check --no-user-config`).
@@ -9,8 +9,21 @@
 - **BREAKING**: `lgtm review` now requires an explicit action (`export` or `import`) instead of ambiguously launching the TUI.
 
 ### Added
+- **Vendor-Neutral Thread Model**: Provider-neutral thread domain representation (`Resolution`, `ThreadState`, `Thread`, `ThreadComment`, `Applied`, `DraftSetResolved`) across GitHub, Azure DevOps, and GitLab without forge branching in UI/core.
+- **GitLab Forge Provider**: Native support for GitLab Merge Requests (`gitlab.com` and custom `gitlab.*` hosts), discussions mapping, comments, inline replies, MR diff fetching, and delegated authentication via `glab auth token` or `GITLAB_TOKEN`.
+- **WontFix Resolution State**: Rich resolution status supporting `WontFix` in addition to `Done` (`:thread resolve wontfix <n>`), with automatic fallback to `Done` on GitHub and GitLab and explicit fallback summary reporting.
+- **MCP Thread Enrichment**: `lgtm_list_threads` MCP output enriched with `status` and `outdated` fields alongside the existing `resolved` boolean.
 - Static analysis guard rules for Rust source code: AST detection for dynamic SQL injection via `format!` (`sec/sql-injection`), shell command injection via `Command::new("sh" | "bash" | ...).arg("-c")` (`sec/command-injection`), and un-gated tautological assertion detection (`test/tautological-assert`) across all files including inline tests in `src/*.rs`.
 - Markdown preview navigation shortcuts: `e` / `o` to launch external editor directly at cursor line, `[` / `]` to trigger diff bracket navigation chords (`]f`, `]h`, `]c`, etc.), `f` / `Ctrl-p` to open file picker, `v` to toggle reviewed status, `r` to reply to comments, and `?` for help modal.
+- Live diff snapshot application in Markdown Preview (`ActiveView::MarkdownPreview`) and automatic cache invalidation on `diff_revision` bump while preserving and clamping cursor position.
+- Linked git worktree administrative path classification (`.git/worktrees/<name>/index`, `HEAD`, branch refs) in `lgtm_core::watcher::affects_diff`.
+- Dynamic file watcher rebinding via `WatcherHandle` on `:wt` worktree switch.
+
+### Fixed
+- Static analysis guard false positives: tightened `sec/sql-injection` tree-sitter AST query to require structured SQL clauses (`SELECT...FROM`, `INSERT INTO`, `UPDATE...SET`, `DELETE FROM`), preventing false flags on UI/CLI logging strings like `format!("Deleted...")` or `format!("Selected...")`.
+- Test skip discrimination: fixed `test/skipped` heuristic so `std::process::exit(...)` is not falsely flagged as a Jest `xit(` skip.
+- Tautological assertion detection: sanitized internal guard description strings, test fixtures, and help text to prevent self-flagging.
+- Markdown preview cache staleness: diff reload now rebuilds rendered markdown rows automatically via `cached_diff_revision`.
 
 ## 2.6.2
 - Consistent `Ctrl-n` / `Ctrl-p` item navigation, page movement, and top/bottom jumps across pickers and document views; non-text pickers also close with `Ctrl-c` and `q`.

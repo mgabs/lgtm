@@ -694,12 +694,15 @@ impl App {
                 if !self.comments.is_empty() && self.comment_list_selected_idx < self.comments.len()
                 {
                     let is_res = self.comments[self.comment_list_selected_idx].toggle_resolved();
-                    let _ = self.comment_store.save_comments(&self.comments);
-                    self.status_message = Some(if is_res {
-                        "✅ Directive marked resolved".to_string()
+                    if let Err(e) = self.comment_store.save_comments(&self.comments) {
+                        self.status_message = Some(format!("Failed to save comments: {e}"));
                     } else {
-                        "💬 Directive marked active".to_string()
-                    });
+                        self.status_message = Some(if is_res {
+                            "✅ Directive marked resolved".to_string()
+                        } else {
+                            "💬 Directive marked active".to_string()
+                        });
+                    }
                 }
             }
             (_, KeyCode::Char('a')) => {
@@ -713,7 +716,9 @@ impl App {
                 if !self.comments.is_empty() && self.comment_list_selected_idx < self.comments.len()
                 {
                     let removed = self.comments.remove(self.comment_list_selected_idx);
-                    let _ = self.comment_store.save_comments(&self.comments);
+                    if let Err(e) = self.comment_store.save_comments(&self.comments) {
+                        self.status_message = Some(format!("Failed to save comments: {e}"));
+                    }
                     if self.comment_list_selected_idx >= self.comments.len()
                         && !self.comments.is_empty()
                     {
@@ -943,7 +948,9 @@ impl App {
     pub(crate) fn handle_worktree_confirm_guard_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('s') | KeyCode::Char('S') => {
-                let _ = self.comment_store.save_comments(&self.comments);
+                if let Err(e) = self.comment_store.save_comments(&self.comments) {
+                    self.status_message = Some(format!("Failed to save comments: {e}"));
+                }
                 if let Some(target) = self.worktree_picker.pending_target.take() {
                     self.apply_worktree_switch(target);
                 } else {
@@ -981,6 +988,10 @@ impl App {
         self.pr.current_number = None;
         self.active_revision = None;
         self.git_engine = crate::git::GitEngine::new(&target_path);
+        if let Some(ref handle) = self.watcher_handle {
+            let git_dir = self.git_engine.git_dir().ok();
+            let _ = handle.rebind(&target_path, git_dir);
+        }
         self.comment_store = lgtm_core::comment::CommentStore::new(&target_path);
         self.comments = self.comment_store.load_comments();
         self.marks.clear();
@@ -1593,7 +1604,7 @@ impl App {
             }
             // Export report: 'E'
             (_, KeyCode::Char('E')) => {
-                let _ = self.export_audit_report(None);
+                let _ = self.export_audit_report(None); // lgtm:ignore
             }
             // Yank remediation directive to clipboard (OSC 52)
             (_, KeyCode::Char('y')) => {
@@ -1902,8 +1913,10 @@ mod tests {
                 id: "t1".into(),
                 path: "src/main.rs".into(),
                 line: Some(10),
-                resolved: false,
+                state: lgtm_core::forge::ThreadState::Open,
                 outdated: false,
+                can_resolve: None,
+                can_unresolve: None,
                 comments: vec![lgtm_core::github::ThreadComment {
                     id: 101,
                     author: "alice".into(),
@@ -1914,8 +1927,10 @@ mod tests {
                 id: "t2".into(),
                 path: "src/lib.rs".into(),
                 line: Some(20),
-                resolved: true,
+                state: lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done),
                 outdated: false,
+                can_resolve: None,
+                can_unresolve: None,
                 comments: vec![lgtm_core::github::ThreadComment {
                     id: 102,
                     author: "bob".into(),
@@ -3021,8 +3036,10 @@ mod tests {
             id: id.into(),
             path: path.into(),
             line,
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }
     }
@@ -3084,7 +3101,8 @@ mod tests {
             thread("resolved", "f0.rs", Some(2)),
             thread("outdated", "f0.rs", Some(3)),
         ];
-        app.threads[1].resolved = true;
+        app.threads[1].state =
+            lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done);
         app.threads[2].outdated = true;
         app.active_view = ActiveView::ThreadView;
 

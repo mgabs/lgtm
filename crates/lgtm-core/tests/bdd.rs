@@ -560,7 +560,13 @@ fn bdd_core_016_invalid_tokens_do_not_downgrade_reads_or_writes() {
         )
         .is_err());
     assert!(provider.reply(42, "thread", 1, "text").is_err());
-    assert!(provider.set_resolved(42, "thread", true).is_err());
+    assert!(provider
+        .set_state(
+            42,
+            "thread",
+            lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done)
+        )
+        .is_err());
     assert!(provider.post_review(42, "COMMENT", "text").is_err());
     assert_eq!(calls.borrow().len(), 6);
     assert!(calls.borrow().iter().all(|call| call.starts_with("curl ")));
@@ -782,15 +788,25 @@ fn bdd_core_020_github_and_azure_reply_resolve_and_reopen_contracts() {
     .with_api_token(Some("tok".into()));
 
     assert_eq!(gh.reply(42, "PRRT_1", 77, "addressed").unwrap(), 901);
-    gh.set_resolved(42, "PRRT_1", true).unwrap();
-    gh.set_resolved(42, "PRRT_1", false).unwrap();
+    gh.set_state(
+        42,
+        "PRRT_1",
+        lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done),
+    )
+    .unwrap();
+    gh.set_state(42, "PRRT_1", lgtm_core::forge::ThreadState::Open)
+        .unwrap();
     assert!(gh
         .reply(42, "PRRT_1", 77, "unconfirmed")
         .unwrap_err()
         .to_string()
         .contains("no receipt"));
     assert!(gh
-        .set_resolved(42, "PRRT_1", true)
+        .set_state(
+            42,
+            "PRRT_1",
+            lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done)
+        )
         .unwrap_err()
         .to_string()
         .contains("no confirmation"));
@@ -831,20 +847,36 @@ fn bdd_core_020_github_and_azure_reply_resolve_and_reopen_contracts() {
     );
 
     assert_eq!(az.reply(42, "15", 8, "addressed").unwrap(), 301);
-    az.set_resolved(42, "15", true).unwrap();
-    az.set_resolved(42, "15", false).unwrap();
+    az.set_state(
+        42,
+        "15",
+        lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done),
+    )
+    .unwrap();
+    az.set_state(42, "15", lgtm_core::forge::ThreadState::Open)
+        .unwrap();
     assert!(az
         .reply(42, "15", 8, "unconfirmed")
         .unwrap_err()
         .to_string()
         .contains("no comment id"));
     assert!(az
-        .set_resolved(42, "15", true)
+        .set_state(
+            42,
+            "15",
+            lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done)
+        )
         .unwrap_err()
         .to_string()
         .contains("no confirmation"));
     assert!(az.reply(42, "non-numeric", 8, "x").is_err());
-    assert!(az.set_resolved(42, "non-numeric", true).is_err());
+    assert!(az
+        .set_state(
+            42,
+            "non-numeric",
+            lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done)
+        )
+        .is_err());
 
     let az_records = az_runner.records.borrow();
     assert!(az_records[0]
@@ -881,11 +913,11 @@ fn bdd_core_021_rust_static_scan_detects_injections_and_inline_tautological_asse
     ).unwrap();
 
     let test_diff = PrEngine::parse_unified_diff(
-        "diff --git a/src/logic.rs b/src/logic.rs\n--- a/src/logic.rs\n+++ b/src/logic.rs\n@@ -0,0 +1,3 @@\n+#[test]\n+fn test_t() {\n+    assert!(true);\n+}\n"
+        "diff --git a/src/logic.rs b/src/logic.rs\n--- a/src/logic.rs\n+++ b/src/logic.rs\n@@ -0,0 +1,3 @@\n+#[test]\n+fn test_t() {\n+    assert!(true);\n+}\n" // lgtm:ignore
     ).unwrap();
 
     let clean_diff = PrEngine::parse_unified_diff(
-        "diff --git a/src/safe.rs b/src/safe.rs\n--- a/src/safe.rs\n+++ b/src/safe.rs\n@@ -0,0 +1,2 @@\n+let q = sqlx::query(\"SELECT * FROM users WHERE id = $1\").bind(user);\n+let out = Command::new(\"git\").arg(\"status\").output();\n"
+        "diff --git a/src/safe.rs b/src/safe.rs\n--- a/src/safe.rs\n+++ b/src/safe.rs\n@@ -0,0 +1,3 @@\n+let q = sqlx::query(\"SELECT * FROM users WHERE id = $1\").bind(user);\n+let out = Command::new(\"git\").arg(\"status\").output();\n+let log = format!(\"Deleted comment on {}:{}\", path, line);\n"
     ).unwrap();
 
     // When scanned by SecurityAndTestGuard.

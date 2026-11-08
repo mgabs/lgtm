@@ -27,8 +27,10 @@ fn fixture() -> App {
         id: "thread".into(),
         path: "a.rs".into(),
         line: Some(1),
-        resolved: false,
+        state: lgtm_core::forge::ThreadState::Open,
         outdated: false,
+        can_resolve: None,
+        can_unresolve: None,
         comments: vec![],
     });
     for (line, title) in [(None, "file finding"), (Some(2), "line finding")] {
@@ -186,8 +188,10 @@ fn outdated_thread_performance_budgets() {
             id: format!("thread-{i}"),
             path: "a.rs".into(),
             line: Some(i * 20),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: i <= 25,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         })
         .collect();
@@ -440,7 +444,8 @@ fn annotation_changes_refresh_rows_without_recomputing_word_differences() {
     let before = screen(&mut app, 96, 30);
     assert!(before.contains("◆"));
     let words = app.render_cache.borrow().words_prepared;
-    app.threads[0].resolved = true;
+    app.threads[0].state =
+        lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done);
     let after = screen(&mut app, 96, 30);
     assert!(after.contains("◇"));
     assert!(!after.contains("◆"));

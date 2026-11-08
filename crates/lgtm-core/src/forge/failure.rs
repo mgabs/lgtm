@@ -95,6 +95,7 @@ pub fn classify(program: &str, code: Option<i32>, stderr: &str) -> Failure {
     {
         Kind::MissingRef
     } else if (program == "gh" && (code == Some(4) || text.contains("gh auth login")))
+        || (program == "glab" && (code == Some(4) || text.contains("glab auth login")))
         || http_status == Some(401)
         || [
             "authentication failed",
@@ -102,6 +103,7 @@ pub fn classify(program: &str, code: Option<i32>, stderr: &str) -> Failure {
             "could not read username",
             "terminal prompts disabled",
             "az login",
+            "glab auth login",
             "not logged",
             "tf400813",
         ]

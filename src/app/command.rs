@@ -954,16 +954,22 @@ mod tests {
                     id: "1".into(),
                     path: "a.rs".into(),
                     line: Some(4),
-                    resolved: false,
+                    state: lgtm_core::forge::ThreadState::Open,
                     outdated: false,
+                    can_resolve: None,
+                    can_unresolve: None,
                     comments: vec![],
                 },
                 Thread {
                     id: "2".into(),
                     path: "b.rs".into(),
                     line: None,
-                    resolved: true,
+                    state: lgtm_core::forge::ThreadState::Resolved(
+                        lgtm_core::forge::Resolution::Done,
+                    ),
                     outdated: false,
+                    can_resolve: None,
+                    can_unresolve: None,
                     comments: vec![],
                 },
             ],
@@ -1196,8 +1202,10 @@ mod tests {
             id: "1".into(),
             path: "a.rs".into(),
             line: Some(4),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }];
         app.execute_command(":thread");
@@ -1220,6 +1228,54 @@ mod tests {
         assert_eq!(app.thread_filter, ThreadFilter::Open);
         app.execute_command(":threads all");
         assert_eq!(app.thread_filter, ThreadFilter::All);
+    }
+
+    #[test]
+    fn test_thread_resolve_wontfix_and_permission_rejection() {
+        let mut app = create_test_app();
+        app.pr.current_number = Some(7);
+        app.threads = vec![
+            lgtm_core::github::Thread {
+                id: "1".into(),
+                path: "a.rs".into(),
+                line: Some(4),
+                state: lgtm_core::forge::ThreadState::Open,
+                outdated: false,
+                can_resolve: Some(true),
+                can_unresolve: None,
+                comments: vec![],
+            },
+            lgtm_core::github::Thread {
+                id: "2".into(),
+                path: "b.rs".into(),
+                line: Some(10),
+                state: lgtm_core::forge::ThreadState::Open,
+                outdated: false,
+                can_resolve: Some(false),
+                can_unresolve: None,
+                comments: vec![],
+            },
+        ];
+
+        // Thread 1: resolve wontfix succeeds
+        app.execute_command(":thread resolve wontfix 1");
+        assert_eq!(
+            app.threads[0].state,
+            lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::WontFix)
+        );
+
+        // Thread 2: can_resolve is false -> rejected with permission reason
+        app.execute_command(":thread resolve 2");
+        assert_eq!(app.threads[1].state, lgtm_core::forge::ThreadState::Open);
+        assert!(app
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("permission to resolve"));
+
+        // Unresolve thread 1
+        app.execute_command(":thread unresolve 1");
+        assert_eq!(app.threads[0].state, lgtm_core::forge::ThreadState::Open);
     }
 
     #[test]
@@ -1510,8 +1566,10 @@ mod tests {
             id: "t1".into(),
             path: "src/lib.rs".into(),
             line: Some(1),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }];
         app.cursor_line_idx = 0;
@@ -1519,11 +1577,11 @@ mod tests {
         app.execute_command("resolve");
         assert_eq!(app.active_view, ActiveView::Diff);
         assert!(app.comments[0].is_resolved);
-        assert!(!app.threads[0].resolved);
+        assert!(!app.threads[0].resolved());
 
         app.execute_command("unresolve");
         assert!(!app.comments[0].is_resolved);
-        assert!(!app.threads[0].resolved);
+        assert!(!app.threads[0].resolved());
     }
 
     #[test]
@@ -1534,8 +1592,10 @@ mod tests {
             id: "t1".into(),
             path: "src/lib.rs".into(),
             line: Some(2),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }];
         app.cursor_line_idx = 0;

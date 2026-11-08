@@ -205,7 +205,7 @@ pub(super) fn annotation_signature(app: &App) -> u64 {
 
     app.threads.len().hash(&mut hash);
     for t in &app.threads {
-        (&t.path, t.line, t.resolved, t.outdated).hash(&mut hash);
+        (&t.path, t.line, t.resolved(), t.outdated).hash(&mut hash);
     }
     hash.finish()
 }

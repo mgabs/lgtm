@@ -1,6 +1,6 @@
 //! Which code host a repository lives on, and the PR operations lgtm needs from it.
 use crate::comment::CommentSide;
-use crate::github::{Check, Thread};
+use crate::github::Check;
 use crate::model::DiffSnapshot;
 use crate::pr::PullRequestSummary;
 use anyhow::{bail, Result};
@@ -9,14 +9,19 @@ use std::path::Path;
 pub mod azure;
 pub mod failure;
 pub mod github;
+pub mod gitlab;
+pub mod model;
 
 pub use azure::AzureForge;
 pub use github::GitHubForge;
+pub use gitlab::GitLabForge;
+pub use model::{Applied, DraftSetResolved, Resolution, Thread, ThreadComment, ThreadState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForgeKind {
     GitHub,
     Azure,
+    GitLab,
     Unknown,
 }
 
@@ -25,6 +30,8 @@ pub fn detect(url: &str) -> ForgeKind {
     let u = url.to_ascii_lowercase();
     if u.contains("dev.azure.com") || u.contains(".visualstudio.com") || u.contains("/_git/") {
         ForgeKind::Azure
+    } else if u.contains("gitlab.com") || u.contains("gitlab.") || u.contains("/gitlab") {
+        ForgeKind::GitLab
     } else if u.contains("github.com") || u.contains("github.") {
         ForgeKind::GitHub
     } else {
@@ -67,7 +74,7 @@ impl PrivateTempFile {
 
 impl Drop for PrivateTempFile {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        let _ = std::fs::remove_file(&self.0); // lgtm:ignore
     }
 }
 
@@ -137,7 +144,7 @@ pub trait PrDiscussion {
     fn reply(&self, _pr: u64, _thread_id: &str, _comment_id: u64, _body: &str) -> Result<u64> {
         bail!("Reply comments are not supported by this provider")
     }
-    fn set_resolved(&self, _pr: u64, _thread_id: &str, _resolved: bool) -> Result<()> {
+    fn set_state(&self, _pr: u64, _thread_id: &str, _state: ThreadState) -> Result<Applied> {
         bail!("Thread resolution is not supported by this provider")
     }
 }
@@ -177,8 +184,8 @@ impl<T: ?Sized + PrDiscussion> PrDiscussion for Box<T> {
     fn reply(&self, pr: u64, thread_id: &str, comment_id: u64, body: &str) -> Result<u64> {
         (**self).reply(pr, thread_id, comment_id, body)
     }
-    fn set_resolved(&self, pr: u64, thread_id: &str, resolved: bool) -> Result<()> {
-        (**self).set_resolved(pr, thread_id, resolved)
+    fn set_state(&self, pr: u64, thread_id: &str, state: ThreadState) -> Result<Applied> {
+        (**self).set_state(pr, thread_id, state)
     }
 }
 
@@ -226,6 +233,7 @@ impl<T: ?Sized + Forge> Forge for Box<T> {
 pub enum ForgeImpl {
     GitHub(GitHubForge),
     Azure(AzureForge),
+    GitLab(GitLabForge),
     Unsupported(Unsupported),
 }
 
@@ -234,6 +242,7 @@ impl PrDiscussion for ForgeImpl {
         match self {
             Self::GitHub(f) => f.checks(pr),
             Self::Azure(f) => f.checks(pr),
+            Self::GitLab(f) => f.checks(pr),
             Self::Unsupported(f) => f.checks(pr),
         }
     }
@@ -241,6 +250,7 @@ impl PrDiscussion for ForgeImpl {
         match self {
             Self::GitHub(f) => f.threads(pr),
             Self::Azure(f) => f.threads(pr),
+            Self::GitLab(f) => f.threads(pr),
             Self::Unsupported(f) => f.threads(pr),
         }
     }
@@ -248,6 +258,7 @@ impl PrDiscussion for ForgeImpl {
         match self {
             Self::GitHub(f) => f.thread(pr, id),
             Self::Azure(f) => f.thread(pr, id),
+            Self::GitLab(f) => f.thread(pr, id),
             Self::Unsupported(f) => f.thread(pr, id),
         }
     }
@@ -255,6 +266,7 @@ impl PrDiscussion for ForgeImpl {
         match self {
             Self::GitHub(f) => f.head_sha(pr),
             Self::Azure(f) => f.head_sha(pr),
+            Self::GitLab(f) => f.head_sha(pr),
             Self::Unsupported(f) => f.head_sha(pr),
         }
     }
@@ -270,6 +282,7 @@ impl PrDiscussion for ForgeImpl {
         match self {
             Self::GitHub(f) => f.post_inline(pr, sha, path, line, side, body),
             Self::Azure(f) => f.post_inline(pr, sha, path, line, side, body),
+            Self::GitLab(f) => f.post_inline(pr, sha, path, line, side, body),
             Self::Unsupported(f) => f.post_inline(pr, sha, path, line, side, body),
         }
     }
@@ -277,6 +290,7 @@ impl PrDiscussion for ForgeImpl {
         match self {
             Self::GitHub(f) => f.post_inline_batch(pr, sha, items),
             Self::Azure(f) => f.post_inline_batch(pr, sha, items),
+            Self::GitLab(f) => f.post_inline_batch(pr, sha, items),
             Self::Unsupported(f) => f.post_inline_batch(pr, sha, items),
         }
     }
@@ -284,6 +298,7 @@ impl PrDiscussion for ForgeImpl {
         match self {
             Self::GitHub(f) => f.post_general(pr, body),
             Self::Azure(f) => f.post_general(pr, body),
+            Self::GitLab(f) => f.post_general(pr, body),
             Self::Unsupported(f) => f.post_general(pr, body),
         }
     }
@@ -291,14 +306,16 @@ impl PrDiscussion for ForgeImpl {
         match self {
             Self::GitHub(f) => f.reply(pr, thread, comment, body),
             Self::Azure(f) => f.reply(pr, thread, comment, body),
+            Self::GitLab(f) => f.reply(pr, thread, comment, body),
             Self::Unsupported(f) => f.reply(pr, thread, comment, body),
         }
     }
-    fn set_resolved(&self, pr: u64, thread: &str, resolved: bool) -> Result<()> {
+    fn set_state(&self, pr: u64, thread: &str, state: ThreadState) -> Result<Applied> {
         match self {
-            Self::GitHub(f) => f.set_resolved(pr, thread, resolved),
-            Self::Azure(f) => f.set_resolved(pr, thread, resolved),
-            Self::Unsupported(f) => f.set_resolved(pr, thread, resolved),
+            Self::GitHub(f) => f.set_state(pr, thread, state),
+            Self::Azure(f) => f.set_state(pr, thread, state),
+            Self::GitLab(f) => f.set_state(pr, thread, state),
+            Self::Unsupported(f) => f.set_state(pr, thread, state),
         }
     }
 }
@@ -308,6 +325,7 @@ impl Forge for ForgeImpl {
         match self {
             Self::GitHub(f) => f.available(),
             Self::Azure(f) => f.available(),
+            Self::GitLab(f) => f.available(),
             Self::Unsupported(f) => f.available(),
         }
     }
@@ -315,6 +333,7 @@ impl Forge for ForgeImpl {
         match self {
             Self::GitHub(f) => f.list_prs(),
             Self::Azure(f) => f.list_prs(),
+            Self::GitLab(f) => f.list_prs(),
             Self::Unsupported(f) => f.list_prs(),
         }
     }
@@ -325,6 +344,7 @@ impl Forge for ForgeImpl {
         match self {
             Self::GitHub(f) => f.list_prs_state(state),
             Self::Azure(f) => f.list_prs_state(state),
+            Self::GitLab(f) => f.list_prs_state(state),
             Self::Unsupported(f) => f.list_prs_state(state),
         }
     }
@@ -332,6 +352,7 @@ impl Forge for ForgeImpl {
         match self {
             Self::GitHub(f) => f.pr_diff(pr),
             Self::Azure(f) => f.pr_diff(pr),
+            Self::GitLab(f) => f.pr_diff(pr),
             Self::Unsupported(f) => f.pr_diff(pr),
         }
     }
@@ -339,6 +360,7 @@ impl Forge for ForgeImpl {
         match self {
             Self::GitHub(f) => f.post_review(pr, event, body),
             Self::Azure(f) => f.post_review(pr, event, body),
+            Self::GitLab(f) => f.post_review(pr, event, body),
             Self::Unsupported(f) => f.post_review(pr, event, body),
         }
     }
@@ -380,7 +402,7 @@ impl PrDiscussion for Unsupported {
     fn reply(&self, _: u64, _: &str, _: u64, _: &str) -> Result<u64> {
         self.no()
     }
-    fn set_resolved(&self, _: u64, _: &str, _: bool) -> Result<()> {
+    fn set_state(&self, _: u64, _: &str, _: ThreadState) -> Result<Applied> {
         self.no()
     }
 }
@@ -407,6 +429,9 @@ pub fn open(repo: &Path) -> Box<dyn Forge> {
     let backend = match kind {
         ForgeKind::Azure => {
             ForgeImpl::Azure(azure::AzureForge::with_origin(repo.to_path_buf(), url))
+        }
+        ForgeKind::GitLab => {
+            ForgeImpl::GitLab(gitlab::GitLabForge::with_origin(repo.to_path_buf(), url))
         }
         _ => ForgeImpl::GitHub(GitHubForge::with_origin(repo.to_path_buf(), url)),
     };
@@ -448,15 +473,8 @@ impl<F: PrDiscussion> PrDiscussion for TimedForge<F> {
     fn reply(&self, pr: u64, thread: &str, comment: u64, body: &str) -> Result<u64> {
         crate::debug::measure("pr.reply", || self.0.reply(pr, thread, comment, body))
     }
-    fn set_resolved(&self, pr: u64, thread: &str, resolved: bool) -> Result<()> {
-        crate::debug::measure(
-            if resolved {
-                "pr.resolve"
-            } else {
-                "pr.unresolve"
-            },
-            || self.0.set_resolved(pr, thread, resolved),
-        )
+    fn set_state(&self, pr: u64, thread: &str, state: ThreadState) -> Result<Applied> {
+        crate::debug::measure("pr.set_state", || self.0.set_state(pr, thread, state))
     }
 }
 
@@ -518,7 +536,14 @@ mod tests {
             ("https://o.visualstudio.com/p/_git/r", ForgeKind::Azure),
             ("git@github.com:a/b.git", ForgeKind::GitHub),
             ("git@github.personal:a/b.git", ForgeKind::GitHub),
-            ("https://gitlab.com/a/b", ForgeKind::Unknown),
+            ("https://gitlab.com/a/b", ForgeKind::GitLab),
+            ("git@gitlab.internal.corp:a/b.git", ForgeKind::GitLab),
+            (
+                "https://gitlab.com/group/subgroup/repo.git",
+                ForgeKind::GitLab,
+            ),
+            ("https://my-gitlab.org/a/b", ForgeKind::GitLab),
+            ("https://example.com/a/b", ForgeKind::Unknown),
         ] {
             assert_eq!(detect(url), want, "{url}");
         }
@@ -592,7 +617,9 @@ mod tests {
             .is_err());
         assert!(dummy.post_general(1, "body").is_err());
         assert!(dummy.reply(1, "t", 1, "body").is_err());
-        assert!(dummy.set_resolved(1, "t", true).is_err());
+        assert!(dummy
+            .set_state(1, "t", ThreadState::Resolved(Resolution::Done))
+            .is_err());
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Live PR thread actions and in-memory retry data.
 use super::*;
 use lgtm_core::comment::CommentSide;
+use lgtm_core::forge::{Resolution, ThreadState};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CommentRetryBuffer {
@@ -11,7 +12,7 @@ pub struct CommentRetryBuffer {
     pub target_thread_id: Option<String>,
 }
 
-const USAGE: &str = "Usage: :thread comment <text> | reply <n> <text> | resolve <n> | unresolve <n> | retry | refresh | outdated";
+const USAGE: &str = "Usage: :thread comment <text> | reply <n> <text> | resolve [wontfix] <n> | unresolve <n> | retry | refresh | outdated";
 
 impl App {
     pub fn toggle_resolve_thread_at_cursor(&mut self) -> bool {
@@ -168,6 +169,25 @@ impl App {
     }
 
     pub(crate) fn set_thread_resolved(&mut self, thread_idx: usize, resolved: Option<bool>) {
+        let Some(t) = self.threads.get(thread_idx) else {
+            self.status_message = Some("No such thread; run :threads first".into());
+            return;
+        };
+        let target = if let Some(r) = resolved {
+            if r {
+                ThreadState::Resolved(Resolution::Done)
+            } else {
+                ThreadState::Open
+            }
+        } else if t.resolved() {
+            ThreadState::Open
+        } else {
+            ThreadState::Resolved(Resolution::Done)
+        };
+        self.set_thread_state(thread_idx, target);
+    }
+
+    pub(crate) fn set_thread_state(&mut self, thread_idx: usize, target: ThreadState) {
         let Some(pr) = self.pr.current_number else {
             self.status_message = Some("Comments require a PR (:pr <n>)".into());
             return;
@@ -176,30 +196,50 @@ impl App {
             self.status_message = Some("No such thread; run :threads first".into());
             return;
         };
+        if let Err(reason) = t.check_permission(&target) {
+            self.status_message = Some(reason.to_string());
+            return;
+        }
         let thread_id = t.id.clone();
         let thread_id_for_rollback = thread_id.clone();
-        let wanted = resolved.unwrap_or(!t.resolved);
+        let old_state = t.state.clone();
         let repo = self.git_engine.repo_path.clone();
         let factory = self.forge_factory;
+        let is_resolve = matches!(target, ThreadState::Resolved(_));
 
         if let Some(t_mut) = self.threads.get_mut(thread_idx) {
-            t_mut.resolved = wanted;
+            t_mut.state = target.clone();
         }
 
         self.spawn_job(
-            if wanted {
+            if is_resolve {
                 "Resolving thread"
             } else {
                 "Unresolving thread"
             },
             move || {
                 let forge = factory(&repo);
-                forge.set_resolved(pr, &thread_id, wanted)
+                forge.set_state(pr, &thread_id, target)
             },
             move |app, result| match result {
-                Ok(()) => {
-                    let status = if wanted { "resolved" } else { "unresolved" };
-                    app.status_message = Some(format!("Thread {status}"));
+                Ok(applied) => {
+                    if let Some(t_mut) = app
+                        .threads
+                        .iter_mut()
+                        .find(|t| t.id == thread_id_for_rollback)
+                    {
+                        t_mut.state = applied.applied.clone();
+                    }
+                    if let Some(note) = applied.summary_note() {
+                        app.status_message = Some(format!("Thread resolved ({note})"));
+                    } else {
+                        let status = if applied.applied == ThreadState::Open {
+                            "unresolved"
+                        } else {
+                            "resolved"
+                        };
+                        app.status_message = Some(format!("Thread {status}"));
+                    }
                     app.refresh_threads_quietly(pr);
                 }
                 Err(e) => {
@@ -208,7 +248,7 @@ impl App {
                         .iter_mut()
                         .find(|t| t.id == thread_id_for_rollback)
                     {
-                        t_mut.resolved = !wanted;
+                        t_mut.state = old_state;
                     }
                     app.status_message = Some(format!("Failed to update thread resolution: {e:#}"));
                 }
@@ -261,7 +301,21 @@ impl App {
                 self.post_reply(i, &text);
             }
             "resolve" | "unresolve" => {
-                let Some(i) = thread_at(self) else {
+                let is_wontfix = rest
+                    .first()
+                    .is_some_and(|arg| arg.eq_ignore_ascii_case("wontfix"));
+                let num_arg = if is_wontfix {
+                    rest.get(1)
+                } else {
+                    rest.first()
+                };
+                let thread_index = num_arg
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .and_then(|n| n.checked_sub(1))
+                    .filter(|i| *i < self.threads.len())
+                    .or_else(|| self.thread_at_cursor());
+
+                let Some(i) = thread_index else {
                     self.status_message = Some(if rest.is_empty() {
                         USAGE.into()
                     } else {
@@ -269,7 +323,13 @@ impl App {
                     });
                     return;
                 };
-                self.set_thread_resolved(i, Some(verb == "resolve"));
+                if verb == "unresolve" {
+                    self.set_thread_state(i, ThreadState::Open);
+                } else if is_wontfix {
+                    self.set_thread_state(i, ThreadState::Resolved(Resolution::WontFix));
+                } else {
+                    self.set_thread_state(i, ThreadState::Resolved(Resolution::Done));
+                }
             }
             "retry" => {
                 self.retry_failed_comment();
@@ -305,7 +365,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::app::test_util::create_test_app;
-    use lgtm_core::forge::PrDiscussion;
+    use lgtm_core::forge::{Applied, PrDiscussion};
     use lgtm_core::github::{Thread, ThreadComment};
     use lgtm_core::model::*;
     use std::sync::Mutex;
@@ -340,9 +400,12 @@ mod tests {
             SENT.lock().unwrap().push(format!("reply:{t}:{c}:{body}"));
             Ok(2)
         }
-        fn set_resolved(&self, _: u64, t: &str, r: bool) -> anyhow::Result<()> {
-            SENT.lock().unwrap().push(format!("resolve:{t}:{r}"));
-            Ok(())
+        fn set_state(&self, _: u64, t: &str, state: ThreadState) -> anyhow::Result<Applied> {
+            let is_resolved = matches!(state, ThreadState::Resolved(_));
+            SENT.lock()
+                .unwrap()
+                .push(format!("resolve:{t}:{is_resolved}"));
+            Ok(Applied::exact(state))
         }
     }
     impl lgtm_core::forge::Forge for Recording {
@@ -362,8 +425,10 @@ mod tests {
             id: "T1".into(),
             path: "a.rs".into(),
             line: Some(2),
-            resolved: false,
+            state: ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![ThreadComment {
                 id: 9,
                 author: "bob".into(),
@@ -462,7 +527,7 @@ mod tests {
         assert!(app.toggle_resolve_thread_at_cursor());
         wait_jobs(&mut app);
         assert_eq!(*SENT.lock().unwrap(), vec!["resolve:T1:true".to_string()]);
-        assert!(app.threads[0].resolved);
+        assert!(app.threads[0].resolved());
 
         app.start_thread_reply(0);
         assert_eq!(app.command.input, "thread reply 1 ");

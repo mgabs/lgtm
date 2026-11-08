@@ -36,11 +36,18 @@ The engine SHALL run `git worktree list --porcelain` in the repository root and 
 - **THEN** the status bar shows `Worktree not found: no-such-branch`
 
 ### Requirement: Single-Diff Isolation
-Switching worktrees SHALL re-initialize the Git engine and file watcher on the target root and drop and reload diff snapshots, layout caches and file trees. Exactly one worktree's diff MUST be active at a time. In-flight background diff or audit workers MUST be cancelled before the repository path is rebound.
+Switching worktrees SHALL re-initialize the Git engine and active file watcher on the target worktree root and its linked git administrative directory (`worktrees/<name>/`), dropping and reloading diff snapshots, layout caches and file trees. Exactly one worktree's diff MUST be active at a time. In-flight background diff or audit workers MUST be cancelled before the repository path is rebound.
 
-#### Scenario: Switch reloads state
-- **WHEN** the user switches from the root worktree to `feat-x`
-- **THEN** the diff shows only `feat-x` changes and the watcher observes the new path
+#### Scenario: Switch reloads state and rebinds watcher
+- **WHEN** the user switches from the root worktree to `feat-x` via `:wt feat-x`
+- **THEN** the diff shows only `feat-x` changes
+- **AND** the active file watcher observes the `feat-x` root and its linked git directory
+
+#### Scenario: Worktree git index and HEAD updates trigger diff reload
+- **WHEN** files are staged or committed inside a linked git worktree
+- **AND** the worktree's administrative index or HEAD changes in `.git/worktrees/<name>/`
+- **THEN** the file watcher dispatches an update event
+- **AND** the TUI reloads the active diff snapshot and file change list
 
 ### Requirement: Pending Directives Guard
 Switching while unsaved review directives exist SHALL prompt `Pending directives exist: [S]ave & Switch, [D]iscard & Switch, [C]ancel`. `s` MUST save then switch, `d` MUST discard then switch, and `c` or `Esc` MUST abort and stay.

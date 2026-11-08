@@ -334,7 +334,7 @@ impl IpcBridge {
     }
 
     pub fn send_osc52_clipboard(text: &str) {
-        let _ = crate::sys::copy_to_clipboard(text);
+        let _ = crate::sys::copy_to_clipboard(text); // lgtm:ignore
     }
 }
 
