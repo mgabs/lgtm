@@ -302,8 +302,10 @@ mod tests {
             id: id.into(),
             path: "a.rs".into(),
             line: Some(1),
-            resolved: false,
+            state: lgtm_core::forge::ThreadState::Open,
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }
     }

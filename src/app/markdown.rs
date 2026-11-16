@@ -32,6 +32,7 @@ pub struct MarkdownPreviewState {
     pub rendered_rows: Vec<RenderedMarkdownRow>,
     pub cached_file_idx: Option<usize>,
     pub cached_width: u16,
+    pub cached_diff_revision: u64,
     /// Rows visible in the last render; scrolling clamps against it.
     pub viewport_height: usize,
     /// Screen lines per row (the row plus its directives), set by the renderer.

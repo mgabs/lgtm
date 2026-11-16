@@ -6,7 +6,7 @@
 > **Fast, real-time terminal diff reviewer, AI agent steering TUI & CI security scanner built in Rust.**
 > *"Because code shouldn't ship until it actually looks good to you."*
 
-`lgtm` is a keyboard-driven diff reviewer and deterministic guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It combines Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST hunk folding, an interactive Commit Forge, GitHub & Azure DevOps PR review, and direct `#ref` injection into `tmux`, `zellij`, `wezterm`, `kitty` agent panes or clipboards.
+`lgtm` is a keyboard-driven diff reviewer and deterministic guardrail engine engineered for human-in-the-loop AI coding workflows and terminal velocity. It combines Vim motion parity with live file-watcher updates, deep static analysis (complexity spikes, typo/hallucination checks, dead code, breaking API drift), AST hunk folding, an interactive Commit Forge, GitHub, Azure DevOps & GitLab PR/MR review, and direct `#ref` injection into `tmux`, `zellij`, `wezterm`, `kitty` agent panes or clipboards.
 
 ```
 ┌── Files (35 cols) ─────────┬── Diff: src/guard/mod.rs ────────────────────────┐
@@ -59,7 +59,7 @@ lgtm mcp              # Run native Model Context Protocol (MCP) server
 - **AI Agent Steering & Chords**: Drop inline directives (`c`), use 2-key chord templates (`ca` coverage, `cs` security, `cr` refactor, `cp` performance, `cw` why), and dispatch context-aware `#ref` links directly into agent multiplexer panes (`Enter`) or reject hunks (`X`).
 - **Deep Static Analysis Guardrails**: Real-time detection of OWASP vulnerabilities, cognitive complexity spikes ($\ge 5$), hallucinated identifier typos, dead function additions (YAGNI), breaking API drift, and stealth test neutering.
 - **Pull Request Review**: Review open/closed PRs from GitHub (`gh`/API/HTTPS fallback) and Azure DevOps (`az`/REST) with CI checks (`:checks`) and live discussion threads. Outdated threads show a yellow `~` gutter marker and `[⚠ Outdated]` badge; filter with `:threads open|outdated|all` or Tab/`o`, and navigate with `]T`/`[T`. Remote comments and replies use `:thread`; `:directives`/`:c` and bare `:reply`, `:resolve`, and `:unresolve` stay local. There is no local PR comment store.
-- **Markdown Preview (`m`)**: Rendered `.md` review with a cursor row, mouse-wheel scrolling, per-line directives, and `mermaid` flowcharts shown as `A ──▶ B` edge lists.
+- **Markdown Preview (`m`)**: Rendered `.md` review with cursor navigation, mouse-wheel scrolling, `Enter` agent `#ref` injection (with wrapped-line resolution), `c` leader templates (`cp`, `cw`, `cs`, `cr`, `ca`, `cc`), cursor-synced `r` replies with persistent preview view return, `t` threads modal shortcut, inline PR discussion threads, and `mermaid` flowcharts shown as `A ──▶ B` edge lists.
 - **Native MCP Server**: JSON-RPC stdio server for Claude Code, Cursor, Windsurf, and Aider with live file-watcher resource subscriptions.
 - **Headless CI & Security Gates**: `lgtm check` gates CI pipelines on critical findings; `lgtm hook` automates Git pre-commit verification; SARIF 2.1.0 and Markdown reporting.
 

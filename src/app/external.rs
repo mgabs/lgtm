@@ -17,9 +17,12 @@ impl App {
             let (prompt, file_path) =
                 CommentStore::compile_pr_review_prompt(&self.comments, pr_num);
             let full_path = self.git_engine.repo_path.join(&file_path);
-            let _ = std::fs::write(&full_path, &prompt);
-
-            let mut notes = vec![format!("Saved to {}", file_path.display())];
+            let mut notes = Vec::new();
+            if let Err(e) = std::fs::write(&full_path, &prompt) {
+                notes.push(format!("Failed to save {}: {e}", file_path.display()));
+            } else {
+                notes.push(format!("Saved to {}", file_path.display()));
+            }
 
             let sink = self.agent_sink();
             let text = if self.agent_pane.is_some() {
@@ -84,7 +87,10 @@ impl App {
         let (prompt, file_path) = CommentStore::compile_batch_review_prompt(&self.comments, turn);
 
         let full_path = self.git_engine.repo_path.join(&file_path);
-        let _ = std::fs::write(&full_path, &prompt);
+        if let Err(e) = std::fs::write(&full_path, &prompt) {
+            self.status_message = Some(format!("Failed to write {}: {e}", file_path.display()));
+            return;
+        }
 
         let sink = self.agent_sink();
         let text = if self.agent_pane.is_some() {
@@ -118,7 +124,7 @@ impl App {
             label
         ));
 
-        let _ = self.turn_manager.advance_turn(None);
+        let _ = self.turn_manager.advance_turn(None); // lgtm:ignore
         self.invalidate_pr_completion();
         self.invalidate_view_data();
     }

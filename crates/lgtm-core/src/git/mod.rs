@@ -32,6 +32,11 @@ impl GitEngine {
             .with_context(|| format!("No git repository found at {}", self.repo_path.display()))
     }
 
+    pub fn git_dir(&self) -> Result<PathBuf> {
+        let repo = self.open_repo()?;
+        Ok(repo.path().to_path_buf())
+    }
+
     pub fn compute_diff_snapshot(&self) -> Result<DiffSnapshot> {
         let repo = match self.open_repo() {
             Ok(r) => r,
@@ -120,7 +125,7 @@ impl GitEngine {
         let mut current_file: Option<FileDiff> = None;
         let mut current_hunk: Option<DiffHunk> = None;
 
-        let _ = diff.print(DiffFormat::Patch, |delta_cb, hunk_cb, line_cb| {
+        diff.print(DiffFormat::Patch, |delta_cb, hunk_cb, line_cb| {
             let old_file = delta_cb.old_file().path().map(|p| p.to_path_buf());
             let new_file = delta_cb
                 .new_file()
@@ -235,7 +240,7 @@ impl GitEngine {
             }
 
             true
-        });
+        })?;
 
         if let Some(h) = current_hunk {
             if let Some(ref mut f) = current_file {

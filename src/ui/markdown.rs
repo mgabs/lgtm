@@ -23,15 +23,26 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
         let width = area.width;
         let needs_rebuild = app.markdown_preview.rendered_rows.is_empty()
             || app.markdown_preview.cached_file_idx != Some(app.selected_file_idx)
-            || app.markdown_preview.cached_width != width;
+            || app.markdown_preview.cached_width != width
+            || app.markdown_preview.cached_diff_revision != app.diff_revision;
 
         if needs_rebuild {
+            let is_revision_refresh = !app.markdown_preview.rendered_rows.is_empty()
+                && app.markdown_preview.cached_file_idx == Some(app.selected_file_idx)
+                && app.markdown_preview.cached_width == width;
+
             app.markdown_preview.rendered_rows =
                 crate::app::markdown::build_markdown_preview(file, width);
             app.markdown_preview.cached_file_idx = Some(app.selected_file_idx);
             app.markdown_preview.cached_width = width;
-            app.markdown_preview.scroll_offset = 0;
-            app.markdown_preview.cursor_row = 0;
+            app.markdown_preview.cached_diff_revision = app.diff_revision;
+            if is_revision_refresh {
+                let max_row = app.markdown_preview.rendered_rows.len().saturating_sub(1);
+                app.markdown_preview.cursor_row = app.markdown_preview.cursor_row.min(max_row);
+            } else {
+                app.markdown_preview.scroll_offset = 0;
+                app.markdown_preview.cursor_row = 0;
+            }
             app.markdown_preview.set_row_heights(Vec::new());
         }
     }
@@ -73,6 +84,19 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
         }
     };
 
+    let file_threads: Vec<_> = app.threads.iter().filter(|t| t.path == file_name).collect();
+    let threads_for = |row: &RenderedMarkdownRow| -> Vec<&lgtm_core::github::Thread> {
+        let deleted = row.diff_kind == MarkdownDiffKind::Deletion;
+        match row.line_number {
+            Some(n) => file_threads
+                .iter()
+                .copied()
+                .filter(|t| !deleted && t.line == Some(n))
+                .collect(),
+            None => Vec::new(),
+        }
+    };
+
     let heights: Vec<usize> = app
         .markdown_preview
         .rendered_rows
@@ -82,6 +106,10 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
                 .iter()
                 .map(|c| 1 + c.replies.len())
                 .sum::<usize>()
+                + threads_for(r)
+                    .iter()
+                    .map(|t| t.comments.len().max(1))
+                    .sum::<usize>()
         })
         .collect();
     app.markdown_preview.set_row_heights(heights);
@@ -131,6 +159,9 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
         });
 
         for c in directives_for(row) {
+            if lines.len() >= viewport_height {
+                break;
+            }
             let (icon, color) = if c.is_resolved {
                 ("✅", Color::DarkGray)
             } else {
@@ -141,9 +172,57 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
                 Style::default().fg(color),
             )));
             for reply in &c.replies {
+                if lines.len() >= viewport_height {
+                    break;
+                }
                 lines.push(Line::from(Span::styled(
                     format!("       │   ↳ {reply}"),
                     Style::default().fg(Color::DarkGray),
+                )));
+            }
+        }
+
+        for t in threads_for(row) {
+            if lines.len() >= viewport_height {
+                break;
+            }
+            let status = match t.state {
+                lgtm_core::forge::ThreadState::Open => "Open",
+                lgtm_core::forge::ThreadState::Resolved(_) => "Resolved",
+            };
+            let outdated_badge = if t.outdated { " [Outdated]" } else { "" };
+            let (icon_color, body_color) = if t.resolved() {
+                (Color::DarkGray, Color::DarkGray)
+            } else {
+                (Color::Magenta, Color::White)
+            };
+            if let Some(first) = t.comments.first() {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!(
+                            "       │ 🧵 [@{} ({}{})] ",
+                            first.author, status, outdated_badge
+                        ),
+                        Style::default().fg(icon_color),
+                    ),
+                    Span::styled(&first.body, Style::default().fg(body_color)),
+                ]));
+                for reply in t.comments.iter().skip(1) {
+                    if lines.len() >= viewport_height {
+                        break;
+                    }
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("       │   ↳ [@{}] ", reply.author),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                        Span::styled(&reply.body, Style::default().fg(Color::DarkGray)),
+                    ]));
+                }
+            } else {
+                lines.push(Line::from(Span::styled(
+                    format!("       │ 🧵 [Thread #{}{}]", t.id, outdated_badge),
+                    Style::default().fg(icon_color),
                 )));
             }
         }
@@ -300,6 +379,78 @@ mod tests {
     }
 
     #[test]
+    fn threads_render_under_their_line_in_markdown_preview() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.snapshot.files = vec![crate::model::FileDiff {
+            old_path: None,
+            new_path: "RFC.md".into(),
+            change_type: crate::model::ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: Vec::new(),
+            is_folded: false,
+            is_reviewed: false,
+        }];
+        app.markdown_preview.rendered_rows = vec![RenderedMarkdownRow {
+            line_number: Some(20),
+            diff_kind: MarkdownDiffKind::Unchanged,
+            spans: vec![Span::raw("Line 20 text")],
+        }];
+        app.markdown_preview.cached_file_idx = Some(0);
+        app.markdown_preview.cached_width = 80;
+
+        app.threads = vec![
+            lgtm_core::github::Thread {
+                id: "t1".into(),
+                path: "RFC.md".into(),
+                line: Some(20),
+                state: lgtm_core::forge::ThreadState::Open,
+                outdated: false,
+                can_resolve: Some(true),
+                can_unresolve: Some(true),
+                comments: vec![
+                    lgtm_core::github::ThreadComment {
+                        id: 101,
+                        author: "reviewer".into(),
+                        body: "Please verify invariants".into(),
+                    },
+                    lgtm_core::github::ThreadComment {
+                        id: 102,
+                        author: "author".into(),
+                        body: "Verified in test suite".into(),
+                    },
+                ],
+            },
+            lgtm_core::github::Thread {
+                id: "t2".into(),
+                path: "RFC.md".into(),
+                line: Some(20),
+                state: lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done),
+                outdated: true,
+                can_resolve: Some(true),
+                can_unresolve: Some(true),
+                comments: vec![lgtm_core::github::ThreadComment {
+                    id: 201,
+                    author: "bot".into(),
+                    body: "Old discussion".into(),
+                }],
+            },
+        ];
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 15)).unwrap();
+        terminal
+            .draw(|f| render_markdown_preview(f, f.area(), &mut app))
+            .unwrap();
+        let out = format!("{:?}", terminal.backend().buffer());
+        assert!(out.contains("🧵 [@reviewer (Open)]"));
+        assert!(out.contains("Please verify invariants"));
+        assert!(out.contains("↳ [@author]"));
+        assert!(out.contains("Verified in test suite"));
+        assert!(out.contains("[Outdated]"));
+        assert!(out.contains("Old discussion"));
+    }
+
+    #[test]
     fn scrolling_to_the_end_uses_the_rendered_height() {
         let mut app = crate::app::test_util::create_test_app();
         app.markdown_preview.rendered_rows = (1..=100)
@@ -381,5 +532,38 @@ mod tests {
             app.markdown_preview.scroll_offset,
             app.markdown_preview.max_scroll(vh)
         );
+    }
+
+    #[test]
+    fn test_diff_revision_change_triggers_rebuild_and_clamps_cursor() {
+        let mut app = crate::app::test_util::create_test_app();
+        let patch = "diff --git a/doc.md b/doc.md\n--- /dev/null\n+++ b/doc.md\n@@ -0,0 +1,5 @@\n+# Title\n+Line 1\n+Line 2\n+Line 3\n+Line 4\n";
+        app.snapshot = crate::pr::PrEngine::parse_unified_diff(patch).unwrap();
+        app.selected_file_idx = 0;
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal
+            .draw(|f| render_markdown_preview(f, f.area(), &mut app))
+            .unwrap();
+
+        assert!(!app.markdown_preview.rendered_rows.is_empty());
+        let initial_rows_count = app.markdown_preview.rendered_rows.len();
+        app.markdown_preview.cursor_row = initial_rows_count - 1;
+        app.markdown_preview.scroll_offset = 2;
+
+        let shorter_patch = "diff --git a/doc.md b/doc.md\n--- /dev/null\n+++ b/doc.md\n@@ -0,0 +1,2 @@\n+# Title\n+Line 1\n";
+        app.snapshot = crate::pr::PrEngine::parse_unified_diff(shorter_patch).unwrap();
+        app.invalidate_diff_content();
+
+        terminal
+            .draw(|f| render_markdown_preview(f, f.area(), &mut app))
+            .unwrap();
+
+        assert!(app.markdown_preview.rendered_rows.len() < initial_rows_count);
+        assert_eq!(
+            app.markdown_preview.cursor_row,
+            app.markdown_preview.rendered_rows.len() - 1
+        );
+        assert_eq!(app.markdown_preview.cached_diff_revision, app.diff_revision);
     }
 }

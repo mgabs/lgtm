@@ -182,3 +182,61 @@ Feature: Markdown Preview with Diff Highlighting
     When the preview is built at a narrow width
     Then unterminated markers stay literal and no row panics
     And wrapped rows keep the source line number on the first row only
+
+  # REQ-MDP-05: Live Refresh and Cache Invalidation during Preview; Rust test: test_markdown_preview_live_refresh_applies_and_rebuilds_cache
+  Scenario: Live file modification and drawer update while in markdown preview
+    Given the reviewer is viewing "README.md" in markdown preview
+    When an external file change arrives for "README.md" and other files
+    Then the diff snapshot applies without exiting markdown preview
+    And the file change drawer reflects the updated file statuses
+    And the preview row cache invalidates and re-renders the updated content
+    And the preview cursor and scroll offset are clamped within bounds
+
+  # REQ-MDP-NAV: Agent Reference Injection on Enter; Rust test: test_markdown_preview_enter_injects_ref
+  Scenario: Inject reference on direct markdown row
+    Given the reviewer is viewing "RFC.md" in markdown preview mode
+    And the preview cursor is on row with source line 12
+    When the reviewer presses the "Enter" key
+    Then an agent reference payload targeting "RFC.md" at line 12 is delivered to the sink
+    And the status message reports delivery to the agent sink
+
+  # REQ-MDP-NAV: Agent Reference Injection on Wrapped Row; Rust test: test_markdown_preview_enter_injects_ref_on_wrapped_row
+  Scenario: Inject reference on wrapped continuation row
+    Given the reviewer is viewing "RFC.md" in markdown preview mode
+    And paragraph starting at line 12 is wrapped across multiple preview rows
+    And the preview cursor is on a continuation row with no direct line number
+    When the reviewer presses the "Enter" key
+    Then the source line resolves to line 12
+    And an agent reference payload targeting "RFC.md" at line 12 is delivered to the sink
+
+  # REQ-MDP-NAV: Comment Leader Templates and Reply Persistence in Preview; Rust test: test_markdown_preview_comment_leader_and_reply_return
+  Scenario: Open comment leader template from markdown preview
+    Given the reviewer is viewing "RFC.md" in markdown preview mode
+    And the preview cursor is on row with source line 15
+    When the reviewer presses "c" followed by "p"
+    Then the active view switches to "CommentInput"
+    And the comment input text is prefilled with "🚀 [PERF] Optimize hot-path allocations and database query batching."
+    When the reviewer presses "Esc"
+    Then the active view returns to "MarkdownPreview"
+
+  # REQ-MDP-NAV: Comment Leader Templates and Reply Persistence in Preview; Rust test: test_markdown_preview_comment_leader_and_reply_return
+  Scenario: Reply to directive from markdown preview persists preview mode
+    Given a local directive is anchored to line 15 of "RFC.md"
+    And the reviewer is in markdown preview mode with cursor on row for line 15
+    When the reviewer presses the "r" key
+    Then the active view switches to "CommentReply"
+    When the reviewer submits the reply with "Enter"
+    Then the active view returns to "MarkdownPreview"
+
+  # REQ-MDP-THREADS: Inline PR Thread Rendering and Modal Shortcut in Preview; Rust test: test_markdown_preview_renders_threads_and_opens_modal
+  Scenario: Render inline PR discussion threads under source rows
+    Given a PR thread by author "@reviewer" with 1 reply is anchored to line 20 of "RFC.md"
+    When markdown preview is rendered for "RFC.md"
+    Then the thread is rendered beneath line 20 with "🧵" badge and author "@reviewer"
+    And the reply is rendered beneath the thread with "↳" indentation
+
+  # REQ-MDP-THREADS: Inline PR Thread Rendering and Modal Shortcut in Preview; Rust test: test_markdown_preview_renders_threads_and_opens_modal
+  Scenario: Open PR threads modal via t shortcut in preview
+    Given the reviewer is viewing "RFC.md" in markdown preview mode
+    When the reviewer presses the "t" key
+    Then the active view switches to "ThreadView"

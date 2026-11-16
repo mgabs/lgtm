@@ -178,11 +178,7 @@ fn is_rust_silent_error(text: &str) -> bool {
     }
 
     // Empty Err match arm: `Err(_) => {}`
-    if t.starts_with("Err(_) => {}") || t.starts_with("Err(_) => ()") {
-        return true;
-    }
-
-    false
+    t.starts_with("Err(_) => {}") || t.starts_with("Err(_) => ()")
 }
 
 fn is_python_silent_error(text: &str) -> bool {

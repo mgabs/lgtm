@@ -476,7 +476,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  🟠 Test Neutering & Skips:   ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-                    Span::raw("Detects deleted assertions, @pytest.mark.skip, t.Skip, and tautological tests (assert True)"),
+                    Span::raw("Detects deleted assertions, @pytest.mark.skip, t.Skip, and tautological tests (assert True)"), // lgtm:ignore
                 ]),
                 Line::from(vec![
                     Span::styled("  🟠 Architecture Sprawl & Leaks: ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
@@ -654,7 +654,7 @@ pub(crate) fn render_help_modal(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
                 Line::from(vec![
                     Span::styled("  :md, :preview        ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Markdown preview (Tab files; c/l/R/x directives)"),
+                    Span::raw("Markdown preview (Enter #ref; c directive; r reply; t threads; Tab files)"),
                 ]),
                 Line::from(vec![
                     Span::styled("  :yank, :y            ", Style::default().fg(Color::Cyan)),

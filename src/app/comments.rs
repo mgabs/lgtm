@@ -8,7 +8,7 @@ impl App {
             .filter_map(|(i, thread)| {
                 let visible = match self.thread_filter {
                     ThreadFilter::All => true,
-                    ThreadFilter::Open => !thread.resolved && !thread.outdated,
+                    ThreadFilter::Open => !thread.resolved() && !thread.outdated,
                     ThreadFilter::Outdated => thread.outdated,
                 };
                 visible.then_some(i)
@@ -165,8 +165,12 @@ impl App {
                 self.comments
                     .retain(|c| !(c.file_path == path_str && c.target_line_no == lno));
                 if self.comments.len() < initial_len {
-                    let _ = self.comment_store.save_comments(&self.comments);
-                    self.status_message = Some(format!("Deleted comment on {}:{}", path_str, lno));
+                    if let Err(e) = self.comment_store.save_comments(&self.comments) {
+                        self.status_message = Some(format!("Failed to save comments: {e}"));
+                    } else {
+                        self.status_message =
+                            Some(format!("Deleted comment on {}:{}", path_str, lno));
+                    }
                 } else {
                     self.status_message = Some(format!("No comment on {}:{}", path_str, lno));
                 }
@@ -200,12 +204,15 @@ impl App {
     pub fn toggle_resolve_current_comment(&mut self) {
         if let Some(idx) = self.comment_idx_at_cursor() {
             let is_res = self.comments[idx].toggle_resolved();
-            let _ = self.comment_store.save_comments(&self.comments);
-            self.status_message = Some(if is_res {
-                "✅ Directive marked resolved".to_string()
+            if let Err(e) = self.comment_store.save_comments(&self.comments) {
+                self.status_message = Some(format!("Failed to save comments: {e}"));
             } else {
-                "💬 Directive marked active".to_string()
-            });
+                self.status_message = Some(if is_res {
+                    "✅ Directive marked resolved".to_string()
+                } else {
+                    "💬 Directive marked active".to_string()
+                });
+            }
         } else {
             self.status_message = Some("No directive on current line".to_string());
         }
@@ -300,7 +307,7 @@ impl App {
                 let t = self.normalize_threads(t);
                 let open: Vec<String> = t
                     .iter()
-                    .filter(|t| !t.resolved)
+                    .filter(|t| !t.resolved())
                     .take(5)
                     .map(|t| format!("{}:{}", t.path, t.line.unwrap_or(0)))
                     .collect();
@@ -958,8 +965,14 @@ mod tests {
             id: format!("t{line}"),
             path: path.into(),
             line: Some(line),
-            resolved,
+            state: if resolved {
+                lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done)
+            } else {
+                lgtm_core::forge::ThreadState::Open
+            },
             outdated: false,
+            can_resolve: None,
+            can_unresolve: None,
             comments: vec![],
         }
     }

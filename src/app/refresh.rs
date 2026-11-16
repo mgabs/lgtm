@@ -50,7 +50,10 @@ impl App {
 
     pub(super) fn local_ready_to_apply(&self) -> bool {
         self.local_refresh.ready.is_some()
-            && self.active_view == ActiveView::Diff
+            && matches!(
+                self.active_view,
+                ActiveView::Diff | ActiveView::MarkdownPreview
+            )
             && !self.visual_mode
     }
 
@@ -228,7 +231,11 @@ impl App {
             self.local_refresh.ready = None;
             return false;
         }
-        if self.active_view != ActiveView::Diff || self.visual_mode {
+        if !matches!(
+            self.active_view,
+            ActiveView::Diff | ActiveView::MarkdownPreview
+        ) || self.visual_mode
+        {
             self.status_message =
                 Some("Diff update ready; close this view or selection to apply".into());
             return false;

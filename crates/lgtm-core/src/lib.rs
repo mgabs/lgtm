@@ -13,6 +13,7 @@ pub mod model;
 pub mod outcome;
 pub mod pr;
 pub mod review;
+pub mod review_gate;
 pub mod scan;
 pub mod sys;
 pub mod turn;

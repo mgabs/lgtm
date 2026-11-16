@@ -95,11 +95,16 @@ fn test_live_github_provider_contracts() {
                 println!("Live reply posted with ID {reply_id}");
             }
             // Toggle resolved then restore
+            let next_state = if t.resolved() {
+                lgtm_core::forge::ThreadState::Open
+            } else {
+                lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done)
+            };
             provider
-                .set_resolved(pr, &t.id, !t.resolved)
+                .set_state(pr, &t.id, next_state)
                 .expect("live resolve toggle failed");
             provider
-                .set_resolved(pr, &t.id, t.resolved)
+                .set_state(pr, &t.id, t.state.clone())
                 .expect("live resolve cleanup failed");
             println!("Live resolve toggled and restored successfully");
         }
@@ -190,11 +195,16 @@ fn test_live_azure_provider_contracts() {
                     .expect("live reply failed");
                 println!("Live reply posted with ID {reply_id}");
             }
+            let next_state = if t.resolved() {
+                lgtm_core::forge::ThreadState::Open
+            } else {
+                lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done)
+            };
             provider
-                .set_resolved(pr, &t.id, !t.resolved)
+                .set_state(pr, &t.id, next_state)
                 .expect("live resolve toggle failed");
             provider
-                .set_resolved(pr, &t.id, t.resolved)
+                .set_state(pr, &t.id, t.state.clone())
                 .expect("live resolve cleanup failed");
             println!("Live resolve toggled and restored successfully");
         }

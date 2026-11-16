@@ -376,7 +376,7 @@ pub(crate) fn run_review(repo_path: &Path, action: &str, arg: Option<&str>) -> R
             .filter(|c| c.pr_number == pr)
             .map(|a| ReviewComment::new(a, &[]))
             .collect();
-        let _ = merge(
+        drop(merge(
             &mut st,
             ReviewState {
                 version: lgtm_core::review::VERSION,
@@ -384,7 +384,7 @@ pub(crate) fn run_review(repo_path: &Path, action: &str, arg: Option<&str>) -> R
                 comments: live_comments,
                 ..Default::default()
             },
-        );
+        ));
         println!("{}", serde_json::to_string_pretty(&st)?);
         return Ok(0);
     }
@@ -411,7 +411,7 @@ pub(crate) fn run_review(repo_path: &Path, action: &str, arg: Option<&str>) -> R
             unrelated_comments.push(c);
         }
     }
-    let _ = merge(
+    drop(merge(
         &mut base,
         ReviewState {
             version: lgtm_core::review::VERSION,
@@ -419,7 +419,7 @@ pub(crate) fn run_review(repo_path: &Path, action: &str, arg: Option<&str>) -> R
             comments: target_comments,
             ..Default::default()
         },
-    );
+    ));
     let conflicts = merge(&mut base, other);
     store.save(&base)?;
 

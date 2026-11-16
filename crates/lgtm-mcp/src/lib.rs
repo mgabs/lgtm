@@ -546,7 +546,8 @@ impl McpServer {
                     "id": t.id,
                     "path": t.path,
                     "line": t.line,
-                    "resolved": t.resolved,
+                    "status": t.state.display_name(),
+                    "resolved": t.resolved(),
                     "outdated": t.outdated,
                     "comments": t.comments.iter().map(|c| json!({
                         "id": c.id, "author": c.author, "body": c.body
@@ -735,8 +736,10 @@ mod tests {
                 id: "T1".into(),
                 path: "a.rs".into(),
                 line: Some(3),
-                resolved: true,
+                state: lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done),
                 outdated: true,
+                can_resolve: None,
+                can_unresolve: None,
                 comments: vec![ThreadComment {
                     id: 5,
                     author: "bob".into(),
@@ -749,6 +752,7 @@ mod tests {
             serde_json::from_str(&McpServer::threads_report(&fake, 1).unwrap()).unwrap();
         assert_eq!(out[0]["path"], "a.rs");
         assert_eq!(out[0]["line"], 3);
+        assert_eq!(out[0]["status"], "Done");
         assert_eq!(out[0]["resolved"], true);
         assert_eq!(out[0]["outdated"], true);
         assert_eq!(out[0]["comments"][0]["author"], "bob");

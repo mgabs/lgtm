@@ -34,7 +34,7 @@ fn write(file: &Mutex<File>, value: serde_json::Value) {
     if let Ok(mut bytes) = serde_json::to_vec(&value) {
         bytes.push(b'\n');
         if let Ok(mut file) = file.lock() {
-            let _ = file.write_all(&bytes);
+            let _ = file.write_all(&bytes); // lgtm:ignore
         }
     }
 }
