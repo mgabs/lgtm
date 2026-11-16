@@ -13,8 +13,8 @@ File: `crates/lgtm-core/src/guard/rust.rs`
 
 Change regex in the Tree-sitter query rule `sec/sql-injection`:
 ```scheme
-((macro_invocation macro: (identifier) @m (#eq? @m "format") 
-  (token_tree (string_literal (string_content) @sql 
+((macro_invocation macro: (identifier) @m (#eq? @m "format")
+  (token_tree (string_literal (string_content) @sql
     (#match? @sql "(?i)\\b(SELECT\\s+[\\s\\S]+\\s+FROM|INSERT\\s+INTO\\s+|UPDATE\\s+[\\s\\S]+\\s+SET|DELETE\\s+FROM\\s+)[\\s\\S]*\\{")))) @hit)
 ```
 

@@ -240,6 +240,3 @@ Feature: Markdown Preview with Diff Highlighting
     Given the reviewer is viewing "RFC.md" in markdown preview mode
     When the reviewer presses the "t" key
     Then the active view switches to "ThreadView"
-
-
-
