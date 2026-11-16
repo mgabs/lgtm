@@ -84,6 +84,7 @@ by `--test bdd`.
 | `bdd_ui_010` | Background file update arrives while viewing MarkdownPreview | `test_markdown_preview_live_refresh_applies_and_rebuilds_cache`, `src/app/refresh/tests.rs` |
 | `bdd_core_022` | Linked worktree git administrative files trigger diff reload while noise is filtered | `worktree_gitdir_paths_classified_correctly`, `crates/lgtm-core/src/watcher/mod.rs` |
 | `bdd_ui_011` | Worktree switch rebinds file watcher to target worktree and gitdir | `test_worktree_switch_rebinds_file_watcher`, `src/app/worktree.rs` |
+| `REQ-MDP-NAV` / `REQ-MDP-THREADS` | Markdown preview interaction parity: Enter ref injection, c leader templates, r reply persistence, t modal, and inline PR thread rendering | `test_markdown_preview_enter_injects_ref`, `test_markdown_preview_comment_leader_and_reply_return`, `test_markdown_preview_shortcuts_and_delegation`, `src/app/input.rs`; `threads_render_under_their_line_in_markdown_preview`, `src/ui/markdown.rs` |
 | `NFR-COM-1` | 100 threads over 1,000 diff lines: reconciliation/gutter mapping <1ms, cold full frame <16ms at 120x40, Tab/o and ]T/[T <1us per keystroke; median of seven warmed measurement samples | `outdated_thread_performance_budgets`, `src/ui/diff/regression.rs`; opt-in release build with `--features perf-budgets` |
 
 Run a mapped internal test by its test name, for example:

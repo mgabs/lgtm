@@ -84,6 +84,19 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
         }
     };
 
+    let file_threads: Vec<_> = app.threads.iter().filter(|t| t.path == file_name).collect();
+    let threads_for = |row: &RenderedMarkdownRow| -> Vec<&lgtm_core::github::Thread> {
+        let deleted = row.diff_kind == MarkdownDiffKind::Deletion;
+        match row.line_number {
+            Some(n) => file_threads
+                .iter()
+                .copied()
+                .filter(|t| !deleted && t.line == Some(n))
+                .collect(),
+            None => Vec::new(),
+        }
+    };
+
     let heights: Vec<usize> = app
         .markdown_preview
         .rendered_rows
@@ -93,6 +106,10 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
                 .iter()
                 .map(|c| 1 + c.replies.len())
                 .sum::<usize>()
+                + threads_for(r)
+                    .iter()
+                    .map(|t| t.comments.len().max(1))
+                    .sum::<usize>()
         })
         .collect();
     app.markdown_preview.set_row_heights(heights);
@@ -142,6 +159,9 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
         });
 
         for c in directives_for(row) {
+            if lines.len() >= viewport_height {
+                break;
+            }
             let (icon, color) = if c.is_resolved {
                 ("✅", Color::DarkGray)
             } else {
@@ -152,9 +172,57 @@ pub(crate) fn render_markdown_preview(frame: &mut Frame, area: Rect, app: &mut A
                 Style::default().fg(color),
             )));
             for reply in &c.replies {
+                if lines.len() >= viewport_height {
+                    break;
+                }
                 lines.push(Line::from(Span::styled(
                     format!("       │   ↳ {reply}"),
                     Style::default().fg(Color::DarkGray),
+                )));
+            }
+        }
+
+        for t in threads_for(row) {
+            if lines.len() >= viewport_height {
+                break;
+            }
+            let status = match t.state {
+                lgtm_core::forge::ThreadState::Open => "Open",
+                lgtm_core::forge::ThreadState::Resolved(_) => "Resolved",
+            };
+            let outdated_badge = if t.outdated { " [Outdated]" } else { "" };
+            let (icon_color, body_color) = if t.resolved() {
+                (Color::DarkGray, Color::DarkGray)
+            } else {
+                (Color::Magenta, Color::White)
+            };
+            if let Some(first) = t.comments.first() {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!(
+                            "       │ 🧵 [@{} ({}{})] ",
+                            first.author, status, outdated_badge
+                        ),
+                        Style::default().fg(icon_color),
+                    ),
+                    Span::styled(&first.body, Style::default().fg(body_color)),
+                ]));
+                for reply in t.comments.iter().skip(1) {
+                    if lines.len() >= viewport_height {
+                        break;
+                    }
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("       │   ↳ [@{}] ", reply.author),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                        Span::styled(&reply.body, Style::default().fg(Color::DarkGray)),
+                    ]));
+                }
+            } else {
+                lines.push(Line::from(Span::styled(
+                    format!("       │ 🧵 [Thread #{}{}]", t.id, outdated_badge),
+                    Style::default().fg(icon_color),
                 )));
             }
         }
@@ -308,6 +376,78 @@ mod tests {
             .unwrap();
         assert_eq!(app.markdown_preview.rendered_rows.len(), 1);
         assert_eq!(app.markdown_preview.max_scroll(2), 0);
+    }
+
+    #[test]
+    fn threads_render_under_their_line_in_markdown_preview() {
+        let mut app = crate::app::test_util::create_test_app();
+        app.snapshot.files = vec![crate::model::FileDiff {
+            old_path: None,
+            new_path: "RFC.md".into(),
+            change_type: crate::model::ChangeType::Modified,
+            additions: 0,
+            deletions: 0,
+            hunks: Vec::new(),
+            is_folded: false,
+            is_reviewed: false,
+        }];
+        app.markdown_preview.rendered_rows = vec![RenderedMarkdownRow {
+            line_number: Some(20),
+            diff_kind: MarkdownDiffKind::Unchanged,
+            spans: vec![Span::raw("Line 20 text")],
+        }];
+        app.markdown_preview.cached_file_idx = Some(0);
+        app.markdown_preview.cached_width = 80;
+
+        app.threads = vec![
+            lgtm_core::github::Thread {
+                id: "t1".into(),
+                path: "RFC.md".into(),
+                line: Some(20),
+                state: lgtm_core::forge::ThreadState::Open,
+                outdated: false,
+                can_resolve: Some(true),
+                can_unresolve: Some(true),
+                comments: vec![
+                    lgtm_core::github::ThreadComment {
+                        id: 101,
+                        author: "reviewer".into(),
+                        body: "Please verify invariants".into(),
+                    },
+                    lgtm_core::github::ThreadComment {
+                        id: 102,
+                        author: "author".into(),
+                        body: "Verified in test suite".into(),
+                    },
+                ],
+            },
+            lgtm_core::github::Thread {
+                id: "t2".into(),
+                path: "RFC.md".into(),
+                line: Some(20),
+                state: lgtm_core::forge::ThreadState::Resolved(lgtm_core::forge::Resolution::Done),
+                outdated: true,
+                can_resolve: Some(true),
+                can_unresolve: Some(true),
+                comments: vec![lgtm_core::github::ThreadComment {
+                    id: 201,
+                    author: "bot".into(),
+                    body: "Old discussion".into(),
+                }],
+            },
+        ];
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 15)).unwrap();
+        terminal
+            .draw(|f| render_markdown_preview(f, f.area(), &mut app))
+            .unwrap();
+        let out = format!("{:?}", terminal.backend().buffer());
+        assert!(out.contains("🧵 [@reviewer (Open)]"));
+        assert!(out.contains("Please verify invariants"));
+        assert!(out.contains("↳ [@author]"));
+        assert!(out.contains("Verified in test suite"));
+        assert!(out.contains("[Outdated]"));
+        assert!(out.contains("Old discussion"));
     }
 
     #[test]

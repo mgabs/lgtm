@@ -100,5 +100,3 @@ Feature: Git Worktree Switcher
     When the reviewer enters command ":wt feat-ui"
     Then the active worktree switches to "/repo/.worktrees/feat-ui"
     And the file watcher is rebound to watch "/repo/.worktrees/feat-ui" and its git administrative dir
-
-

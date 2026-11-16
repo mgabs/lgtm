@@ -6,7 +6,36 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX
 
 echo "🔍 Running pre-commit checks..."
 
-# 1. Check rust formatting (auto-format on failure)
+# 1. Check trailing whitespace and end-of-file newlines
+echo "Checking trailing whitespace and EOF newlines..."
+python3 - <<'EOF'
+import pathlib, subprocess, sys
+
+files = subprocess.check_output(["git", "ls-files"]).decode().splitlines()
+tw_errors, eof_errors = [], []
+
+for f in files:
+    p = pathlib.Path(f)
+    if p.is_symlink() or not p.is_file():
+        continue
+    b = p.read_bytes()
+    if b"\0" in b:
+        continue
+    text = b.decode("utf-8", errors="ignore")
+    if any(line.endswith((" ", "\t")) for line in text.splitlines()):
+        tw_errors.append(f)
+    if text and (not text.endswith("\n") or text.endswith("\n\n")):
+        eof_errors.append(f)
+
+if tw_errors or eof_errors:
+    if tw_errors:
+        print("❌ Trailing whitespace found in:", ", ".join(tw_errors))
+    if eof_errors:
+        print("❌ Invalid end-of-file newline in:", ", ".join(eof_errors))
+    sys.exit(1)
+EOF
+
+# 2. Check rust formatting (auto-format on failure)
 echo "Checking formatting..."
 if ! cargo fmt --all -- --check; then
     echo "❌ Formatting errors detected. Auto-formatting with 'cargo fmt --all'..."
@@ -27,6 +56,6 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # 4. Run tests across entire workspace
 echo "Running tests..."
-cargo test --workspace --all-targets --all-features -- --nocapture
+cargo test --workspace --all-targets --all-features
 
 echo "✅ All pre-commit checks passed."

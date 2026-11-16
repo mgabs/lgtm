@@ -268,7 +268,7 @@ impl App {
                 self.reject_hunk_and_reprompt();
             }
             "approve" | "lgtm" => {
-                self.approve_gate();
+                self.approve_or_tick_gate();
             }
             "md" | "preview" => {
                 self.toggle_markdown_preview();
