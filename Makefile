@@ -18,7 +18,7 @@ release:
 
 ## Run all unit and integration tests
 test:
-	cargo test --workspace -- --nocapture
+	cargo test --workspace
 
 ## Fail if workspace line coverage is below 90% (needs cargo-llvm-cov)
 coverage:

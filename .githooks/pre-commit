@@ -56,6 +56,6 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # 4. Run tests across entire workspace
 echo "Running tests..."
-cargo test --workspace --all-targets --all-features -- --nocapture
+cargo test --workspace --all-targets --all-features
 
 echo "✅ All pre-commit checks passed."

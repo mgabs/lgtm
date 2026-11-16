@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.8.0
+
+### Added
+- **Two-Step Review Gate Approval**: `:approve`, `:lgtm`, and `A` in `Diff` or `MarkdownPreview` tick an unticked `- [ ]` checkbox inside `## Review Gate` on first press (preserving CRLF/LF) and approve `.lgtm/gate.json` on the second press.
+
 ## 2.7.1
 
 ### Removed

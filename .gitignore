@@ -1,14 +1,14 @@
-/target/
-/.lgtm/
 **/*.rs.bk
 *.swp
 .DS_Store
-*.sarif
-/.worktrees/
 
-lgtm-report.md
-prd
-
+.serena/
 .worktrees/
+/.lgtm/
+/.worktrees/
+/target/
+lgtm-report.md
+lgtm-results.sarif
+*.sarif
+
 mutants.out*/
-/.serena/memories/

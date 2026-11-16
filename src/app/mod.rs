@@ -518,6 +518,75 @@ impl App {
             .unwrap_or_else(|| "nvim".to_string())
     }
 
+    fn current_working_tree_cursor(&self) -> Option<(PathBuf, u32)> {
+        if self.pr.current_number.is_some() || self.active_revision.is_some() {
+            return None;
+        }
+        let file = self.snapshot.files.get(self.selected_file_idx)?;
+        let line_1based = match self.active_view {
+            ActiveView::MarkdownPreview => {
+                let (line, kind) = self.markdown_preview_cursor_source_line()?;
+                if kind == markdown::MarkdownDiffKind::Deletion {
+                    return None;
+                }
+                line
+            }
+            ActiveView::Diff => {
+                let mut line_counter = 0;
+                let mut found = None;
+                for hunk in &file.hunks {
+                    for line in &hunk.lines {
+                        if line_counter == self.cursor_line_idx {
+                            if !matches!(
+                                line.line_type,
+                                crate::model::LineType::HunkHeader
+                                    | crate::model::LineType::Deletion
+                            ) {
+                                found = line.new_line_num;
+                            }
+                            break;
+                        }
+                        line_counter += 1;
+                    }
+                    if found.is_some() || line_counter > self.cursor_line_idx {
+                        break;
+                    }
+                }
+                found?
+            }
+            _ => return None,
+        };
+        Some((
+            self.git_engine.repo_path.join(file.display_name()),
+            line_1based,
+        ))
+    }
+
+    fn try_tick_review_gate_at_cursor(&mut self) -> bool {
+        let Some((path, line_1based)) = self.current_working_tree_cursor() else {
+            return false;
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return false;
+        };
+        let Some(updated) = lgtm_core::review_gate::tick_review_gate_line(&content, line_1based)
+        else {
+            return false;
+        };
+        if std::fs::write(&path, updated).is_err() {
+            return false;
+        }
+        self.reload_diff();
+        self.status_message = Some("✅ Ticked Review Gate checkbox.".to_string());
+        true
+    }
+
+    pub fn approve_or_tick_gate(&mut self) {
+        if !self.try_tick_review_gate_at_cursor() {
+            self.approve_gate();
+        }
+    }
+
     pub fn approve_gate(&mut self) {
         self.invalidate_view_data();
         let gate_file = self.git_engine.repo_path.join(".lgtm/gate.json");
@@ -724,5 +793,138 @@ mod tests {
         assert_eq!(updated.get("status").unwrap(), "approved");
         let fb = updated.get("feedback").unwrap().as_str().unwrap();
         assert!(fb.contains("src/auth.rs:10 DIRECTIVE: Add unit test"));
+    }
+
+    fn setup_gate_doc_app(
+        doc_rel: &str,
+        content: &str,
+        cursor_new_line: Option<u32>,
+        line_type: crate::model::LineType,
+    ) -> (super::App, std::path::PathBuf, std::path::PathBuf) {
+        let mut app = create_test_app();
+        let doc_path = app.git_engine.repo_path.join(doc_rel);
+        std::fs::write(&doc_path, content).unwrap();
+        let gate_dir = app.git_engine.repo_path.join(".lgtm");
+        std::fs::create_dir_all(&gate_dir).unwrap();
+        let gate_file = gate_dir.join("gate.json");
+        std::fs::write(&gate_file, r#"{"status": "waiting"}"#).unwrap();
+
+        app.snapshot.files = vec![crate::model::FileDiff {
+            old_path: Some(doc_rel.into()),
+            new_path: doc_rel.into(),
+            change_type: crate::model::ChangeType::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: vec![crate::model::DiffHunk {
+                old_start: 1,
+                old_lines: 2,
+                new_start: 1,
+                new_lines: 2,
+                header: "@@ -1,2 +1,2 @@".into(),
+                lines: vec![crate::model::DiffLine {
+                    line_type,
+                    old_line_num: None,
+                    new_line_num: cursor_new_line,
+                    content: "- [ ] **Gate 1**: Approve".into(),
+                }],
+                is_folded: false,
+                folded_blocks: vec![],
+            }],
+            is_folded: false,
+            is_reviewed: false,
+        }];
+        app.selected_file_idx = 0;
+        app.cursor_line_idx = 0;
+        app.active_view = super::ActiveView::Diff;
+        (app, doc_path, gate_file)
+    }
+
+    #[test]
+    fn approve_or_tick_gate_ticks_on_first_press_and_approves_on_second() {
+        let (mut app, doc_path, gate_file) = setup_gate_doc_app(
+            "proposal.md",
+            "## Review Gate\n- [ ] **Gate 1**: Approve\n",
+            Some(2),
+            crate::model::LineType::Addition,
+        );
+
+        app.approve_or_tick_gate();
+        assert_eq!(
+            std::fs::read_to_string(&doc_path).unwrap(),
+            "## Review Gate\n- [x] **Gate 1**: Approve\n"
+        );
+        let gate_after_first: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&gate_file).unwrap()).unwrap();
+        assert_eq!(gate_after_first["status"], "waiting");
+
+        app.approve_or_tick_gate();
+        let gate_after_second: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&gate_file).unwrap()).unwrap();
+        assert_eq!(gate_after_second["status"], "approved");
+    }
+
+    #[test]
+    fn approve_or_tick_gate_works_in_markdown_preview_view() {
+        let (mut app, doc_path, gate_file) = setup_gate_doc_app(
+            "design.md",
+            "## Review Gate\n- [ ] **Gate 3**: Approve\n",
+            Some(2),
+            crate::model::LineType::Addition,
+        );
+        app.active_view = super::ActiveView::MarkdownPreview;
+        app.markdown_preview.rendered_rows = vec![crate::app::markdown::RenderedMarkdownRow {
+            spans: vec![],
+            diff_kind: crate::app::markdown::MarkdownDiffKind::Addition,
+            line_number: Some(2),
+        }];
+        app.markdown_preview.cursor_row = 0;
+
+        app.approve_or_tick_gate();
+        assert_eq!(
+            std::fs::read_to_string(&doc_path).unwrap(),
+            "## Review Gate\n- [x] **Gate 3**: Approve\n"
+        );
+        let gate_after_first: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&gate_file).unwrap()).unwrap();
+        assert_eq!(gate_after_first["status"], "waiting");
+    }
+
+    #[test]
+    fn approve_or_tick_gate_skips_pr_revision_and_deleted_lines() {
+        let original = "## Review Gate\n- [ ] **Gate 1**: Approve\n";
+        for mode in ["pr", "rev", "deleted_diff", "deleted_preview"] {
+            let line_type = if mode == "deleted_diff" {
+                crate::model::LineType::Deletion
+            } else {
+                crate::model::LineType::Addition
+            };
+            let (mut app, doc_path, gate_file) =
+                setup_gate_doc_app("proposal.md", original, Some(2), line_type);
+            match mode {
+                "pr" => app.pr.current_number = Some(42),
+                "rev" => app.active_revision = Some("HEAD~1".into()),
+                "deleted_preview" => {
+                    app.active_view = super::ActiveView::MarkdownPreview;
+                    app.markdown_preview.rendered_rows =
+                        vec![crate::app::markdown::RenderedMarkdownRow {
+                            spans: vec![],
+                            diff_kind: crate::app::markdown::MarkdownDiffKind::Deletion,
+                            line_number: Some(2),
+                        }];
+                    app.markdown_preview.cursor_row = 0;
+                }
+                _ => {}
+            }
+
+            app.approve_or_tick_gate();
+            assert_eq!(
+                std::fs::read_to_string(&doc_path).unwrap(),
+                original,
+                "{mode}"
+            );
+            let gate: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&gate_file).unwrap()).unwrap();
+            assert_eq!(gate["status"], "approved", "{mode}");
+        }
     }
 }

@@ -311,7 +311,7 @@ impl App {
                 }
             }
             (_, KeyCode::Char('A')) => {
-                self.approve_gate();
+                self.approve_or_tick_gate();
             }
             (_, KeyCode::Char('P')) => {
                 self.open_agent_prompt();
