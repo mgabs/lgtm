@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.100.0
 
       - name: Build local binary for simulation
         run: cargo build --release
