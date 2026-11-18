@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.8.1
+
+### Fixed
+- **Release pipeline**: main pushes no longer cancel in-progress release runs, so binaries are built and the Homebrew tap is updated. Supersedes 2.8.0, whose release shipped without assets.
+
 ## 2.8.0
 
 ### Added
