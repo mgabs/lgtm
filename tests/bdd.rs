@@ -496,10 +496,8 @@ echo "[]"
             "pr20_second_started",
         );
         app.send(b"ccretained_draft_on_pr20");
-        app.wait_for(
-            |s| s.contains("retained_draft_on_pr20"),
-            "draft visible in modal",
-        );
+        // ratatui repaints only changed cells, so typed text is split across frames; wait for the modal title (painted once) and assert the full text from the saved draft below.
+        app.wait_for(|s| s.contains("Add Review Directive"), "draft modal open");
         std::fs::write(gates_dir.join("release_pr20_second"), "").unwrap();
         wait_file(&gates_dir.join("pr20_second_done"), "pr20_second_done");
         let deadline = Instant::now() + Duration::from_secs(5);
